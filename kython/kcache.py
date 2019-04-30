@@ -37,6 +37,7 @@ def _map_type(cls):
     tmap = {
         str: sqlalchemy.String,
         float: sqlalchemy.Float,
+        int: sqlalchemy.Integer,
         datetime: IsoDateTime,
     }
     r = tmap.get(cls, None)
@@ -79,7 +80,8 @@ class DbWrapper:
 # TODO what if we want dynamic path??
 
 # TODO ugh. there should be a nicer way to wrap that...
-def make_dbcache(db_path: PathIsh, hashf, type_):
+# TODO mypy return types
+def make_dbcache(db_path: PathIsh, hashf, type_, chunk_by=10000): # TODO what's a reasonable default?
     logger = get_kcache_logger()
     def dec(func):
         @functools.wraps(func)
@@ -106,19 +108,21 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
 
             with engine.begin() as transaction:
                 if h == prev_hash:
-                    rows = engine.execute(alala.table_data.select()).fetchall()
-                    return [type_(**row) for row in rows]
+                    rows = engine.execute(alala.table_data.select())
+                    for row in rows:
+                        yield type_(**row)
                 else:
                     datas = func(key)
-                    if len(datas) > 0:
-                        # TODO warn if zero?
-                        engine.execute(alala.table_data.delete())
-                        engine.execute(alala.table_data.insert().values(datas)) # TODO chunks??
+                    engine.execute(alala.table_data.delete())
+                    from kython import ichunks
+
+                    for chunk in ichunks(datas, n=chunk_by):
+                        engine.execute(alala.table_data.insert().values(chunk))
+                        yield from chunk
 
                     # TODO FIXME insert and replace instead
                     engine.execute(alala.table_hash.delete())
                     engine.execute(alala.table_hash.insert().values([{'value': h}]))
-                    return datas
         return wrapper
 
     # TODO FIXME engine is leaking??
@@ -164,7 +168,7 @@ def test_dbcache(tmp_path):
         return entities[:count]
 
     def get_data():
-        return _get_data(src)
+        return list(_get_data(src))
 
     assert len(get_data()) == 0
     assert len(get_data()) == 0
@@ -182,7 +186,35 @@ def test_dbcache(tmp_path):
     assert accesses == 3
 
 
+def test_dbcache_many(tmp_path):
+    from kython.klogging import setup_logzero
+    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+    class TE2(NamedTuple):
+        value: int
+        value2: int
 
+    tdir = Path(tmp_path)
+    src = tdir / 'source'
+    src.touch()
+
+    db_path = tdir / 'db.sqlite'
+    dbcache = make_dbcache(db_path, hashf=mtime_hash, type_=TE2)
+
+    @dbcache
+    def _iter_data(path: Path):
+        for i in range(100000):
+            yield TE2(value=i, value2=i)
+
+    def iter_data():
+        return _iter_data(src)
+
+    def ilen(it):
+        ll = 0
+        for _ in it:
+            ll += 1
+        return ll
+    assert ilen(iter_data()) == 100000
+    assert ilen(iter_data()) == 100000
 
 
 
