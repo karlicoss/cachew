@@ -81,12 +81,11 @@ class DbWrapper:
 # TODO ugh. there should be a nicer way to wrap that...
 def make_dbcache(db_path: PathIsh, hashf, type_):
     logger = get_kcache_logger()
-    db_path = Path(db_path)
     def dec(func):
         @functools.wraps(func)
         def wrapper(key):
             # TODO FIXME make sure we have exclusive write lock
-
+            db_path = Path(db_path)
             alala = DbWrapper(db_path, type_)
             engine = alala.engine
 
@@ -94,7 +93,7 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
             if len(prev_hashes) > 1:
                 raise RuntimeError(f'Multiple hashes! {prev_hashes}')
 
-            prev_hash: Optional[Hash]
+            prev_hash: Optional[SourceHash]
             if len(prev_hashes) == 0:
                 prev_hash = None
             else:
