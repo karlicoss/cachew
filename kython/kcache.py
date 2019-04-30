@@ -85,8 +85,7 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
         @functools.wraps(func)
         def wrapper(key):
             # TODO FIXME make sure we have exclusive write lock
-            db_path = Path(db_path)
-            alala = DbWrapper(db_path, type_)
+            alala = DbWrapper(Path(db_path), type_)
             engine = alala.engine
 
             prev_hashes = engine.execute(alala.table_hash.select()).fetchall()
@@ -121,3 +120,69 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
 
     # TODO FIXME engine is leaking??
     return dec
+
+
+def mtime_hash(path: Path) -> SourceHash:
+    # TODO hopefully float are ok here?
+    mt = path.stat().st_mtime
+    return f'{path}.{mt}'
+
+
+def test_dbcache(tmp_path):
+    from kython.klogging import setup_logzero
+    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+
+    import pytz
+    mad = pytz.timezone('Europe/Madrid')
+    utc = pytz.utc
+
+    class TE(NamedTuple):
+        dt: datetime
+        value: float
+
+    tdir = Path(tmp_path)
+    src = tdir / 'source'
+    src.write_text('0')
+
+    db_path = tdir / 'db.sqlite'
+    dbcache = make_dbcache(db_path, hashf=mtime_hash, type_=TE)
+
+    entities = [
+        TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242),
+        TE(dt=mad.localize(datetime(year=1997, month=7, day=4, second=5)), value=9842.4234),
+    ]
+
+    accesses = 0
+    @dbcache
+    def _get_data(path: Path):
+        nonlocal accesses
+        accesses += 1
+        count = int(path.read_text())
+        return entities[:count]
+
+    def get_data():
+        return _get_data(src)
+
+    assert len(get_data()) == 0
+    assert len(get_data()) == 0
+    assert len(get_data()) == 0
+    assert accesses == 1
+
+    src.write_text('1')
+    assert get_data() == entities[:1]
+    assert get_data() == entities[:1]
+    assert accesses == 2
+
+    src.write_text('2')
+    assert get_data() == entities
+    # TODO FIXME ordering
+    assert set(get_data()) == set(entities)
+    assert accesses == 3
+
+
+
+
+
+
+
+
