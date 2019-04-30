@@ -89,6 +89,7 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
             engine = alala.engine
 
             prev_hashes = engine.execute(alala.table_hash.select()).fetchall()
+            # TODO .order_by('rowid') ?
             if len(prev_hashes) > 1:
                 raise RuntimeError(f'Multiple hashes! {prev_hashes}')
 
@@ -110,6 +111,8 @@ def make_dbcache(db_path: PathIsh, hashf, type_):
                 else:
                     datas = func(key)
                     if len(datas) > 0:
+                        # TODO warn if zero?
+                        engine.execute(alala.table_data.delete())
                         engine.execute(alala.table_data.insert().values(datas)) # TODO chunks??
 
                     # TODO FIXME insert and replace instead
@@ -175,8 +178,7 @@ def test_dbcache(tmp_path):
 
     src.write_text('2')
     assert get_data() == entities
-    # TODO FIXME ordering
-    assert set(get_data()) == set(entities)
+    assert get_data() == entities
     assert accesses == 3
 
 
