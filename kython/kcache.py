@@ -32,20 +32,22 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return None
         return fromisoformat(value)
 
+_tmap = {
+    str: sqlalchemy.String,
+    float: sqlalchemy.Float,
+    int: sqlalchemy.Integer,
+    datetime: IsoDateTime,
+}
 
 def _map_type(cls):
-    tmap = {
-        str: sqlalchemy.String,
-        float: sqlalchemy.Float,
-        int: sqlalchemy.Integer,
-        datetime: IsoDateTime,
-    }
-    r = tmap.get(cls, None)
+    r = _tmap.get(cls, None)
     if r is not None:
         return r
     raise RuntimeError(f'Unexpected type {cls}')
 
 # https://stackoverflow.com/a/2166841/706389
+@functools.lru_cache()
+# cache here gives a 25% speedup
 def isnamedtuple(t):
     b = t.__bases__
     if len(b) != 1 or b[0] != tuple: return False
@@ -54,6 +56,7 @@ def isnamedtuple(t):
     return all(type(n)==str for n in f)
 
 
+# TODO not sure if needs cache?
 def try_remove_optional(cls):
     if getattr(cls, '__origin__', None) == Union:
         # handles Optional
@@ -70,15 +73,14 @@ class Binder:
 
     @property
     def columns(self) -> List[Column]:
-        def helper(cls: Type[NamedTuple], prefix='') -> List[Column]:
+        def helper(cls: Type[NamedTuple]) -> List[Column]:
             res = []
-            for name, ann in cls.__annotations__.items():
-                ann = try_remove_optional(ann)
+            for name, ann, is_nt in self._namedtuple_schema(cls):
                 # TODO def cache this schema, especially considering try_remove_optional
                 # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
                 # TODO might need optional handling as well...
                 # TODO add optional to test
-                if isnamedtuple(ann):
+                if is_nt:
                     res.extend(helper(ann)) # TODO FIXME make sure col names are unique
                 else:
                     res.append(Column(name, _map_type(ann)))
@@ -86,28 +88,58 @@ class Binder:
         return helper(self.clazz)
 
     def to_row(self, obj):
-        for k, v in obj._asdict().items():
-            if isinstance(v, tuple):
-                yield from self.to_row(v)
-            else:
-                yield v
-                # meh..
+        def helper(cls, o):
+            for name, ann, is_nt in self._namedtuple_schema(cls):
+                v = getattr(o, name)
+                if is_nt:
+                    if v is None:
+                        raise RuntimeError("can't handle None tuples at this point :(")
+                    yield from helper(ann, v)
+                else:
+                    yield v
+        # meh..
+        yield from helper(self.clazz, obj)
 
+    def __hash__(self):
+        return hash(self.clazz)
+
+    def __eq__(self, o):
+        return self.clazz == o.clazz
+
+    # TODO shit. doesn't really help...
+    @functools.lru_cache() # TODO kinda arbitrary..
+    def _namedtuple_schema(self, cls):
+        # caching is_namedtuple doesn't seem to give a major speedup here, but whatever..
+        def gen():
+            # fuck python not allowing multiline expressions..
+            for name, ann in cls.__annotations__.items():
+                ann = try_remove_optional(ann)
+                # caching try_remove_optional is a massive speedup though
+                yield name, ann, isnamedtuple(ann)
+        return tuple(gen())
+
+    # TODO FIXME shit, need to be careful during serializing if the namedtuple itself is None... not even sure how to distinguish if we are flattening :(
+    # TODO for now just forbid None in runtime
+    # might need extra entry....
     def from_row(self, row):
+        # uuu = UUU(row[1], row[2])
+        # te2 = TE2(row[0], uuu, row[3])
+        # return te2
+        # huh! ok, without deserializing it's almost instantaneous..
         pos = 0
         def helper(cls):
             nonlocal pos
-            dct = {}
-            for name, ann in cls.__annotations__.items(): # TODO cache if necessary? benchmark quickly
-                ann = try_remove_optional(ann)
-                if isnamedtuple(ann):
+            vals = []
+            for name, ann, is_nt in self._namedtuple_schema(cls):
+                if is_nt:
                     val = helper(ann)
                 else:
                     val = row[pos]
                     pos += 1
-                dct[name] = val
-            return cls(**dct)
+                vals.append(val)
+            return cls(*vals)
         return helper(self.clazz)
+
 
 # TODO better name to represent what it means?
 SourceHash = str
@@ -116,8 +148,20 @@ SourceHash = str
 # TODO give a better name
 class DbWrapper:
     def __init__(self, db_path: Path, type_) -> None:
+        from sqlalchemy.interfaces import PoolListener # type: ignore
+        # TODO ugh. not much faster...
+        class MyListener(PoolListener):
+            def connect(self, dbapi_con, con_record):
+                pass
+                # eh. doesn't seem to help much..
+                # dbapi_con.execute('PRAGMA journal_mode=MEMORY')
+                # dbapi_con.execute('PRAGMA synchronous=OFF')
+
+
         self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}')
+        # self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}', listeners=[MyListener()])
         self.engine = self.db.connect() # TODO do I need to tear anything down??
+
         self.meta = sqlalchemy.MetaData(self.engine)
         self.table_hash = Table('hash' , self.meta, Column('value', sqlalchemy.String))
 
@@ -190,7 +234,17 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
 
                     for chunk in ichunks(datas, n=chunk_by):
                         bound = [tuple(binder.to_row(c)) for c in chunk]
+                        # logger.debug('inserting...')
+                        # from sqlalchemy.sql import text
+                        # nulls = ', '.join("(NULL)" for _ in bound)
+                        # st = text("""INSERT INTO 'table' VALUES """ + nulls)
+                        # engine.execute(st)
+                        # shit. so manual operation is quite a bit faster??
+                        # but we still want serialization :(
+                        # ok, inserting gives noticeable lag
+                        # thiere must be some obvious way to speed this up...
                         engine.execute(alala.table_data.insert().values(bound))
+                        # logger.debug('inserted...')
                         yield from chunk
 
                     # TODO FIXME insert and replace instead
@@ -259,23 +313,30 @@ def test_dbcache(tmp_path):
     assert accesses == 3
 
 
+# TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
+    COUNT = 1000000
     from kython.klogging import setup_logzero
-    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+    logger = get_kcache_logger()
+    setup_logzero(logger, level=logging.DEBUG)
+    class UUU(NamedTuple):
+        xx: int
+        yy: int
     class TE2(NamedTuple):
         value: int
+        uuu: UUU
         value2: int
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
     src.touch()
 
-    dbcache = make_dbcache(db_path=lambda path: tdir / (path.name + '.cache'), hashf=mtime_hash, type_=TE2)
+    dbcache = make_dbcache(db_path=lambda path: tdir / (path.name + '.cache'), type_=TE2)
 
     @dbcache
     def _iter_data(path: Path):
-        for i in range(100000):
-            yield TE2(value=i, value2=i)
+        for i in range(COUNT):
+            yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
     def iter_data():
         return _iter_data(src)
@@ -285,8 +346,28 @@ def test_dbcache_many(tmp_path):
         for _ in it:
             ll += 1
         return ll
-    assert ilen(iter_data()) == 100000
-    assert ilen(iter_data()) == 100000
+    assert ilen(iter_data()) == COUNT
+    assert ilen(iter_data()) == COUNT
+    logger.debug('done')
+
+    # serializing to db
+    # in-memory: 16 seconds
+
+    # without transaction: 22secs
+    # without transaction and size 100 chunks -- some crazy amount of time, as expected
+
+    # with transaction:
+    # about 17 secs to write 1M entries (just None)
+    # chunking by 20K doesn't seem to help
+    # chunking by 100 also gives same perf
+
+    # with to_row binding: 21 secs for dummy NamedTuple with None inside, 22 for less trivial class
+
+    # deserializing from db:
+    # initially, took 20 secs to load 1M entries (TE2)
+    # 9 secs currently
+    # 6 secs if we instantiate namedtuple directly via indices
+    # 3.5 secs if we just return None from row
 
 
 def test_dbcache_nested(tmp_path):
