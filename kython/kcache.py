@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Type, NamedTuple, Union, Callable
+from typing import Optional, Type, NamedTuple, Union, Callable, List
 from pathlib import Path
 import functools
 import logging
@@ -46,19 +46,63 @@ def _map_type(cls):
 
 
     if getattr(cls, '__origin__', None) == Union:
+        # handles Optional
         elems = cls.__args__
         elems = [e for e in elems if e != type(None)]
         if len(elems) == 1:
             return _map_type(elems[0]) # meh..
     raise RuntimeError(f'Unexpected type {cls}')
 
+# https://stackoverflow.com/a/2166841/706389
+def isnamedtuple(t):
+    b = t.__bases__
+    if len(b) != 1 or b[0] != tuple: return False
+    f = getattr(t, '_fields', None)
+    if not isinstance(f, tuple): return False
+    return all(type(n)==str for n in f)
 
-def _make_schema(cls: Type[NamedTuple]): # TODO covariant?
-    res = []
-    for name, ann in cls.__annotations__.items():
-        res.append(Column(name, _map_type(ann)))
-    return res
 
+class Binder:
+    def __init__(self, clazz: Type[NamedTuple]) -> None: # TODO covariant?
+        self.clazz = clazz
+
+    @property
+    def columns(self) -> List[Column]:
+        def helper(cls: Type[NamedTuple], prefix='') -> List[Column]:
+            res = []
+            for name, ann in cls.__annotations__.items():
+                # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
+                # TODO might need optional handling as well...
+                # TODO add optional to test
+                if isnamedtuple(ann):
+                    res.extend(helper(ann)) # TODO FIXME make sure col names are unique
+                else:
+                    res.append(Column(name, _map_type(ann)))
+            return res
+        return helper(self.clazz)
+
+    def to_row(self, obj):
+        for k, v in obj._asdict().items():
+            if isinstance(v, tuple):
+                yield from self.to_row(v)
+            else:
+                yield v
+                # meh..
+
+    def from_row(self, row):
+        pos = 0
+        def helper(cls):
+            nonlocal pos
+            dct = {}
+            for name, ann in cls.__annotations__.items(): # TODO cache if necessary? benchmark quickly
+                if isnamedtuple(ann):
+                    val = helper(ann)
+                else:
+                    val = row[pos]
+                    pos += 1
+                dct[name] = val
+            return cls(**dct)
+        return helper(self.clazz)
 
 # TODO better name to represent what it means?
 SourceHash = str
@@ -72,8 +116,8 @@ class DbWrapper:
         self.meta = sqlalchemy.MetaData(self.engine)
         self.table_hash = Table('hash' , self.meta, Column('value', sqlalchemy.String))
 
-        schema = _make_schema(type_)
-        self.table_data = Table('table', self.meta, *schema)
+        self.binder = Binder(clazz=type_)
+        self.table_data = Table('table', self.meta, *self.binder.columns)
         self.meta.create_all()
 
 
@@ -108,6 +152,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
 
             # TODO FIXME make sure we have exclusive write lock
             alala = DbWrapper(dbp, type_)
+            binder = alala.binder
             engine = alala.engine
 
             prev_hashes = engine.execute(alala.table_hash.select()).fetchall()
@@ -131,7 +176,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                     logger.debug('hash match: loading from cache')
                     rows = engine.execute(alala.table_data.select())
                     for row in rows:
-                        yield type_(**row)
+                        yield binder.from_row(row)
                 else:
                     logger.debug('hash mismatch: retrieving data and writing to db')
                     datas = func(*args, **kwargs)
@@ -139,7 +184,8 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                     from kython import ichunks
 
                     for chunk in ichunks(datas, n=chunk_by):
-                        engine.execute(alala.table_data.insert().values(chunk))
+                        bound = [tuple(binder.to_row(c)) for c in chunk]
+                        engine.execute(alala.table_data.insert().values(bound))
                         yield from chunk
 
                     # TODO FIXME insert and replace instead
@@ -237,3 +283,34 @@ def test_dbcache_many(tmp_path):
     assert ilen(iter_data()) == 100000
     assert ilen(iter_data()) == 100000
 
+
+def test_dbcache_nested(tmp_path):
+    from kython.klogging import setup_logzero
+    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+    tdir = Path(tmp_path)
+
+    class B(NamedTuple):
+        xx: int
+        yy: int
+
+    class A(NamedTuple):
+        value: int
+        b: B
+        value2: int
+
+    d = A(
+        value=1,
+        b=B(xx=2, yy=3),
+        value2=4,
+    )
+    def data():
+        yield d
+
+    dbcache=make_dbcache(db_path=tdir / 'cache', type_=A)
+
+    @dbcache
+    def get_data():
+        yield from data()
+
+    assert list(get_data()) == [d]
+    assert list(get_data()) == [d]
