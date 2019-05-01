@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Type, NamedTuple, Union
+from typing import Optional, Type, NamedTuple, Union, Callable
 from pathlib import Path
 import functools
 import logging
@@ -81,13 +81,33 @@ class DbWrapper:
 
 # TODO ugh. there should be a nicer way to wrap that...
 # TODO mypy return types
-def make_dbcache(db_path: PathIsh, hashf, type_, chunk_by=10000): # TODO what's a reasonable default?
-    logger = get_kcache_logger()
+# TODO FIXME pathish thing
+PathProvider = Union[PathIsh, Callable[..., PathIsh]]
+HashF = Callable[..., SourceHash]
+
+
+def default_hashf(*args, **kwargs) -> SourceHash:
+    return str(args + tuple(sorted(kwargs.items()))) # good enough??
+
+
+def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
+    if logger is None:
+        logger = get_kcache_logger()
     def dec(func):
         @functools.wraps(func)
-        def wrapper(key):
+        def wrapper(*args, **kwargs):
+            if callable(db_path):
+                dbp = Path(db_path(*args, **kwargs))
+            else:
+                dbp = Path(db_path)
+
+            logger.debug('using %s for db cache', dbp)
+
+            if not dbp.parent.exists():
+                raise RuntimeError(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
+
             # TODO FIXME make sure we have exclusive write lock
-            alala = DbWrapper(Path(db_path), type_)
+            alala = DbWrapper(dbp, type_)
             engine = alala.engine
 
             prev_hashes = engine.execute(alala.table_hash.select()).fetchall()
@@ -102,17 +122,19 @@ def make_dbcache(db_path: PathIsh, hashf, type_, chunk_by=10000): # TODO what's 
                 prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
             logger.debug('previous hash: %s', prev_hash)
 
-            h = hashf(key)
+            h = hashf(*args, **kwargs)
             logger.debug('current hash: %s', h)
             assert h is not None # just in case
 
             with engine.begin() as transaction:
                 if h == prev_hash:
+                    logger.debug('hash match: loading from cache')
                     rows = engine.execute(alala.table_data.select())
                     for row in rows:
                         yield type_(**row)
                 else:
-                    datas = func(key)
+                    logger.debug('hash mismatch: retrieving data and writing to db')
+                    datas = func(*args, **kwargs)
                     engine.execute(alala.table_data.delete())
                     from kython import ichunks
 
@@ -197,8 +219,7 @@ def test_dbcache_many(tmp_path):
     src = tdir / 'source'
     src.touch()
 
-    db_path = tdir / 'db.sqlite'
-    dbcache = make_dbcache(db_path, hashf=mtime_hash, type_=TE2)
+    dbcache = make_dbcache(db_path=lambda path: tdir / (path.name + '.cache'), hashf=mtime_hash, type_=TE2)
 
     @dbcache
     def _iter_data(path: Path):
@@ -215,8 +236,4 @@ def test_dbcache_many(tmp_path):
         return ll
     assert ilen(iter_data()) == 100000
     assert ilen(iter_data()) == 100000
-
-
-
-
 
