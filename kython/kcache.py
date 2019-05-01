@@ -43,14 +43,6 @@ def _map_type(cls):
     r = tmap.get(cls, None)
     if r is not None:
         return r
-
-
-    if getattr(cls, '__origin__', None) == Union:
-        # handles Optional
-        elems = cls.__args__
-        elems = [e for e in elems if e != type(None)]
-        if len(elems) == 1:
-            return _map_type(elems[0]) # meh..
     raise RuntimeError(f'Unexpected type {cls}')
 
 # https://stackoverflow.com/a/2166841/706389
@@ -62,6 +54,16 @@ def isnamedtuple(t):
     return all(type(n)==str for n in f)
 
 
+def try_remove_optional(cls):
+    if getattr(cls, '__origin__', None) == Union:
+        # handles Optional
+        elems = cls.__args__
+        elems = [e for e in elems if e != type(None)]
+        if len(elems) == 1:
+            return elems[0] # meh..
+    return cls
+
+
 class Binder:
     def __init__(self, clazz: Type[NamedTuple]) -> None: # TODO covariant?
         self.clazz = clazz
@@ -71,6 +73,8 @@ class Binder:
         def helper(cls: Type[NamedTuple], prefix='') -> List[Column]:
             res = []
             for name, ann in cls.__annotations__.items():
+                ann = try_remove_optional(ann)
+                # TODO def cache this schema, especially considering try_remove_optional
                 # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
                 # TODO might need optional handling as well...
                 # TODO add optional to test
@@ -95,6 +99,7 @@ class Binder:
             nonlocal pos
             dct = {}
             for name, ann in cls.__annotations__.items(): # TODO cache if necessary? benchmark quickly
+                ann = try_remove_optional(ann)
                 if isnamedtuple(ann):
                     val = helper(ann)
                 else:
@@ -295,7 +300,7 @@ def test_dbcache_nested(tmp_path):
 
     class A(NamedTuple):
         value: int
-        b: B
+        b: Optional[B]
         value2: int
 
     d = A(
