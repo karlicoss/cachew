@@ -14,6 +14,14 @@ from kython.py37 import fromisoformat
 def get_kcache_logger():
     return logging.getLogger('kcache')
 
+# TODO FIXME REMOVE THIS
+# class UUU(NamedTuple):
+#     xx: int
+#     yy: int
+# class TE2(NamedTuple):
+#     value: int
+#     uuu: UUU
+#     value2: int
 
 # TODO move to some common thing?
 class IsoDateTime(sqlalchemy.TypeDecorator):
@@ -229,6 +237,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                 else:
                     logger.debug('hash mismatch: retrieving data and writing to db')
                     datas = func(*args, **kwargs)
+                    # pylint: disable=no-value-for-parameter
                     engine.execute(alala.table_data.delete())
                     from kython import ichunks
 
@@ -243,12 +252,16 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                         # but we still want serialization :(
                         # ok, inserting gives noticeable lag
                         # thiere must be some obvious way to speed this up...
+                        # pylint: disable=no-value-for-parameter
                         engine.execute(alala.table_data.insert().values(bound))
                         # logger.debug('inserted...')
                         yield from chunk
 
                     # TODO FIXME insert and replace instead
+
+                    # pylint: disable=no-value-for-parameter
                     engine.execute(alala.table_hash.delete())
+                    # pylint: disable=no-value-for-parameter
                     engine.execute(alala.table_hash.insert().values([{'value': h}]))
         return wrapper
 
@@ -261,6 +274,10 @@ def mtime_hash(path: Path) -> SourceHash:
     mt = path.stat().st_mtime
     return f'{path}.{mt}'
 
+# TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
+class TE(NamedTuple):
+    dt: datetime
+    value: float
 
 def test_dbcache(tmp_path):
     from kython.klogging import setup_logzero
@@ -270,9 +287,6 @@ def test_dbcache(tmp_path):
     mad = pytz.timezone('Europe/Madrid')
     utc = pytz.utc
 
-    class TE(NamedTuple):
-        dt: datetime
-        value: float
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
@@ -313,19 +327,20 @@ def test_dbcache(tmp_path):
     assert accesses == 3
 
 
+class UUU(NamedTuple):
+    xx: int
+    yy: int
+class TE2(NamedTuple):
+    value: int
+    uuu: UUU
+    value2: int
+
 # TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
     COUNT = 1000000
     from kython.klogging import setup_logzero
     logger = get_kcache_logger()
     setup_logzero(logger, level=logging.DEBUG)
-    class UUU(NamedTuple):
-        xx: int
-        yy: int
-    class TE2(NamedTuple):
-        value: int
-        uuu: UUU
-        value2: int
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
@@ -370,29 +385,29 @@ def test_dbcache_many(tmp_path):
     # 3.5 secs if we just return None from row
 
 
+class BB(NamedTuple):
+    xx: int
+    yy: int
+
+class AA(NamedTuple):
+    value: int
+    b: Optional[BB]
+    value2: int
+
 def test_dbcache_nested(tmp_path):
     from kython.klogging import setup_logzero
     setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     tdir = Path(tmp_path)
 
-    class B(NamedTuple):
-        xx: int
-        yy: int
-
-    class A(NamedTuple):
-        value: int
-        b: Optional[B]
-        value2: int
-
-    d = A(
+    d = AA(
         value=1,
-        b=B(xx=2, yy=3),
+        b=BB(xx=2, yy=3),
         value2=4,
     )
     def data():
         yield d
 
-    dbcache=make_dbcache(db_path=tdir / 'cache', type_=A)
+    dbcache=make_dbcache(db_path=tdir / 'cache', type_=AA)
 
     @dbcache
     def get_data():
