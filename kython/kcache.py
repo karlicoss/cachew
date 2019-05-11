@@ -65,6 +65,7 @@ def isnamedtuple(t):
 
 
 # TODO not sure if needs cache?
+# TODO use nullable=True from sqlalchemy?
 def try_remove_optional(cls):
     if getattr(cls, '__origin__', None) == Union:
         # handles Optional
@@ -74,14 +75,17 @@ def try_remove_optional(cls):
             return elems[0] # meh..
     return cls
 
+# TODO ugh. couldn't get this to work
+# from typing import TypeVar
+# NT = TypeVar('NT', bound=NamedTuple)
 
 class Binder:
-    def __init__(self, clazz: Type[NamedTuple]) -> None: # TODO covariant?
+    def __init__(self, clazz) -> None:
         self.clazz = clazz
 
     @property
     def columns(self) -> List[Column]:
-        def helper(cls: Type[NamedTuple]) -> List[Column]:
+        def helper(cls) -> List[Column]:
             res = []
             for name, ann, is_nt in self._namedtuple_schema(cls):
                 # TODO def cache this schema, especially considering try_remove_optional
@@ -106,7 +110,7 @@ class Binder:
                 else:
                     yield v
         # meh..
-        yield from helper(self.clazz, obj)
+        return tuple(helper(self.clazz, obj))
 
     def __hash__(self):
         return hash(self.clazz)
