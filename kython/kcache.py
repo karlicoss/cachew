@@ -16,14 +16,6 @@ from kython.py37 import fromisoformat
 def get_kcache_logger():
     return logging.getLogger('kcache')
 
-# TODO FIXME REMOVE THIS
-# class UUU(NamedTuple):
-#     xx: int
-#     yy: int
-# class TE2(NamedTuple):
-#     value: int
-#     uuu: UUU
-#     value2: int
 
 # TODO move to some common thing?
 class IsoDateTime(sqlalchemy.TypeDecorator):
@@ -196,6 +188,12 @@ class DbWrapper:
         self.binder = Binder(clazz=type_)
         self.table_data = Table('table', self.meta, *self.binder.columns)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.connection.close()
+
 
 # TODO what if we want dynamic path??
 
@@ -220,7 +218,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
     def dec(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            if callable(db_path):
+            if callable(db_path): # TODO test this..
                 dbp = Path(db_path(*args, **kwargs))
             else:
                 dbp = Path(db_path)
@@ -231,71 +229,72 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                 raise RuntimeError(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
             # TODO FIXME make sure we have exclusive write lock
-            alala = DbWrapper(dbp, type_)
-            binder = alala.binder
-            conn = alala.connection
+            with DbWrapper(dbp, type_) as db:
+                binder = db.binder
+                conn = db.connection
+                valuest = db.table_data
 
-            prev_hashes = conn.execute(alala.table_hash.select()).fetchall()
-            # TODO .order_by('rowid') ?
-            if len(prev_hashes) > 1:
-                raise RuntimeError(f'Multiple hashes! {prev_hashes}')
+                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+                # TODO .order_by('rowid') ?
+                if len(prev_hashes) > 1:
+                    raise RuntimeError(f'Multiple hashes! {prev_hashes}')
 
-            prev_hash: Optional[SourceHash]
-            if len(prev_hashes) == 0:
-                prev_hash = None
-            else:
-                prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
-            logger.debug('previous hash: %s', prev_hash)
-
-            h = chash(*args, **kwargs)
-            logger.debug('current hash: %s', h)
-            assert h is not None # just in case
-
-            with conn.begin() as transaction:
-                if h == prev_hash:
-                    # TODO not sure if this needs to be in transaction
-                    logger.debug('hash matched: loading from cache')
-                    rows = conn.execute(alala.table_data.select())
-                    for row in rows:
-                        yield binder.from_row(row)
+                prev_hash: Optional[SourceHash]
+                if len(prev_hashes) == 0:
+                    prev_hash = None
                 else:
-                    logger.debug('hash mismatch: computing data and writing to db')
+                    prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
+                logger.debug('previous hash: %s', prev_hash)
 
-                    # drop and create to incorporate schema changes
-                    alala.table_data.drop(conn, checkfirst=True)
-                    alala.table_data.create(conn)
+                h = chash(*args, **kwargs)
+                logger.debug('current hash: %s', h)
+                assert h is not None # just in case
 
-                    datas = func(*args, **kwargs)
-                    from kython import ichunks
+                with conn.begin() as transaction:
+                    if h == prev_hash:
+                        # TODO not sure if this needs to be in transaction
+                        logger.debug('hash matched: loading from cache')
+                        rows = conn.execute(valuest.select())
+                        for row in rows:
+                            yield binder.from_row(row)
+                    else:
+                        logger.debug('hash mismatch: computing data and writing to db')
 
-                    for chunk in ichunks(datas, n=chunk_by):
-                        bound = [tuple(binder.to_row(c)) for c in chunk]
-                        # logger.debug('inserting...')
-                        # from sqlalchemy.sql import text
-                        # nulls = ', '.join("(NULL)" for _ in bound)
-                        # st = text("""INSERT INTO 'table' VALUES """ + nulls)
-                        # engine.execute(st)
-                        # shit. so manual operation is quite a bit faster??
-                        # but we still want serialization :(
-                        # ok, inserting gives noticeable lag
-                        # thiere must be some obvious way to speed this up...
+                        # drop and create to incorporate schema changes
+                        valuest.drop(conn, checkfirst=True)
+                        valuest.create(conn)
+
+                        datas = func(*args, **kwargs)
+                        from kython import ichunks
+
+                        for chunk in ichunks(datas, n=chunk_by):
+                            bound = [tuple(binder.to_row(c)) for c in chunk]
+                            # logger.debug('inserting...')
+                            # from sqlalchemy.sql import text
+                            # nulls = ', '.join("(NULL)" for _ in bound)
+                            # st = text("""INSERT INTO 'table' VALUES """ + nulls)
+                            # engine.execute(st)
+                            # shit. so manual operation is quite a bit faster??
+                            # but we still want serialization :(
+                            # ok, inserting gives noticeable lag
+                            # thiere must be some obvious way to speed this up...
+                            # pylint: disable=no-value-for-parameter
+                            conn.execute(valuest.insert().values(bound))
+                            # logger.debug('inserted...')
+                            yield from chunk
+
+                        # TODO FIXME insert and replace instead
+
                         # pylint: disable=no-value-for-parameter
-                        conn.execute(alala.table_data.insert().values(bound))
-                        # logger.debug('inserted...')
-                        yield from chunk
-
-                    # TODO FIXME insert and replace instead
-
-                    # pylint: disable=no-value-for-parameter
-                    conn.execute(alala.table_hash.delete())
-                    # pylint: disable=no-value-for-parameter
-                    conn.execute(alala.table_hash.insert().values([{'value': h}]))
+                        conn.execute(db.table_hash.delete())
+                        # pylint: disable=no-value-for-parameter
+                        conn.execute(db.table_hash.insert().values([{'value': h}]))
         return wrapper
 
-    # TODO FIXME engine is leaking??
     return dec
 
 
+# TODO give it as an example in docs
 def mtime_hash(path: Path) -> SourceHash:
     # TODO hopefully float are ok here?
     mt = path.stat().st_mtime
