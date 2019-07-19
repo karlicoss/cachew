@@ -172,10 +172,9 @@ class DbWrapper:
                 # dbapi_con.execute('PRAGMA synchronous=OFF')
 
 
-        self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}')
+        self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}')
         # self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}', listeners=[MyListener()])
-        # TODO this is actually connection?
-        self.engine = self.db.connect() # TODO do I need to tear anything down??
+        self.connection = self.engine.connect() # TODO do I need to tear anything down??
 
         """
         Erm... this is pretty confusing.
@@ -185,14 +184,14 @@ class DbWrapper:
 
         Judging by sqlalchemy/dialects/sqlite/base.py, looks like some sort of python sqlite driver problem??
         """
-        @event.listens_for(self.engine, "begin")
+        @event.listens_for(self.connection, "begin")
         def do_begin(conn):
             conn.execute("BEGIN")
 
 
-        self.meta = sqlalchemy.MetaData(self.engine)
-        self.table_hash = Table('hash' , self.meta, Column('value', sqlalchemy.String))
-        self.table_hash.create(self.engine, checkfirst=True)
+        self.meta = sqlalchemy.MetaData(self.connection)
+        self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
+        self.table_hash.create(self.connection, checkfirst=True)
 
         self.binder = Binder(clazz=type_)
         self.table_data = Table('table', self.meta, *self.binder.columns)
@@ -234,9 +233,9 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
             # TODO FIXME make sure we have exclusive write lock
             alala = DbWrapper(dbp, type_)
             binder = alala.binder
-            engine = alala.engine
+            conn = alala.connection
 
-            prev_hashes = engine.execute(alala.table_hash.select()).fetchall()
+            prev_hashes = conn.execute(alala.table_hash.select()).fetchall()
             # TODO .order_by('rowid') ?
             if len(prev_hashes) > 1:
                 raise RuntimeError(f'Multiple hashes! {prev_hashes}')
@@ -252,19 +251,19 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
             logger.debug('current hash: %s', h)
             assert h is not None # just in case
 
-            with engine.begin() as transaction:
+            with conn.begin() as transaction:
                 if h == prev_hash:
                     # TODO not sure if this needs to be in transaction
                     logger.debug('hash matched: loading from cache')
-                    rows = engine.execute(alala.table_data.select())
+                    rows = conn.execute(alala.table_data.select())
                     for row in rows:
                         yield binder.from_row(row)
                 else:
                     logger.debug('hash mismatch: computing data and writing to db')
 
                     # drop and create to incorporate schema changes
-                    alala.table_data.drop(engine, checkfirst=True)
-                    alala.table_data.create(engine)
+                    alala.table_data.drop(conn, checkfirst=True)
+                    alala.table_data.create(conn)
 
                     datas = func(*args, **kwargs)
                     from kython import ichunks
@@ -281,16 +280,16 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                         # ok, inserting gives noticeable lag
                         # thiere must be some obvious way to speed this up...
                         # pylint: disable=no-value-for-parameter
-                        engine.execute(alala.table_data.insert().values(bound))
+                        conn.execute(alala.table_data.insert().values(bound))
                         # logger.debug('inserted...')
                         yield from chunk
 
                     # TODO FIXME insert and replace instead
 
                     # pylint: disable=no-value-for-parameter
-                    engine.execute(alala.table_hash.delete())
+                    conn.execute(alala.table_hash.delete())
                     # pylint: disable=no-value-for-parameter
-                    engine.execute(alala.table_hash.insert().values([{'value': h}]))
+                    conn.execute(alala.table_hash.insert().values([{'value': h}]))
         return wrapper
 
     # TODO FIXME engine is leaking??
@@ -479,7 +478,7 @@ def test_transaction(tmp_path):
     Should keep old cache and not leave it in some broken state in case of errors
     """
     setup_logzero(get_kcache_logger(), level=logging.DEBUG)
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+    # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
     tdir = Path(tmp_path)
 
     dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB, chunk_by=1)
