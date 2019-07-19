@@ -1,15 +1,16 @@
-from datetime import datetime
-from typing import Optional, Type, NamedTuple, Union, Callable, List
-from pathlib import Path
 import functools
 import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, List, NamedTuple, Optional, Type, Union
 
 import sqlalchemy # type: ignore
-from sqlalchemy import Column, Table # type: ignore
+from sqlalchemy import Column, Table, event # type: ignore
+from sqlalchemy.sql import text # type: ignore
 
+from kython.klogging import setup_logzero
 from kython.ktyping import PathIsh
 from kython.py37 import fromisoformat
-from kython.klogging import setup_logzero
 
 
 def get_kcache_logger():
@@ -173,7 +174,21 @@ class DbWrapper:
 
         self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}')
         # self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}', listeners=[MyListener()])
+        # TODO this is actually connection?
         self.engine = self.db.connect() # TODO do I need to tear anything down??
+
+        """
+        Erm... this is pretty confusing.
+        https://docs.sqlalchemy.org/en/13/dialects/sqlite.html#transaction-isolation-level
+
+        Somehow without this thing sqlalchemy logs BEGIN (implicit) instead of BEGIN TRANSACTION which actually works in sqlite...
+
+        Judging by sqlalchemy/dialects/sqlite/base.py, looks like some sort of python sqlite driver problem??
+        """
+        @event.listens_for(self.engine, "begin")
+        def do_begin(conn):
+            conn.execute("BEGIN")
+
 
         self.meta = sqlalchemy.MetaData(self.engine)
         self.table_hash = Table('hash' , self.meta, Column('value', sqlalchemy.String))
@@ -239,13 +254,15 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
 
             with engine.begin() as transaction:
                 if h == prev_hash:
+                    # TODO not sure if this needs to be in transaction
                     logger.debug('hash matched: loading from cache')
                     rows = engine.execute(alala.table_data.select())
                     for row in rows:
                         yield binder.from_row(row)
                 else:
                     logger.debug('hash mismatch: computing data and writing to db')
-                    # TODO mm, not so sure how transactional it all actually is... test it?
+
+                    # drop and create to incorporate schema changes
                     alala.table_data.drop(engine, checkfirst=True)
                     alala.table_data.create(engine)
 
@@ -457,10 +474,30 @@ def test_schema_change(tmp_path):
 
     assert list(get_data_v2()) == [b2]
 
+def test_transaction(tmp_path):
+    """
+    Should keep old cache and not leave it in some broken state in case of errors
+    """
+    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+    tdir = Path(tmp_path)
 
+    dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB, chunk_by=1)
+    @dbcache
+    def get_data(version: int):
+        for i in range(3):
+            yield BB(xx=2, yy=i)
+            if version == 2:
+                raise RuntimeError
 
+    exp = [BB(xx=2, yy=0), BB(xx=2, yy=1), BB(xx=2, yy=2)]
+    assert list(get_data(1)) == exp
+    assert list(get_data(1)) == exp
 
+    # TODO test that hash is unchanged?
+    import pytest # type: ignore
+    with pytest.raises(RuntimeError):
+        list(get_data(2))
 
-
-
+    assert list(get_data(1)) == exp
 
