@@ -9,6 +9,7 @@ from sqlalchemy import Column, Table # type: ignore
 
 from kython.ktyping import PathIsh
 from kython.py37 import fromisoformat
+from kython.klogging import setup_logzero
 
 
 def get_kcache_logger():
@@ -176,10 +177,10 @@ class DbWrapper:
 
         self.meta = sqlalchemy.MetaData(self.engine)
         self.table_hash = Table('hash' , self.meta, Column('value', sqlalchemy.String))
+        self.table_hash.create(self.engine, checkfirst=True)
 
         self.binder = Binder(clazz=type_)
         self.table_data = Table('table', self.meta, *self.binder.columns)
-        self.meta.create_all()
 
 
 # TODO what if we want dynamic path??
@@ -196,8 +197,12 @@ def default_hashf(*args, **kwargs) -> SourceHash:
 
 
 def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
+    def chash(*args, **kwargs) -> SourceHash:
+        return str(type_._field_types) + hashf(*args, **kwargs)
+
     if logger is None:
         logger = get_kcache_logger()
+
     def dec(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -228,21 +233,23 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                 prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
             logger.debug('previous hash: %s', prev_hash)
 
-            h = hashf(*args, **kwargs)
+            h = chash(*args, **kwargs)
             logger.debug('current hash: %s', h)
             assert h is not None # just in case
 
             with engine.begin() as transaction:
                 if h == prev_hash:
-                    logger.debug('hash match: loading from cache')
+                    logger.debug('hash matched: loading from cache')
                     rows = engine.execute(alala.table_data.select())
                     for row in rows:
                         yield binder.from_row(row)
                 else:
-                    logger.debug('hash mismatch: retrieving data and writing to db')
+                    logger.debug('hash mismatch: computing data and writing to db')
+                    # TODO mm, not so sure how transactional it all actually is... test it?
+                    alala.table_data.drop(engine, checkfirst=True)
+                    alala.table_data.create(engine)
+
                     datas = func(*args, **kwargs)
-                    # pylint: disable=no-value-for-parameter
-                    engine.execute(alala.table_data.delete())
                     from kython import ichunks
 
                     for chunk in ichunks(datas, n=chunk_by):
@@ -399,7 +406,6 @@ class AA(NamedTuple):
     value2: int
 
 def test_dbcache_nested(tmp_path):
-    from kython.klogging import setup_logzero
     setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     tdir = Path(tmp_path)
 
@@ -411,7 +417,7 @@ def test_dbcache_nested(tmp_path):
     def data():
         yield d
 
-    dbcache=make_dbcache(db_path=tdir / 'cache', type_=AA)
+    dbcache = make_dbcache(db_path=tdir / 'cache', type_=AA)
 
     @dbcache
     def get_data():
@@ -419,3 +425,42 @@ def test_dbcache_nested(tmp_path):
 
     assert list(get_data()) == [d]
     assert list(get_data()) == [d]
+
+
+class BBv2(NamedTuple):
+    xx: int
+    yy: int
+    zz: float
+
+
+def test_schema_change(tmp_path):
+    """
+    Should discard cache on schema change (BB to BBv2) in this example
+    """
+    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
+    tdir = Path(tmp_path)
+    b = BB(xx=2, yy=3)
+
+    dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB) # TODO could deduce type automatically from annotations??
+    @dbcache
+    def get_data():
+        return [b]
+
+    assert list(get_data()) == [b]
+
+    # TODO make type part of key?
+    b2 = BBv2(xx=3, yy=4, zz=5.0)
+    dbcache2 = make_dbcache(db_path=tdir / 'cache', type_=BBv2)
+    @dbcache2
+    def get_data_v2():
+        return [b2]
+
+    assert list(get_data_v2()) == [b2]
+
+
+
+
+
+
+
+
