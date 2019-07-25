@@ -136,6 +136,23 @@ class ZZZ(NamedTuple):
     def columns(self) -> List[Column]:
         return list(self.iter_columns())
 
+    def to_row(self, obj):
+        if is_primitive(self.type_):
+            yield obj
+        else:
+            is_none = obj is None
+            if is_none:
+                assert self.optional
+
+            if self.optional:
+                yield is_none
+
+            if is_none:
+                yield from (None for _ in range(self.span - 1)) # TODO  not sure if span should include optional col?
+            else:
+                for f in self.fields:
+                    yield from f.to_row(getattr(obj, f.name))
+
     # TODO FIXME make sure col names are unique
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
@@ -176,49 +193,12 @@ class Binder(Generic[NT]):
     def columns(self) -> List[Column]:
         return ZZZ.make(self.clazz).columns
 
-    def to_row(self, obj) -> Tuple[Any, ...]:
-        def helper(cls: NT, obj: Any, fill_none: bool):
-            if fill_none:
-                assert obj is None
+    def to_row(self, obj: NT) -> Tuple[Any, ...]:
+        zzz = ZZZ.make(self.clazz)
+        return tuple(zzz.to_row(obj))
+        # TODO namedtuple or promitive??
 
-            for name, ann, is_opt in get_namedtuple_schema(cls):
-                # TODO FIXME could probably save on recursive calls for fill_none...
-                if is_primitive(ann):
-                    if fill_none:
-                        yield None
-                    else:
-                        value = getattr(obj, name)
-                        yield value
-                else:
-                    if is_opt:
-                        if fill_none:
-                            yield None
-                        else:
-                            is_none = obj is None
-                            yield is_none
-                        yield from helper(cls=ann, obj=None, fill_none=True)
-                    else:
-                        assert not fill_none
-                        value = getattr(obj, name)
-                        yield from helper(cls=ann, obj=value, fill_none=False)
-        # meh..
-        return tuple(helper(cls=self.clazz, obj=obj, fill_none=False))
-
-    def __hash__(self):
-        return hash(self.clazz)
-
-    def __eq__(self, o):
-        return self.clazz == o.clazz
-
-
-    # TODO FIXME shit, need to be careful during serializing if the namedtuple itself is None... not even sure how to distinguish if we are flattening :(
-    # TODO for now just forbid None in runtime
-    # might need extra entry....
-    def from_row(self, row):
-        # uuu = UUU(row[1], row[2])
-        # te2 = TE2(row[0], uuu, row[3])
-        # return te2
-        # huh! ok, without deserializing it's almost instantaneous..
+    def from_row(self, row) -> NT:
         pos = 0
         def helper(cls):
             nonlocal pos
