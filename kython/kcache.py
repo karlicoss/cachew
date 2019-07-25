@@ -106,14 +106,16 @@ from kython import cproperty
 # TODO FIXME should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
 class ZZZ(NamedTuple):
-    name    : Optional[str] # None means toplevel
-    type_   : Type[Any] # TODO
-    optional: bool
-    fields  : Sequence[Any] # TODO FIXME recursive type?
+    name     : Optional[str] # None means toplevel
+    type_    : Type[Any] # TODO
+    primitive: bool
+    optional : bool
+    fields   : Sequence[Any] # TODO FIXME recursive type?
 
-    @property
+    # TODO not sure if span should include optional col?
+    @cproperty
     def span(self) -> int:
-        if is_primitive(self.type_):
+        if self.primitive:
             return 1
         return sum(f.span for f in self.fields) + (1 if self.optional else 0)
 
@@ -129,6 +131,7 @@ class ZZZ(NamedTuple):
         return ZZZ(
             name=name,
             type_=tp,
+            primitive=is_primitive(tp),
             optional=optional,
             fields=fields,
         )
@@ -138,19 +141,18 @@ class ZZZ(NamedTuple):
         return list(self.iter_columns())
 
     def to_row(self, obj):
-        if is_primitive(self.type_):
+        if self.primitive:
             yield obj
         else:
-            is_none = obj is None
-            if is_none:
-                assert self.optional
-
             if self.optional:
+                is_none = obj is None
                 yield is_none
+            else:
+                is_none = False; assert obj is not None # TODO hmm, that last assert is not very symmetric...
 
             if is_none:
-                for _ in range(self.span - 1 ):
-                    yield None # TODO  not sure if span should include optional col?
+                for _ in range(self.span - 1):
+                    yield None
             else:
                 yield from chain.from_iterable(
                     f.to_row(getattr(obj, f.name))
@@ -158,17 +160,18 @@ class ZZZ(NamedTuple):
                 )
 
     def from_row(self, row_iter):
-        if is_primitive(self.type_):
+        if self.primitive:
             return next(row_iter)
         else:
-            # TODO make more symmetric...
-            is_none = False
             if self.optional:
-                is_none = next(row_iter); assert isinstance(is_none, bool)
+                is_none = next(row_iter)
+            else:
+                is_none = False
 
             if is_none:
                 for _ in range(self.span - 1):
-                    x = next(row_iter); assert x is None  # ugh, can't assert inside generator expression.. . huh. assert is kinda opposite of producing value
+                    x = next(row_iter); assert x is None  # huh. assert is kinda opposite of producing value
+                return None
             else:
                 return self.type_(*(
                     f.from_row(row_iter)
@@ -179,7 +182,7 @@ class ZZZ(NamedTuple):
     # TODO FIXME make sure col names are unique
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
-        if is_primitive(self.type_):
+        if self.primitive:
             yield Column(self.name, _map_type(self.type_))
         else:
             if self.optional:
@@ -205,6 +208,7 @@ class ZZZ(NamedTuple):
 class Binder(Generic[NT]):
     def __init__(self, clazz: Type[NT]) -> None:
         self.clazz = clazz
+        self.zzz = ZZZ.make(self.clazz)
 
     def __hash__(self):
         return hash(self.clazz)
@@ -214,16 +218,13 @@ class Binder(Generic[NT]):
 
     @property
     def columns(self) -> List[Column]:
-        return ZZZ.make(self.clazz).columns
+        return self.zzz.columns
 
     def to_row(self, obj: NT) -> Tuple[Any, ...]:
-        zzz = ZZZ.make(self.clazz)
-        return tuple(zzz.to_row(obj))
-        # TODO namedtuple or promitive??
+        return tuple(self.zzz.to_row(obj))
 
     def from_row(self, row) -> NT:
-        zzz = ZZZ.make(self.clazz)
-        return zzz.from_row(iter(row))
+        return self.zzz.from_row(iter(row)) # TODO assert consumed?
 
 
 # TODO better name to represent what it means?
@@ -502,17 +503,24 @@ class AA(NamedTuple):
     b: Optional[BB]
     value2: int
 
+
 def test_dbcache_nested(tmp_path):
     setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     tdir = Path(tmp_path)
 
-    d = AA(
+    d1 = AA(
         value=1,
         b=BB(xx=2, yy=3),
         value2=4,
     )
+    d2 = AA(
+        value=3,
+        b=None,
+        value2=5,
+    )
     def data():
-        yield d
+        yield d1
+        yield d2
 
     dbcache = make_dbcache(db_path=tdir / 'cache', type_=AA)
 
@@ -520,8 +528,8 @@ def test_dbcache_nested(tmp_path):
     def get_data():
         yield from data()
 
-    assert list(get_data()) == [d]
-    assert list(get_data()) == [d]
+    assert list(get_data()) == [d1, d2]
+    assert list(get_data()) == [d1, d2]
 
 
 class BBv2(NamedTuple):
@@ -584,7 +592,7 @@ def test_transaction(tmp_path):
 
 class Job(NamedTuple):
     company: str
-    title: str
+    title: Optional[str]
 
 
 class Person(NamedTuple):
