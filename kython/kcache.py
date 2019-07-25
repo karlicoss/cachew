@@ -4,12 +4,12 @@ import string
 from datetime import datetime
 from pathlib import Path
 from random import Random
-from typing import (Callable, Iterator, List, NamedTuple, Optional, Type,
-    Union)
+from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
+    Type, Union)
 
-import sqlalchemy
-from sqlalchemy import Column, Table, event
-from sqlalchemy.sql import text
+import sqlalchemy # type: ignore
+from sqlalchemy import Column, Table, event # type: ignore
+from sqlalchemy.sql import text # type: ignore
 
 from kython.klogging import setup_logzero
 from kython.ktyping import PathIsh
@@ -44,6 +44,11 @@ _tmap = {
     datetime: IsoDateTime,
 }
 
+
+def is_primitive(cls) -> bool:
+    return cls in _tmap
+
+
 def _map_type(cls):
     r = _tmap.get(cls, None)
     if r is not None:
@@ -63,19 +68,17 @@ def isnamedtuple(t):
 
 # TODO not sure if needs cache?
 # TODO use nullable=True from sqlalchemy?
-def try_remove_optional(cls):
+def strip_optional(cls):
     if getattr(cls, '__origin__', None) == Union:
         # handles Optional
         elems = cls.__args__
         elems = [e for e in elems if e != type(None)]
         if len(elems) == 1:
-            return elems[0] # meh..
-    return cls
-
-# TODO ugh. couldn't get this to work
-# from typing import TypeVar
-# NT = TypeVar('NT', bound=NamedTuple)
-
+            nonopt = elems[0] # meh
+            return (nonopt, True)
+        else:
+            raise RuntimeError(f'{cls} is unsupported!')
+    return (cls, False)
 
 
 # TODO shit. doesn't really help...
@@ -85,44 +88,66 @@ def get_namedtuple_schema(cls):
     def gen():
         # fuck python not allowing multiline expressions..
         for name, ann in cls.__annotations__.items():
-            ann = try_remove_optional(ann)
+            ann, is_opt = strip_optional(ann)
             # caching try_remove_optional is a massive speedup though
-            yield name, ann, isnamedtuple(ann)
+            yield name, ann, is_opt
     return tuple(gen())
 
 
+NT = Type[NamedTuple]
+
 class Binder:
-    def __init__(self, clazz) -> None:
+    def __init__(self, clazz: NT) -> None:
         self.clazz = clazz
 
     @property
     def columns(self) -> List[Column]:
-        def helper(cls) -> List[Column]:
-            res = []
-            for name, ann, is_nt in get_namedtuple_schema(cls):
+        def helper(cls: NT, is_opt: bool, fieldname: Optional[str]) -> List[Column]:
+            cols: List[Column] = []
+            # None fieldname means top level
+            if is_opt:
+                assert fieldname is not None
+                cols.append(Column(f'_{fieldname}_is_null', sqlalchemy.Boolean))
+            for name, ann, is_opt in get_namedtuple_schema(cls):
                 # TODO def cache this schema, especially considering try_remove_optional
                 # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
                 # TODO might need optional handling as well...
                 # TODO add optional to test
-                if is_nt:
-                    res.extend(helper(ann)) # TODO FIXME make sure col names are unique
+                if is_primitive(ann):
+                    cols.append(Column(name, _map_type(ann)))
                 else:
-                    res.append(Column(name, _map_type(ann)))
-            return res
-        return helper(self.clazz)
+                    cols.extend(helper(ann, is_opt=is_opt, fieldname=name)) # TODO FIXME make sure col names are unique
+            return cols
+        # TODO not sure if we want to allow optionals on top level?
+        return helper(self.clazz, is_opt=False, fieldname=None)
 
-    def to_row(self, obj):
-        def helper(cls, o):
-            for name, ann, is_nt in get_namedtuple_schema(cls):
-                v = getattr(o, name)
-                if is_nt:
-                    if v is None:
-                        raise RuntimeError("can't handle None tuples at this point :(")
-                    yield from helper(ann, v)
+    def to_row(self, obj) -> Tuple[Any, ...]:
+        def helper(cls: NT, obj: Any, fill_none: bool):
+            if fill_none:
+                assert obj is None
+
+            for name, ann, is_opt in get_namedtuple_schema(cls):
+                # TODO FIXME could probably save on recursive calls for fill_none...
+                if is_primitive(ann):
+                    if fill_none:
+                        yield None
+                    else:
+                        value = getattr(obj, name)
+                        yield value
                 else:
-                    yield v
+                    if is_opt:
+                        if fill_none:
+                            yield None
+                        else:
+                            is_none = obj is None
+                            yield is_none
+                        yield from helper(cls=ann, obj=None, fill_none=True)
+                    else:
+                        assert not fill_none
+                        value = getattr(obj, name)
+                        yield from helper(cls=ann, obj=value, fill_none=False)
         # meh..
-        return tuple(helper(self.clazz, obj))
+        return tuple(helper(cls=self.clazz, obj=obj, fill_none=False))
 
     def __hash__(self):
         return hash(self.clazz)
@@ -143,7 +168,7 @@ class Binder:
         def helper(cls):
             nonlocal pos
             vals = []
-            for name, ann, is_nt in self._namedtuple_schema(cls):
+            for name, ann, is_nt in get_namedtuple_schema(cls):
                 if is_nt:
                     val = helper(ann)
                 else:
@@ -519,7 +544,7 @@ class Person(NamedTuple):
     name: str
     secondname: str
     age: int
-    job: Job # TODO make optional
+    job: Optional[Job]
 
 
 def make_people_data(count: int) -> Iterator[Person]:
@@ -528,11 +553,11 @@ def make_people_data(count: int) -> Iterator[Person]:
 
     randstr = lambda len_: ''.join(g.choices(chars, k=len_))
 
-    for p in range(count):
-        # has_job = g.choice([True, False])
-        # maybe_job: Optional[Job] = None
-        # if has_job:
-        maybe_job = Job(company=randstr(12), title=randstr(8))
+    for _ in range(count):
+        has_job = g.choice([True, False])
+        maybe_job: Optional[Job] = None
+        if has_job:
+            maybe_job = Job(company=randstr(12), title=randstr(8))
 
         yield Person(
             name=randstr(5),
@@ -556,14 +581,16 @@ def test_binder():
     b = Binder(clazz=Person)
     cols = b.columns
 
+    # TODO that could be a doctest showing actual database schema
     assert [(c.name, type(c.type)) for c in cols] == [
-        ('name'      , sqlalchemy.String),
-        ('secondname', sqlalchemy.String),
-        ('age'       , sqlalchemy.Integer),
+        ('name'        , sqlalchemy.String),
+        ('secondname'  , sqlalchemy.String),
+        ('age'         , sqlalchemy.Integer),
 
-        # TODO FIXME prepend job_
-        ('company'   , sqlalchemy.String),
-        ('title'     , sqlalchemy.String),
+        # TODO FIXME need to prevent name conflicts with origina objects names
+        ('_job_is_null', sqlalchemy.Boolean),
+        ('company'     , sqlalchemy.String),
+        ('title'       , sqlalchemy.String),
     ]
 
 
@@ -587,4 +614,6 @@ def test_stats(tmp_path):
     print(f"Cache db size for {N} entries: estimate size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
 
+
+# TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
 
