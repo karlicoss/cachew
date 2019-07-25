@@ -76,6 +76,21 @@ def try_remove_optional(cls):
 # from typing import TypeVar
 # NT = TypeVar('NT', bound=NamedTuple)
 
+
+
+# TODO shit. doesn't really help...
+@functools.lru_cache(maxsize=None) # TODO kinda arbitrary..
+def get_namedtuple_schema(cls):
+    # caching is_namedtuple doesn't seem to give a major speedup here, but whatever..
+    def gen():
+        # fuck python not allowing multiline expressions..
+        for name, ann in cls.__annotations__.items():
+            ann = try_remove_optional(ann)
+            # caching try_remove_optional is a massive speedup though
+            yield name, ann, isnamedtuple(ann)
+    return tuple(gen())
+
+
 class Binder:
     def __init__(self, clazz) -> None:
         self.clazz = clazz
@@ -84,7 +99,7 @@ class Binder:
     def columns(self) -> List[Column]:
         def helper(cls) -> List[Column]:
             res = []
-            for name, ann, is_nt in self._namedtuple_schema(cls):
+            for name, ann, is_nt in get_namedtuple_schema(cls):
                 # TODO def cache this schema, especially considering try_remove_optional
                 # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
                 # TODO might need optional handling as well...
@@ -98,7 +113,7 @@ class Binder:
 
     def to_row(self, obj):
         def helper(cls, o):
-            for name, ann, is_nt in self._namedtuple_schema(cls):
+            for name, ann, is_nt in get_namedtuple_schema(cls):
                 v = getattr(o, name)
                 if is_nt:
                     if v is None:
@@ -115,17 +130,6 @@ class Binder:
     def __eq__(self, o):
         return self.clazz == o.clazz
 
-    # TODO shit. doesn't really help...
-    @functools.lru_cache() # TODO kinda arbitrary..
-    def _namedtuple_schema(self, cls):
-        # caching is_namedtuple doesn't seem to give a major speedup here, but whatever..
-        def gen():
-            # fuck python not allowing multiline expressions..
-            for name, ann in cls.__annotations__.items():
-                ann = try_remove_optional(ann)
-                # caching try_remove_optional is a massive speedup though
-                yield name, ann, isnamedtuple(ann)
-        return tuple(gen())
 
     # TODO FIXME shit, need to be careful during serializing if the namedtuple itself is None... not even sure how to distinguish if we are flattening :(
     # TODO for now just forbid None in runtime
@@ -533,6 +537,16 @@ def make_people_data(count: int) -> Iterator[Person]:
             age=g.randint(20, 60),
             job=maybe_job,
         )
+
+
+def test_namedtuple_schema():
+    schema = get_namedtuple_schema(Person)
+    assert schema == (
+        ('name'      , str, False),
+        ('secondname', str, False),
+        ('age'       , int, False),
+        ('job'       , Job, True),
+    )
 
 
 def test_binder():
