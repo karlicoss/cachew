@@ -1,23 +1,22 @@
 import functools
 import logging
-from itertools import chain
+from itertools import chain, islice
 import string
 from datetime import datetime
 from pathlib import Path
 from random import Random
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable)
 
 import sqlalchemy # type: ignore
-from sqlalchemy import Column, Table, event # type: ignore
-from sqlalchemy.sql import text # type: ignore
+from sqlalchemy import Column, Table, event
 
 from kython.klogging import setup_logzero
 from kython.ktyping import PathIsh
 from kython.py37 import fromisoformat
 
 
-def get_kcache_logger():
+def get_kcache_logger() -> logging.Logger:
     return logging.getLogger('kcache')
 
 
@@ -38,23 +37,18 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return None
         return fromisoformat(value)
 
-_tmap = {
-    str: sqlalchemy.String,
-    float: sqlalchemy.Float,
-    int: sqlalchemy.Integer,
+
+PRIMITIVES = {
+    str     : sqlalchemy.String,
+    float   : sqlalchemy.Float,
+    int     : sqlalchemy.Integer,
     datetime: IsoDateTime,
 }
 
 
 def is_primitive(cls) -> bool:
-    return cls in _tmap
+    return cls in PRIMITIVES
 
-
-def _map_type(cls):
-    r = _tmap.get(cls, None)
-    if r is not None:
-        return r
-    raise RuntimeError(f'Unexpected type {cls}')
 
 # https://stackoverflow.com/a/2166841/706389
 @functools.lru_cache()
@@ -67,7 +61,6 @@ def isnamedtuple(t):
     return all(type(n)==str for n in f)
 
 
-# TODO not sure if needs cache?
 # TODO use nullable=True from sqlalchemy?
 def strip_optional(cls):
     if getattr(cls, '__origin__', None) == Union:
@@ -82,56 +75,38 @@ def strip_optional(cls):
     return (cls, False)
 
 
-# TODO shit. doesn't really help...
-@functools.lru_cache(maxsize=None) # TODO kinda arbitrary..
-def get_namedtuple_schema(cls):
-    # caching is_namedtuple doesn't seem to give a major speedup here, but whatever..
-    def gen():
-        # fuck python not allowing multiline expressions..
-        for name, ann in cls.__annotations__.items():
-            ann, is_opt = strip_optional(ann)
-            # caching try_remove_optional is a massive speedup though
-            yield name, ann, is_opt
-    return tuple(gen())
-
-
-NT = TypeVar('NT', bound=NamedTuple)
-
-
-
-from kython import cproperty
-# TODO not sure...
-# TODO iterator over fields??
 
 # TODO FIXME should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
-class ZZZ(NamedTuple):
+# TODO how to make it consistent with PRIMITIVES?
+Types = Union[Type[int], Type[str], Type[bool], Type[float], Type[NamedTuple]]
+
+class NTBinder(NamedTuple):
     name     : Optional[str] # None means toplevel
-    type_    : Type[Any] # TODO
+    type_    : Types
+    span     : int # TODO not sure if span should include optional col?
     primitive: bool
     optional : bool
     fields   : Sequence[Any] # TODO FIXME recursive type?
 
-    # TODO not sure if span should include optional col?
-    @cproperty
-    def span(self) -> int:
-        if self.primitive:
-            return 1
-        return sum(f.span for f in self.fields) + (1 if self.optional else 0)
-
     @staticmethod
     def make(tp, name: Optional[str]=None):
-        tp, optional = strip_optional(tp) # TODO eh?
-        prim = is_primitive(tp)
-        if prim:
+        tp, optional = strip_optional(tp)
+        primitive = is_primitive(tp)
+        if primitive:
             assert name is not None # TODO too paranoid?
-        fields = ()
-        if not prim:
-            fields = tuple(ZZZ.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
-        return ZZZ(
+        fields: Tuple[Any, ...]
+        if primitive:
+            fields = ()
+            span = 1
+        if not primitive:
+            fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
+            span = sum(f.span for f in fields) + (1 if optional else 0)
+        return NTBinder(
             name=name,
             type_=tp,
-            primitive=is_primitive(tp),
+            span=span,
+            primitive=primitive,
             optional=optional,
             fields=fields,
         )
@@ -183,7 +158,7 @@ class ZZZ(NamedTuple):
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
         if self.primitive:
-            yield Column(self.name, _map_type(self.type_))
+            yield Column(self.name, PRIMITIVES[self.type_])
         else:
             if self.optional:
                 yield Column(f'_{self.name}_is_null', sqlalchemy.Boolean)
@@ -204,11 +179,15 @@ class ZZZ(NamedTuple):
             yield from f.iterxxx(level=level + 1)
 
 
-# TODO just make it generic?
+NT = TypeVar('NT')
+# sadly, bound=NamedTuple is not working yet in mypy
+# https://github.com/python/mypy/issues/685
+
+
 class Binder(Generic[NT]):
     def __init__(self, clazz: Type[NT]) -> None:
         self.clazz = clazz
-        self.zzz = ZZZ.make(self.clazz)
+        self.nt_binder = NTBinder.make(self.clazz)
 
     def __hash__(self):
         return hash(self.clazz)
@@ -218,13 +197,17 @@ class Binder(Generic[NT]):
 
     @property
     def columns(self) -> List[Column]:
-        return self.zzz.columns
+        return self.nt_binder.columns
 
     def to_row(self, obj: NT) -> Tuple[Any, ...]:
-        return tuple(self.zzz.to_row(obj))
+        return tuple(self.nt_binder.to_row(obj))
 
-    def from_row(self, row) -> NT:
-        return self.zzz.from_row(iter(row)) # TODO assert consumed?
+    def from_row(self, row: Iterable[Any]) -> NT:
+        riter = iter(row)
+        res = self.nt_binder.from_row(riter)
+        remaining = list(islice(riter, 0, 1))
+        assert len(remaining) == 0
+        return res
 
 
 # TODO better name to represent what it means?
@@ -350,6 +333,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                         for chunk in ichunks(datas, n=chunk_by):
                             bound = [tuple(binder.to_row(c)) for c in chunk]
                             # logger.debug('inserting...')
+                            # from sqlalchemy.sql import text # type: ignore
                             # from sqlalchemy.sql import text
                             # nulls = ', '.join("(NULL)" for _ in bound)
                             # st = text("""INSERT INTO 'table' VALUES """ + nulls)
@@ -444,9 +428,6 @@ class TE2(NamedTuple):
 # TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
     COUNT = 1000000
-    # 100K: about  3.0 seconds
-    # 500K: about 15.5 seconds
-    #   1M: about 29.4 seconds
     from kython.klogging import setup_logzero
     logger = get_kcache_logger()
     setup_logzero(logger, level=logging.DEBUG)
@@ -622,18 +603,20 @@ def make_people_data(count: int) -> Iterator[Person]:
         )
 
 
-def test_namedtuple_schema():
-    schema = get_namedtuple_schema(Person)
-    assert schema == (
-        ('name'      , str, False),
-        ('secondname', str, False),
-        ('age'       , int, False),
-        ('job'       , Job, True),
-    )
+# TODO test NTBinder tree instead
+# def test_namedtuple_schema():
+#     schema = get_namedtuple_schema(Person)
+#     assert schema == (
+#         ('name'      , str, False),
+#         ('secondname', str, False),
+#         ('age'       , int, False),
+#         ('job'       , Job, True),
+#     )
 
 
 def test_binder():
     b = Binder(clazz=Person)
+
     cols = b.columns
 
     # TODO that could be a doctest showing actual database schema
