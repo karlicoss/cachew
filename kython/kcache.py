@@ -1,12 +1,15 @@
 import functools
 import logging
+import string
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, NamedTuple, Optional, Type, Union
+from random import Random
+from typing import (Callable, Iterator, List, NamedTuple, Optional, Type,
+    Union)
 
-import sqlalchemy # type: ignore
-from sqlalchemy import Column, Table, event # type: ignore
-from sqlalchemy.sql import text # type: ignore
+import sqlalchemy
+from sqlalchemy import Column, Table, event
+from sqlalchemy.sql import text
 
 from kython.klogging import setup_logzero
 from kython.ktyping import PathIsh
@@ -498,4 +501,57 @@ def test_transaction(tmp_path):
         list(get_data(2))
 
     assert list(get_data(1)) == exp
+
+
+class Job(NamedTuple):
+    company: str
+    title: str
+
+
+class Person(NamedTuple):
+    name: str
+    secondname: str
+    age: int
+    job: Job # TODO make optional
+
+
+def make_people_data(count: int) -> Iterator[Person]:
+    g = Random(124)
+    chars = string.ascii_uppercase + string.ascii_lowercase
+
+    randstr = lambda len_: ''.join(g.choices(chars, k=len_))
+
+    for p in range(count):
+        # has_job = g.choice([True, False])
+        # maybe_job: Optional[Job] = None
+        # if has_job:
+        maybe_job = Job(company=randstr(12), title=randstr(8))
+
+        yield Person(
+            name=randstr(5),
+            secondname=randstr(10),
+            age=g.randint(20, 60),
+            job=maybe_job,
+        )
+
+
+def test_stats(tmp_path):
+    tdir = Path(tmp_path)
+
+    cache_file = tdir / 'cache'
+
+    # 4 + things are string lengths
+    one = (4 + 5) + (4 + 10) + 4 + (4 + 12 + 4 + 8)
+    N = 10000
+
+    dbcache = make_dbcache(db_path=cache_file, type_=Person)
+    @dbcache
+    def get_people_data() -> Iterator[Person]:
+        yield from make_people_data(count=N)
+
+
+    list(get_people_data())
+    print(f"Cache db size for {N} entries: estimate size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
+
+
 
