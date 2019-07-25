@@ -1,5 +1,6 @@
 import functools
 import logging
+from itertools import chain
 import string
 from datetime import datetime
 from pathlib import Path
@@ -148,10 +149,32 @@ class ZZZ(NamedTuple):
                 yield is_none
 
             if is_none:
-                yield from (None for _ in range(self.span - 1)) # TODO  not sure if span should include optional col?
+                for _ in range(self.span - 1 ):
+                    yield None # TODO  not sure if span should include optional col?
             else:
-                for f in self.fields:
-                    yield from f.to_row(getattr(obj, f.name))
+                yield from chain.from_iterable(
+                    f.to_row(getattr(obj, f.name))
+                    for f in self.fields
+                )
+
+    def from_row(self, row_iter):
+        if is_primitive(self.type_):
+            return next(row_iter)
+        else:
+            # TODO make more symmetric...
+            is_none = False
+            if self.optional:
+                is_none = next(row_iter); assert isinstance(is_none, bool)
+
+            if is_none:
+                for _ in range(self.span - 1):
+                    x = next(row_iter); assert x is None  # ugh, can't assert inside generator expression.. . huh. assert is kinda opposite of producing value
+            else:
+                return self.type_(*(
+                    f.from_row(row_iter)
+                    for f in self.fields
+                ))
+
 
     # TODO FIXME make sure col names are unique
     # TODO not sure if we want to allow optionals on top level?
@@ -199,19 +222,8 @@ class Binder(Generic[NT]):
         # TODO namedtuple or promitive??
 
     def from_row(self, row) -> NT:
-        pos = 0
-        def helper(cls):
-            nonlocal pos
-            vals = []
-            for name, ann, is_nt in get_namedtuple_schema(cls):
-                if is_nt:
-                    val = helper(ann)
-                else:
-                    val = row[pos]
-                    pos += 1
-                vals.append(val)
-            return cls(*vals)
-        return helper(self.clazz)
+        zzz = ZZZ.make(self.clazz)
+        return zzz.from_row(iter(row))
 
 
 # TODO better name to represent what it means?
