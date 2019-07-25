@@ -535,6 +535,22 @@ def make_people_data(count: int) -> Iterator[Person]:
         )
 
 
+def test_binder():
+    b = Binder(clazz=Person)
+    cols = b.columns
+
+    assert [(c.name, type(c.type)) for c in cols] == [
+        ('name'      , sqlalchemy.String),
+        ('secondname', sqlalchemy.String),
+        ('age'       , sqlalchemy.Integer),
+
+        # TODO FIXME prepend job_
+        ('company'   , sqlalchemy.String),
+        ('title'     , sqlalchemy.String),
+    ]
+
+
+
 def test_stats(tmp_path):
     tdir = Path(tmp_path)
 
