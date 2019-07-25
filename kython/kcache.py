@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from random import Random
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-    Type, Union)
+                    Type, Union, TypeVar, Generic, Sequence)
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event # type: ignore
@@ -94,32 +94,87 @@ def get_namedtuple_schema(cls):
     return tuple(gen())
 
 
-NT = Type[NamedTuple]
+NT = TypeVar('NT', bound=NamedTuple)
 
-class Binder:
-    def __init__(self, clazz: NT) -> None:
-        self.clazz = clazz
+
+
+from kython import cproperty
+# TODO not sure...
+# TODO iterator over fields??
+
+# TODO FIXME should be possible to iterate anonymous tuples too? or just sequences of primitive types?
+
+class ZZZ(NamedTuple):
+    name    : Optional[str] # None means toplevel
+    type_   : Type[Any] # TODO
+    optional: bool
+    fields  : Sequence[Any] # TODO FIXME recursive type?
+
+    @property
+    def span(self) -> int:
+        if is_primitive(self.type_):
+            return 1
+        return sum(f.span for f in self.fields) + (1 if self.optional else 0)
+
+    @staticmethod
+    def make(tp, name: Optional[str]=None):
+        tp, optional = strip_optional(tp) # TODO eh?
+        prim = is_primitive(tp)
+        if prim:
+            assert name is not None # TODO too paranoid?
+        fields = ()
+        if not prim:
+            fields = tuple(ZZZ.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
+        return ZZZ(
+            name=name,
+            type_=tp,
+            optional=optional,
+            fields=fields,
+        )
 
     @property
     def columns(self) -> List[Column]:
-        def helper(cls: NT, is_opt: bool, fieldname: Optional[str]) -> List[Column]:
-            cols: List[Column] = []
-            # None fieldname means top level
-            if is_opt:
-                assert fieldname is not None
-                cols.append(Column(f'_{fieldname}_is_null', sqlalchemy.Boolean))
-            for name, ann, is_opt in get_namedtuple_schema(cls):
-                # TODO def cache this schema, especially considering try_remove_optional
-                # TODO just remove optionals here? sqlite doesn't really respect them anyway IIRC
-                # TODO might need optional handling as well...
-                # TODO add optional to test
-                if is_primitive(ann):
-                    cols.append(Column(name, _map_type(ann)))
-                else:
-                    cols.extend(helper(ann, is_opt=is_opt, fieldname=name)) # TODO FIXME make sure col names are unique
-            return cols
-        # TODO not sure if we want to allow optionals on top level?
-        return helper(self.clazz, is_opt=False, fieldname=None)
+        return list(self.iter_columns())
+
+    # TODO FIXME make sure col names are unique
+    # TODO not sure if we want to allow optionals on top level?
+    def iter_columns(self) -> Iterator[Column]:
+        if is_primitive(self.type_):
+            yield Column(self.name, _map_type(self.type_))
+        else:
+            if self.optional:
+                yield Column(f'_{self.name}_is_null', sqlalchemy.Boolean)
+            for f in self.fields:
+                yield from f.iter_columns()
+
+
+    def __str__(self):
+        lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + ' '  + str(x.span) for level, x in self.iterxxx()]
+        return '\n'.join(lines)
+
+    def __repr__(self):
+        return str(self)
+
+    def iterxxx(self, level=0):
+        yield (level, self)
+        for f in self.fields:
+            yield from f.iterxxx(level=level + 1)
+
+
+# TODO just make it generic?
+class Binder(Generic[NT]):
+    def __init__(self, clazz: Type[NT]) -> None:
+        self.clazz = clazz
+
+    def __hash__(self):
+        return hash(self.clazz)
+
+    def __eq__(self, o):
+        return self.clazz == o.clazz
+
+    @property
+    def columns(self) -> List[Column]:
+        return ZZZ.make(self.clazz).columns
 
     def to_row(self, obj) -> Tuple[Any, ...]:
         def helper(cls: NT, obj: Any, fill_none: bool):
