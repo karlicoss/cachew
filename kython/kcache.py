@@ -371,6 +371,9 @@ class TE2(NamedTuple):
 # TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
     COUNT = 1000000
+    # 100K: about  3.0 seconds
+    # 500K: about 15.5 seconds
+    #   1M: about 29.4 seconds
     from kython.klogging import setup_logzero
     logger = get_kcache_logger()
     setup_logzero(logger, level=logging.DEBUG)
