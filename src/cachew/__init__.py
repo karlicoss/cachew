@@ -92,10 +92,12 @@ def is_primitive(cls) -> bool:
 # https://stackoverflow.com/a/2166841/706389
 def is_namedtuple(t):
     b = t.__bases__
-    if len(b) != 1 or b[0] != tuple: return False
+    if len(b) != 1 or b[0] != tuple:
+        return False
     f = getattr(t, '_fields', None)
-    if not isinstance(f, tuple): return False
-    return all(type(n)==str for n in f)
+    if not isinstance(f, tuple):
+        return False
+    return all(type(n) == str for n in f)
 
 
 class CachewException(RuntimeError):
@@ -312,6 +314,16 @@ def default_hashf(*args, **kwargs) -> SourceHash:
 Failure = str
 
 def infer_type(func) -> Union[Failure, Type[Any]]:
+    """
+    >>> from typing import Collection, NamedTuple
+    >>> class Person(NamedTuple):
+    ...     name: str
+    ...     age: int
+    >>> def person_provider() -> Collection[Person]:
+    ...     return []
+    >>> infer_type(person_provider)
+    <class 'cachew.Person'>
+    """
     rtype = getattr(func, '__annotations__', {}).get('return', None)
     if rtype is None:
         # TODO mm. if
