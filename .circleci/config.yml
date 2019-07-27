@@ -6,22 +6,13 @@ jobs:
       - image: circleci/python:latest
     steps:
       - checkout
-      - run: git submodule update --init # needed for tests
 
-      # TODO preserve apt cache..
+      # TODO preserve apt and pip caches?
       - run: sudo apt install python3-pip tox
       - run: python3 -m pip install --user tox
-      - run: python3 -m pip install --user pytest mypy pylint # TODO ugh. how to specify these in setup.cfg??
-      - run: python3 -m pip install --user -e .
 
         # TODO use different versions of python
       - run: tox
-
-      # TODO run these via tox as well
-      - run: python3 -m mypy      src/kobuddy
-      - run: python3 -m pylint -E src/kobuddy
-      # TODO fix tox...
-      # - run: python3 -m tox
 
 workflows:
   version: 2

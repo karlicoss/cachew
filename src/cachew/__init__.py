@@ -108,10 +108,10 @@ class NTBinder(NamedTuple):
     span     : int # TODO not sure if span should include optional col?
     primitive: bool
     optional : bool
-    fields   : Sequence['NTBinder']
+    fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
-    def make(tp, name: Optional[str]=None):
+    def make(tp, name: Optional[str]=None) -> 'NTBinder':
         tp, optional = strip_optional(tp)
         primitive = is_primitive(tp)
         if primitive:
