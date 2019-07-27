@@ -394,10 +394,10 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
 
 
 # TODO give it as an example in docs
-def mtime_hash(path: Path) -> SourceHash:
+def mtime_hash(path: Path, **kwargs) -> SourceHash:
     # TODO hopefully float are ok here?
     mt = path.stat().st_mtime
-    return f'{path}.{mt}'
+    return f'{path}.{mt}' + str(list(sorted(kwargs)))
 
 # TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
 class TE(NamedTuple):
