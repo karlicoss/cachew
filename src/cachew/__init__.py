@@ -90,15 +90,16 @@ def is_primitive(cls) -> bool:
 
 
 # https://stackoverflow.com/a/2166841/706389
-@functools.lru_cache()
-# cache here gives a 25% speedup
-def isnamedtuple(t):
+def is_namedtuple(t):
     b = t.__bases__
     if len(b) != 1 or b[0] != tuple: return False
     f = getattr(t, '_fields', None)
     if not isinstance(f, tuple): return False
     return all(type(n)==str for n in f)
 
+
+class CachewException(RuntimeError):
+    pass
 
 
 def strip_optional(cls):
@@ -110,7 +111,7 @@ def strip_optional(cls):
             nonopt = elems[0] # meh
             return (nonopt, True)
         else:
-            raise RuntimeError(f'{cls} is unsupported!')
+            raise CachewException(f'{cls} is unsupported!')
     return (cls, False)
 
 
@@ -308,14 +309,62 @@ def default_hashf(*args, **kwargs) -> SourceHash:
     return str(args + tuple(sorted(kwargs.items()))) # good enough??
 
 
-def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
-    def chash(*args, **kwargs) -> SourceHash:
-        return str(type_._field_types) + hashf(*args, **kwargs)
+Failure = str
 
+def infer_type(func) -> Union[Failure, Type[Any]]:
+    rtype = getattr(func, '__annotations__', {}).get('return', None)
+    if rtype is None:
+        # TODO mm. if
+        return f"no return type annotation on {func}"
+
+    def bail(reason):
+        return f"can't infer type from {rtype}: " + reason
+
+    # need to get erased type, otherwise subclass check would fail
+    if not hasattr(rtype, '__origin__'):
+        return bail("expected __origin__")
+    if not issubclass(rtype.__origin__, Iterable):
+        return bail("not subclassing Iterable")
+
+    args = getattr(rtype, '__args__', None)
+    if args is None:
+        return bail("has no __args__")
+    if len(args) != 1:
+        return bail(f"wrong number of __args__: {args}")
+    arg = args[0]
+    if not is_namedtuple(arg):
+        return bail(f"{arg} is not NamedTuple")
+    return arg
+
+
+# TODO use cls instead of type_??
+def make_dbcache(db_path: PathProvider, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
     if logger is None:
         logger = get_logger()
 
     def dec(func):
+        nonlocal type_
+
+        inferred = infer_type(func)
+        if isinstance(inferred, Failure):
+            msg = f"failed to infer cache type: {inferred}"
+            if type_ is None:
+                raise CachewException(msg)
+            else:
+                # it's ok, assuming user knows better
+                logger.debug(msg)
+        else:
+            if type_ is None:
+                logger.debug(f"using inferred type %s", inferred)
+                type_ = inferred
+            else:
+                if type_ != inferred:
+                    logger.warning(f"inferred type %s mismatches specified type %s", inferred, type_)
+                    # TODO not sure if should be more serious error...
+
+        def chash(*args, **kwargs) -> SourceHash:
+            return str(type_._field_types) + hashf(*args, **kwargs)
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             if callable(db_path): # TODO test this..
@@ -326,7 +375,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
             logger.debug('using %s for db cache', dbp)
 
             if not dbp.parent.exists():
-                raise RuntimeError(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
+                raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
             # TODO FIXME make sure we have exclusive write lock
             with DbWrapper(dbp, type_) as db:
@@ -337,7 +386,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                 prev_hashes = conn.execute(db.table_hash.select()).fetchall()
                 # TODO .order_by('rowid') ?
                 if len(prev_hashes) > 1:
-                    raise RuntimeError(f'Multiple hashes! {prev_hashes}')
+                    raise CachewException(f'Multiple hashes! {prev_hashes}')
 
                 prev_hash: Optional[SourceHash]
                 if len(prev_hashes) == 0:
@@ -392,6 +441,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
 
     return dec
 
+cachew = make_dbcache
 
 # TODO give it as an example in docs
 def mtime_hash(path: Path, **kwargs) -> SourceHash:
@@ -510,10 +560,47 @@ class BB(NamedTuple):
     xx: int
     yy: int
 
+
 class AA(NamedTuple):
     value: int
     b: Optional[BB]
     value2: int
+
+
+def test_return_type_inference(tmp_path):
+    tdir = Path(tmp_path)
+
+    @cachew(db_path=tdir / 'cache')
+    def data() -> Iterator[BB]:
+        yield BB(xx=1, yy=2)
+        yield BB(xx=3, yy=4)
+
+    assert len(list(data())) == 2
+    assert len(list(data())) == 2
+
+
+def test_return_type_mismatch(tmp_path):
+    tdir = Path(tmp_path)
+    # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
+    @cachew(db_path=tdir / 'cache2', type_=AA)
+    def data2() -> List[BB]:
+        return [ # type: ignore
+            AA(value=1, b=None, value2=123),
+        ]
+
+    # TODO hmm, this is kinda a downside that it always returns
+    # could preserve the original return type, but too much trouble for now
+
+    assert list(data2()) == [AA(value=1, b=None, value2=123)]
+
+
+def test_return_type_none(tmp_path):
+    tdir = Path(tmp_path)
+    import pytest # type: ignore
+    with pytest.raises(CachewException):
+        @cachew(db_path=tdir / 'cache')
+        def data():
+            return []
 
 
 def test_dbcache_nested(tmp_path):
@@ -579,13 +666,16 @@ def test_transaction(tmp_path):
     # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
     tdir = Path(tmp_path)
 
+    class TestError(Exception):
+        pass
+
     dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB, chunk_by=1)
     @dbcache
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
             if version == 2:
-                raise RuntimeError
+                raise TestError
 
     exp = [BB(xx=2, yy=0), BB(xx=2, yy=1), BB(xx=2, yy=2)]
     assert list(get_data(1)) == exp
@@ -593,7 +683,7 @@ def test_transaction(tmp_path):
 
     # TODO test that hash is unchanged?
     import pytest # type: ignore
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TestError):
         list(get_data(2))
 
     assert list(get_data(1)) == exp
