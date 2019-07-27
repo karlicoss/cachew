@@ -5,19 +5,31 @@ import string
 from datetime import datetime
 from pathlib import Path
 from random import Random
+import sys
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
                     Type, Union, TypeVar, Generic, Sequence, Iterable)
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
 
-from kython.klogging import setup_logzero
-from kython.ktyping import PathIsh
-from kython.py37 import fromisoformat
 
+if sys.version_info[1] >= 7:
+    from .compat import fromisoformat
+else:
+    fromisoformat = datetime.fromisoformat
 
 def get_kcache_logger() -> logging.Logger:
     return logging.getLogger('kcache')
+
+
+T = TypeVar('T')
+def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
+    it: Iterator[T] = iter(l)
+    while True:
+        chunk: List[T] = list(islice(it, 0, n))
+        if len(chunk) == 0:
+            break
+        yield chunk
 
 
 # TODO move to some common thing?
@@ -262,7 +274,7 @@ class DbWrapper:
 
 # TODO ugh. there should be a nicer way to wrap that...
 # TODO mypy return types
-# TODO FIXME pathish thing
+PathIsh = Union[Path, str]
 PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 HashF = Callable[..., SourceHash]
 
@@ -328,7 +340,6 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                         valuest.create(conn)
 
                         datas = func(*args, **kwargs)
-                        from kython import ichunks
 
                         for chunk in ichunks(datas, n=chunk_by):
                             bound = [tuple(binder.to_row(c)) for c in chunk]
@@ -370,8 +381,6 @@ class TE(NamedTuple):
     value: float
 
 def test_dbcache(tmp_path):
-    from kython.klogging import setup_logzero
-    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
 
     import pytz
     mad = pytz.timezone('Europe/Madrid')
@@ -428,9 +437,7 @@ class TE2(NamedTuple):
 # TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
     COUNT = 1000000
-    from kython.klogging import setup_logzero
     logger = get_kcache_logger()
-    setup_logzero(logger, level=logging.DEBUG)
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
@@ -486,7 +493,6 @@ class AA(NamedTuple):
 
 
 def test_dbcache_nested(tmp_path):
-    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     tdir = Path(tmp_path)
 
     d1 = AA(
@@ -523,7 +529,6 @@ def test_schema_change(tmp_path):
     """
     Should discard cache on schema change (BB to BBv2) in this example
     """
-    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
@@ -547,7 +552,6 @@ def test_transaction(tmp_path):
     """
     Should keep old cache and not leave it in some broken state in case of errors
     """
-    setup_logzero(get_kcache_logger(), level=logging.DEBUG)
     # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
     tdir = Path(tmp_path)
 
