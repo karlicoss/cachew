@@ -201,10 +201,12 @@ class NTBinder(NamedTuple):
         if self.primitive:
             yield Column(self.name, PRIMITIVES[self.type_])
         else:
+            prefix = '' if self.name is None else self.name + '_'
             if self.optional:
-                yield Column(f'_{self.name}_is_null', sqlalchemy.Boolean)
+                yield Column(f'_{prefix}is_null', sqlalchemy.Boolean)
             for f in self.fields:
-                yield from f.iter_columns()
+                for c in f.iter_columns():
+                    yield Column(f'{prefix}{c.name}', c.type)
 
 
     def __str__(self):
@@ -772,8 +774,8 @@ def test_binder():
 
         # TODO FIXME need to prevent name conflicts with origina objects names
         ('_job_is_null', sqlalchemy.Boolean),
-        ('company'     , sqlalchemy.String),
-        ('title'       , sqlalchemy.String),
+        ('job_company' , sqlalchemy.String),
+        ('job_title'   , sqlalchemy.String),
     ]
 
 
