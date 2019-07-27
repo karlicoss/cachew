@@ -1,9 +1,14 @@
-version: 2
+version: 2.1
 
 jobs:
   build_and_check:
+    parameters:
+      py_version:
+        type: string
+        default: ''
+
     docker:
-      - image: circleci/python:${PY_VERSION}
+      - image: circleci/python:<< parameters.py_version >>
     steps:
       - checkout
 
@@ -22,12 +27,10 @@ workflows:
 
   build_and_check_3_6:
     jobs:
-      - build_and_check
-    environment:
-      PY_VERSION: 3.6
+      - build_and_check:
+          py_version: '3.6'
 
   build_and_check_3_7:
     jobs:
-      - build_and_check
-    environment:
-      PY_VERSION: 3.7
+      - build_and_check:
+          py_version: '3.7'
