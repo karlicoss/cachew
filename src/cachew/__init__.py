@@ -295,18 +295,17 @@ class DbWrapper:
     def __exit__(self, *args):
         self.connection.close()
 
-
-# TODO what if we want dynamic path??
-
-# TODO ugh. there should be a nicer way to wrap that...
-# TODO mypy return types
-PathIsh = Union[Path, str]
-PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 HashF = Callable[..., SourceHash]
 
 
-def default_hashf(*args, **kwargs) -> SourceHash:
+def default_hash(*args, **kwargs) -> SourceHash:
     return str(args + tuple(sorted(kwargs.items()))) # good enough??
+
+
+# TODO give it as an example in docs
+def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
+    mt = path.stat().st_mtime
+    return default_hash(f'{path}.{mt}', *args, **kwargs)
 
 
 Failure = str
@@ -359,9 +358,12 @@ def doublewrap(f):
     return new_dec
 
 
-# TODO use cls instead of type_??
+PathIsh = Union[Path, str]
+PathProvider = Union[PathIsh, Callable[..., PathIsh]]
+
+
 @doublewrap
-def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
+def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: HashF=default_hash, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
     """
     >>> from typing import Collection, NamedTuple
     >>> from timeit import Timer
@@ -396,23 +398,24 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: H
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
         msg = f"failed to infer cache type: {inferred}"
-        if type_ is None:
+        if cls is None:
             raise CachewException(msg)
         else:
             # it's ok, assuming user knows better
             logger.debug(msg)
     else:
-        if type_ is None:
+        if cls is None:
             logger.debug("using inferred type %s", inferred)
-            type_ = inferred
+            cls = inferred
         else:
-            if type_ != inferred:
-                logger.warning("inferred type %s mismatches specified type %s", inferred, type_)
+            if cls != inferred:
+                logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
+    assert is_namedtuple(cls)
 
     # TODO include 'global' version as well
     def composite_hash(*args, **kwargs) -> SourceHash:
-        return str(type_._field_types) + hashf(*args, **kwargs)
+        return str(cls._field_types) + hashf(*args, **kwargs)
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -426,8 +429,8 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: H
         if not dbp.parent.exists():
             raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
-        # TODO FIXME make sure we have exclusive write lock
-        with DbWrapper(dbp, type_) as db:
+        # TODO make sure we have exclusive write lock
+        with DbWrapper(dbp, cls) as db:
             binder = db.binder
             conn = db.connection
             values_table = db.table_data
@@ -469,7 +472,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: H
                         conn.execute(values_table.insert().values(bound))
                         yield from chunk
 
-                    # TODO FIXME insert and replace instead
+                    # TODO insert and replace instead?
 
                     # pylint: disable=no-value-for-parameter
                     conn.execute(db.table_hash.delete())
@@ -477,12 +480,6 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: H
                     conn.execute(db.table_hash.insert().values([{'value': h}]))
     return wrapper
 
-
-# TODO give it as an example in docs
-def mtime_hash(path: Path, **kwargs) -> SourceHash:
-    # TODO hopefully float are ok here?
-    mt = path.stat().st_mtime
-    return f'{path}.{mt}' + str(list(sorted(kwargs)))
 
 # TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
 class TE(NamedTuple):
@@ -508,7 +505,7 @@ def test_simple(tmp_path):
     ]
 
     accesses = 0
-    @cachew(db_path, hashf=mtime_hash, type_=TE)
+    @cachew(db_path, hashf=mtime_hash, cls=TE)
     def _get_data(path: Path):
         nonlocal accesses
         accesses += 1
@@ -551,7 +548,7 @@ def test_many(tmp_path):
     src = tdir / 'source'
     src.touch()
 
-    @cachew(db_path=lambda path: tdir / (path.name + '.cache'), type_=TE2)
+    @cachew(db_path=lambda path: tdir / (path.name + '.cache'), cls=TE2)
     def _iter_data(path: Path):
         for i in range(COUNT):
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
@@ -614,7 +611,7 @@ def test_return_type_inference(tmp_path):
 def test_return_type_mismatch(tmp_path):
     tdir = Path(tmp_path)
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
-    @cachew(db_path=tdir / 'cache2', type_=AA)
+    @cachew(db_path=tdir / 'cache2', cls=AA)
     def data2() -> List[BB]:
         return [ # type: ignore
             AA(value=1, b=None, value2=123),
@@ -652,7 +649,7 @@ def test_nested(tmp_path):
         yield d1
         yield d2
 
-    @cachew(db_path=tdir / 'cache', type_=AA)
+    @cachew(db_path=tdir / 'cache', cls=AA)
     def get_data():
         yield from data()
 
@@ -673,7 +670,7 @@ def test_schema_change(tmp_path):
     tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
-    @cachew(db_path=tdir / 'cache', type_=BB)
+    @cachew(db_path=tdir / 'cache', cls=BB)
     def get_data():
         return [b]
 
@@ -681,7 +678,7 @@ def test_schema_change(tmp_path):
 
     # TODO make type part of key?
     b2 = BBv2(xx=3, yy=4, zz=5.0)
-    @cachew(db_path=tdir / 'cache', type_=BBv2)
+    @cachew(db_path=tdir / 'cache', cls=BBv2)
     def get_data_v2():
         return [b2]
 
@@ -697,7 +694,7 @@ def test_transaction(tmp_path):
     class TestError(Exception):
         pass
 
-    @cachew(db_path=tdir / 'cache', type_=BB, chunk_by=1)
+    @cachew(db_path=tdir / 'cache', cls=BB, chunk_by=1)
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
@@ -787,7 +784,7 @@ def test_stats(tmp_path):
     one = (4 + 5) + (4 + 10) + 4 + (4 + 12 + 4 + 8)
     N = 10000
 
-    @cachew(db_path=cache_file, type_=Person)
+    @cachew(db_path=cache_file, cls=Person)
     def get_people_data() -> Iterator[Person]:
         yield from make_people_data(count=N)
 
@@ -798,11 +795,4 @@ def test_stats(tmp_path):
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
-
-
-# TODO FIXME mtime hash, include args
-
-
-
-# TODO __all__ ???
 # TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
