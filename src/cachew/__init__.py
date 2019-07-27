@@ -50,7 +50,6 @@ def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
         yield chunk
 
 
-
 class IsoDateTime(sqlalchemy.TypeDecorator):
     # in theory could use something more effecient? e.g. blob for encoded datetime and tz?
     # but practically, the difference seems to be pretty small, so perhaps fine for now
@@ -118,8 +117,6 @@ def strip_optional(cls):
     return (cls, False)
 
 
-
-# TODO FIXME should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
 
 class NTBinder(NamedTuple):
@@ -361,9 +358,10 @@ def doublewrap(f):
             return lambda realf: f(realf, *args, **kwargs)
     return new_dec
 
+
 # TODO use cls instead of type_??
 @doublewrap
-def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
+def cachew(func=None, db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
     """
     >>> from typing import Collection, NamedTuple
     >>> from timeit import Timer
@@ -382,6 +380,9 @@ def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: 
     >>> print(f"took {res} seconds to query cached items")
     took ... seconds to query cached items
     """
+
+    # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
+    assert func is not None
 
     if logger is None:
         logger = get_logger()
@@ -409,7 +410,8 @@ def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: 
                 logger.warning("inferred type %s mismatches specified type %s", inferred, type_)
                 # TODO not sure if should be more serious error...
 
-    def chash(*args, **kwargs) -> SourceHash:
+    # TODO include 'global' version as well
+    def composite_hash(*args, **kwargs) -> SourceHash:
         return str(type_._field_types) + hashf(*args, **kwargs)
 
     @functools.wraps(func)
@@ -428,7 +430,7 @@ def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: 
         with DbWrapper(dbp, type_) as db:
             binder = db.binder
             conn = db.connection
-            valuest = db.table_data
+            values_table = db.table_data
 
             prev_hashes = conn.execute(db.table_hash.select()).fetchall()
             # TODO .order_by('rowid') ?
@@ -442,40 +444,29 @@ def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: 
                 prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
 
             logger.debug('old hash: %s', prev_hash)
-            h = chash(*args, **kwargs); assert h is not None # just in case
+            h = composite_hash(*args, **kwargs); assert h is not None # just in case
             logger.debug('new hash: %s', h)
 
             with conn.begin() as transaction:
                 if h == prev_hash:
                     # TODO not sure if this needs to be in transaction
                     logger.debug('hash matched: loading from cache')
-                    rows = conn.execute(valuest.select())
+                    rows = conn.execute(values_table.select())
                     for row in rows:
                         yield binder.from_row(row)
                 else:
                     logger.debug('hash mismatch: computing data and writing to db')
 
                     # drop and create to incorporate schema changes
-                    valuest.drop(conn, checkfirst=True)
-                    valuest.create(conn)
+                    values_table.drop(conn, checkfirst=True)
+                    values_table.create(conn)
 
                     datas = func(*args, **kwargs)
 
                     for chunk in ichunks(datas, n=chunk_by):
                         bound = [tuple(binder.to_row(c)) for c in chunk]
-                        # logger.debug('inserting...')
-                        # from sqlalchemy.sql import text # type: ignore
-                        # from sqlalchemy.sql import text
-                        # nulls = ', '.join("(NULL)" for _ in bound)
-                        # st = text("""INSERT INTO 'table' VALUES """ + nulls)
-                        # engine.execute(st)
-                        # shit. so manual operation is quite a bit faster??
-                        # but we still want serialization :(
-                        # ok, inserting gives noticeable lag
-                        # thiere must be some obvious way to speed this up...
                         # pylint: disable=no-value-for-parameter
-                        conn.execute(valuest.insert().values(bound))
-                        # logger.debug('inserted...')
+                        conn.execute(values_table.insert().values(bound))
                         yield from chunk
 
                     # TODO FIXME insert and replace instead
@@ -486,7 +477,6 @@ def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: 
                     conn.execute(db.table_hash.insert().values([{'value': h}]))
     return wrapper
 
-cachew = make_dbcache
 
 # TODO give it as an example in docs
 def mtime_hash(path: Path, **kwargs) -> SourceHash:
@@ -499,8 +489,8 @@ class TE(NamedTuple):
     dt: datetime
     value: float
 
-def test_dbcache(tmp_path):
 
+def test_simple(tmp_path):
     import pytz
     mad = pytz.timezone('Europe/Madrid')
     utc = pytz.utc
@@ -511,7 +501,6 @@ def test_dbcache(tmp_path):
     src.write_text('0')
 
     db_path = tdir / 'db.sqlite'
-    dbcache = make_dbcache(db_path, hashf=mtime_hash, type_=TE)
 
     entities = [
         TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242),
@@ -519,7 +508,7 @@ def test_dbcache(tmp_path):
     ]
 
     accesses = 0
-    @dbcache
+    @cachew(db_path, hashf=mtime_hash, type_=TE)
     def _get_data(path: Path):
         nonlocal accesses
         accesses += 1
@@ -554,17 +543,15 @@ class TE2(NamedTuple):
     value2: int
 
 # TODO also profile datetimes?
-def test_dbcache_many(tmp_path):
-    COUNT = 1000000
+def test_many(tmp_path):
+    COUNT = 10 # 00000
     logger = get_logger()
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
     src.touch()
 
-    dbcache = make_dbcache(db_path=lambda path: tdir / (path.name + '.cache'), type_=TE2)
-
-    @dbcache
+    @cachew(db_path=lambda path: tdir / (path.name + '.cache'), type_=TE2)
     def _iter_data(path: Path):
         for i in range(COUNT):
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
@@ -648,7 +635,7 @@ def test_return_type_none(tmp_path):
             return []
 
 
-def test_dbcache_nested(tmp_path):
+def test_nested(tmp_path):
     tdir = Path(tmp_path)
 
     d1 = AA(
@@ -665,9 +652,7 @@ def test_dbcache_nested(tmp_path):
         yield d1
         yield d2
 
-    dbcache = make_dbcache(db_path=tdir / 'cache', type_=AA)
-
-    @dbcache
+    @cachew(db_path=tdir / 'cache', type_=AA)
     def get_data():
         yield from data()
 
@@ -688,8 +673,7 @@ def test_schema_change(tmp_path):
     tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
-    dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB) # TODO could deduce type automatically from annotations??
-    @dbcache
+    @cachew(db_path=tdir / 'cache', type_=BB)
     def get_data():
         return [b]
 
@@ -697,8 +681,7 @@ def test_schema_change(tmp_path):
 
     # TODO make type part of key?
     b2 = BBv2(xx=3, yy=4, zz=5.0)
-    dbcache2 = make_dbcache(db_path=tdir / 'cache', type_=BBv2)
-    @dbcache2
+    @cachew(db_path=tdir / 'cache', type_=BBv2)
     def get_data_v2():
         return [b2]
 
@@ -714,8 +697,7 @@ def test_transaction(tmp_path):
     class TestError(Exception):
         pass
 
-    dbcache = make_dbcache(db_path=tdir / 'cache', type_=BB, chunk_by=1)
-    @dbcache
+    @cachew(db_path=tdir / 'cache', type_=BB, chunk_by=1)
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
@@ -805,16 +787,22 @@ def test_stats(tmp_path):
     one = (4 + 5) + (4 + 10) + 4 + (4 + 12 + 4 + 8)
     N = 10000
 
-    dbcache = make_dbcache(db_path=cache_file, type_=Person)
-    @dbcache
+    @cachew(db_path=cache_file, type_=Person)
     def get_people_data() -> Iterator[Person]:
         yield from make_people_data(count=N)
 
 
     list(get_people_data())
-    print(f"Cache db size for {N} entries: estimate size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
+    print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
 
+
+# TODO FIXME mtime hash, include args
+
+
+
+# TODO __all__ ???
+# TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
