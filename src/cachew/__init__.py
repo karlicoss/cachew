@@ -349,16 +349,28 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
         return bail(f"{arg} is not NamedTuple")
     return arg
 
+# https://stackoverflow.com/questions/653368/how-to-create-a-python-decorator-that-can-be-used-either-with-or-without-paramet
+def doublewrap(f):
+    @functools.wraps(f)
+    def new_dec(*args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            # actual decorated function
+            return f(args[0])
+        else:
+            # decorator arguments
+            return lambda realf: f(realf, *args, **kwargs)
+    return new_dec
 
 # TODO use cls instead of type_??
-def make_dbcache(db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
+@doublewrap
+def make_dbcache(func, db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
     """
     >>> from typing import Collection, NamedTuple
     >>> from timeit import Timer
     >>> class Person(NamedTuple):
     ...     name: str
     ...     age: int
-    >>> @make_dbcache()
+    >>> @cachew
     ... def person_provider() -> Iterator[Person]:
     ...     for i in range(5):
     ...         import time; time.sleep(1) # simulate slow IO
@@ -370,114 +382,109 @@ def make_dbcache(db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=
     >>> print(f"took {res} seconds to query cached items")
     took ... seconds to query cached items
     """
+
     if logger is None:
         logger = get_logger()
 
-    def dec(func):
-        nonlocal db_path
-        nonlocal type_
+    if db_path is None:
+        td = Path(tempfile.gettempdir()) / 'cachew'
+        td.mkdir(parents=True, exist_ok=True)
+        db_path = td / func.__qualname__ # TODO sanitize?
+        logger.info('No db_path specified, using %s as implicit cache', db_path)
 
-        if db_path is None:
-            td = Path(tempfile.gettempdir()) / 'cachew'
-            td.mkdir(parents=True, exist_ok=True)
-            db_path = td / func.__qualname__ # TODO sanitize?
-            logger.info('No db_path specified, using %s as implicit cache', db_path)
-
-        inferred = infer_type(func)
-        if isinstance(inferred, Failure):
-            msg = f"failed to infer cache type: {inferred}"
-            if type_ is None:
-                raise CachewException(msg)
-            else:
-                # it's ok, assuming user knows better
-                logger.debug(msg)
+    inferred = infer_type(func)
+    if isinstance(inferred, Failure):
+        msg = f"failed to infer cache type: {inferred}"
+        if type_ is None:
+            raise CachewException(msg)
         else:
-            if type_ is None:
-                logger.debug(f"using inferred type %s", inferred)
-                type_ = inferred
+            # it's ok, assuming user knows better
+            logger.debug(msg)
+    else:
+        if type_ is None:
+            logger.debug("using inferred type %s", inferred)
+            type_ = inferred
+        else:
+            if type_ != inferred:
+                logger.warning("inferred type %s mismatches specified type %s", inferred, type_)
+                # TODO not sure if should be more serious error...
+
+    def chash(*args, **kwargs) -> SourceHash:
+        return str(type_._field_types) + hashf(*args, **kwargs)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if callable(db_path): # TODO test this..
+            dbp = Path(db_path(*args, **kwargs))
+        else:
+            dbp = Path(db_path)
+
+        logger.debug('using %s for db cache', dbp)
+
+        if not dbp.parent.exists():
+            raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
+
+        # TODO FIXME make sure we have exclusive write lock
+        with DbWrapper(dbp, type_) as db:
+            binder = db.binder
+            conn = db.connection
+            valuest = db.table_data
+
+            prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+            # TODO .order_by('rowid') ?
+            if len(prev_hashes) > 1:
+                raise CachewException(f'Multiple hashes! {prev_hashes}')
+
+            prev_hash: Optional[SourceHash]
+            if len(prev_hashes) == 0:
+                prev_hash = None
             else:
-                if type_ != inferred:
-                    logger.warning(f"inferred type %s mismatches specified type %s", inferred, type_)
-                    # TODO not sure if should be more serious error...
+                prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
 
-        def chash(*args, **kwargs) -> SourceHash:
-            return str(type_._field_types) + hashf(*args, **kwargs)
+            logger.debug('old hash: %s', prev_hash)
+            h = chash(*args, **kwargs); assert h is not None # just in case
+            logger.debug('new hash: %s', h)
 
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if callable(db_path): # TODO test this..
-                dbp = Path(db_path(*args, **kwargs))
-            else:
-                dbp = Path(db_path)
-
-            logger.debug('using %s for db cache', dbp)
-
-            if not dbp.parent.exists():
-                raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
-
-            # TODO FIXME make sure we have exclusive write lock
-            with DbWrapper(dbp, type_) as db:
-                binder = db.binder
-                conn = db.connection
-                valuest = db.table_data
-
-                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
-                # TODO .order_by('rowid') ?
-                if len(prev_hashes) > 1:
-                    raise CachewException(f'Multiple hashes! {prev_hashes}')
-
-                prev_hash: Optional[SourceHash]
-                if len(prev_hashes) == 0:
-                    prev_hash = None
+            with conn.begin() as transaction:
+                if h == prev_hash:
+                    # TODO not sure if this needs to be in transaction
+                    logger.debug('hash matched: loading from cache')
+                    rows = conn.execute(valuest.select())
+                    for row in rows:
+                        yield binder.from_row(row)
                 else:
-                    prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
+                    logger.debug('hash mismatch: computing data and writing to db')
 
-                logger.debug('old hash: %s', prev_hash)
-                h = chash(*args, **kwargs); assert h is not None # just in case
-                logger.debug('new hash: %s', h)
+                    # drop and create to incorporate schema changes
+                    valuest.drop(conn, checkfirst=True)
+                    valuest.create(conn)
 
-                with conn.begin() as transaction:
-                    if h == prev_hash:
-                        # TODO not sure if this needs to be in transaction
-                        logger.debug('hash matched: loading from cache')
-                        rows = conn.execute(valuest.select())
-                        for row in rows:
-                            yield binder.from_row(row)
-                    else:
-                        logger.debug('hash mismatch: computing data and writing to db')
+                    datas = func(*args, **kwargs)
 
-                        # drop and create to incorporate schema changes
-                        valuest.drop(conn, checkfirst=True)
-                        valuest.create(conn)
-
-                        datas = func(*args, **kwargs)
-
-                        for chunk in ichunks(datas, n=chunk_by):
-                            bound = [tuple(binder.to_row(c)) for c in chunk]
-                            # logger.debug('inserting...')
-                            # from sqlalchemy.sql import text # type: ignore
-                            # from sqlalchemy.sql import text
-                            # nulls = ', '.join("(NULL)" for _ in bound)
-                            # st = text("""INSERT INTO 'table' VALUES """ + nulls)
-                            # engine.execute(st)
-                            # shit. so manual operation is quite a bit faster??
-                            # but we still want serialization :(
-                            # ok, inserting gives noticeable lag
-                            # thiere must be some obvious way to speed this up...
-                            # pylint: disable=no-value-for-parameter
-                            conn.execute(valuest.insert().values(bound))
-                            # logger.debug('inserted...')
-                            yield from chunk
-
-                        # TODO FIXME insert and replace instead
-
+                    for chunk in ichunks(datas, n=chunk_by):
+                        bound = [tuple(binder.to_row(c)) for c in chunk]
+                        # logger.debug('inserting...')
+                        # from sqlalchemy.sql import text # type: ignore
+                        # from sqlalchemy.sql import text
+                        # nulls = ', '.join("(NULL)" for _ in bound)
+                        # st = text("""INSERT INTO 'table' VALUES """ + nulls)
+                        # engine.execute(st)
+                        # shit. so manual operation is quite a bit faster??
+                        # but we still want serialization :(
+                        # ok, inserting gives noticeable lag
+                        # thiere must be some obvious way to speed this up...
                         # pylint: disable=no-value-for-parameter
-                        conn.execute(db.table_hash.delete())
-                        # pylint: disable=no-value-for-parameter
-                        conn.execute(db.table_hash.insert().values([{'value': h}]))
-        return wrapper
+                        conn.execute(valuest.insert().values(bound))
+                        # logger.debug('inserted...')
+                        yield from chunk
 
-    return dec
+                    # TODO FIXME insert and replace instead
+
+                    # pylint: disable=no-value-for-parameter
+                    conn.execute(db.table_hash.delete())
+                    # pylint: disable=no-value-for-parameter
+                    conn.execute(db.table_hash.insert().values([{'value': h}]))
+    return wrapper
 
 cachew = make_dbcache
 
