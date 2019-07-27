@@ -13,7 +13,7 @@ import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
 
 
-if sys.version_info[1] >= 7:
+if sys.version_info[1] < 7:
     from .compat import fromisoformat
 else:
     fromisoformat = datetime.fromisoformat
@@ -25,7 +25,7 @@ def get_logger() -> logging.Logger:
 
 T = TypeVar('T')
 def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
-    it = iter(l) # type: Iterator[T]
+    it: Iterator[T] = iter(l)
     while True:
         chunk: List[T] = list(islice(it, 0, n))
         if len(chunk) == 0:

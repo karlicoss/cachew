@@ -3,7 +3,7 @@ version: 2
 jobs:
   build_and_check:
     docker:
-      - image: circleci/python:latest
+      - image: circleci/python:${PY_VERSION}
     steps:
       - checkout
 
@@ -13,9 +13,21 @@ jobs:
 
       - run: python3 -m tox
 
+
+# TODO py3.6 is not present in circlci python:lastest image and not clear where to find image with all interpreters..
+# this is so fucking repetitive.. I'd rather have a python file that generates CI config
+
 workflows:
   version: 2
 
-  build_and_check:
+  build_and_check_3_6:
     jobs:
       - build_and_check
+    environment:
+      PY_VERSION: 3.6
+
+  build_and_check_3_7:
+    jobs:
+      - build_and_check
+    environment:
+      PY_VERSION: 3.7
