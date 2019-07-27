@@ -70,11 +70,11 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         return fromisoformat(value)
 
 
-# TODO FIXME test bools?
 PRIMITIVES = {
     str     : sqlalchemy.String,
     float   : sqlalchemy.Float,
     int     : sqlalchemy.Integer,
+    bool    : sqlalchemy.Boolean,
     datetime: IsoDateTime,
 }
 
@@ -487,6 +487,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
 class TE(NamedTuple):
     dt: datetime
     value: float
+    flag: bool
 
 
 def test_simple(tmp_path):
@@ -502,8 +503,8 @@ def test_simple(tmp_path):
     db_path = tdir / 'db.sqlite'
 
     entities = [
-        TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242),
-        TE(dt=mad.localize(datetime(year=1997, month=7, day=4, second=5)), value=9842.4234),
+        TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242, flag=True),
+        TE(dt=mad.localize(datetime(year=1997, month=7, day=4, second=5)), value=9842.4234, flag=False),
     ]
 
     accesses = 0
