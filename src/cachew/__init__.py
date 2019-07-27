@@ -19,6 +19,7 @@ import logging
 from itertools import chain, islice
 import string
 from datetime import datetime
+import tempfile
 from pathlib import Path
 from random import Random
 import sys
@@ -350,12 +351,37 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
 
 
 # TODO use cls instead of type_??
-def make_dbcache(db_path: PathProvider, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
+def make_dbcache(db_path: Optional[PathProvider]=None, type_=None, hashf: HashF=default_hashf, chunk_by=10000, logger=None): # TODO what's a reasonable default?
+    """
+    >>> from typing import Collection, NamedTuple
+    >>> from timeit import Timer
+    >>> class Person(NamedTuple):
+    ...     name: str
+    ...     age: int
+    >>> @make_dbcache()
+    ... def person_provider() -> Iterator[Person]:
+    ...     for i in range(5):
+    ...         import time; time.sleep(1) # simulate slow IO
+    ...         yield Person(name=str(i), age=20 + i)
+    >>> list(person_provider()) # that should take about 5 seconds on first run
+    [Person(name='0', age=20), Person(name='1', age=21), Person(name='2', age=22), Person(name='3', age=23), Person(name='4', age=24)]
+    >>> res = Timer(lambda: list(person_provider())).timeit(number=1) # second run is cached, so should take less time
+    >>> assert res < 0.1
+    >>> print(f"took {res} seconds to query cached items")
+    took ... seconds to query cached items
+    """
     if logger is None:
         logger = get_logger()
 
     def dec(func):
+        nonlocal db_path
         nonlocal type_
+
+        if db_path is None:
+            td = Path(tempfile.gettempdir()) / 'cachew'
+            td.mkdir(parents=True, exist_ok=True)
+            db_path = td / func.__qualname__ # TODO sanitize?
+            logger.info('No db_path specified, using %s as implicit cache', db_path)
 
         inferred = infer_type(func)
         if isinstance(inferred, Failure):
