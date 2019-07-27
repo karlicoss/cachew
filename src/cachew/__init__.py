@@ -344,11 +344,10 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
                     prev_hash = None
                 else:
                     prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
-                logger.debug('previous hash: %s', prev_hash)
 
-                h = chash(*args, **kwargs)
-                logger.debug('current hash: %s', h)
-                assert h is not None # just in case
+                logger.debug('old hash: %s', prev_hash)
+                h = chash(*args, **kwargs); assert h is not None # just in case
+                logger.debug('new hash: %s', h)
 
                 with conn.begin() as transaction:
                     if h == prev_hash:
