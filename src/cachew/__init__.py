@@ -24,7 +24,7 @@ from pathlib import Path
 from random import Random
 import sys
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
@@ -195,18 +195,26 @@ class NTBinder(NamedTuple):
                 ))
 
 
-    # TODO FIXME make sure col names are unique
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
+        used_names: Set[str] = set()
+        def col(name: str, tp) -> Column:
+            while name in used_names:
+                name = '_' + name
+            used_names.add(name)
+            return Column(name, tp)
+
+
         if self.primitive:
-            yield Column(self.name, PRIMITIVES[self.type_])
+            assert self.name is not None
+            yield col(self.name, PRIMITIVES[self.type_])
         else:
             prefix = '' if self.name is None else self.name + '_'
             if self.optional:
-                yield Column(f'_{prefix}is_null', sqlalchemy.Boolean)
+                yield col(f'_{prefix}is_null', sqlalchemy.Boolean)
             for f in self.fields:
                 for c in f.iter_columns():
-                    yield Column(f'{prefix}{c.name}', c.type)
+                    yield col(f'{prefix}{c.name}', c.type)
 
 
     def __str__(self):
@@ -772,12 +780,37 @@ def test_binder():
         ('secondname'  , sqlalchemy.String),
         ('age'         , sqlalchemy.Integer),
 
-        # TODO FIXME need to prevent name conflicts with origina objects names
         ('_job_is_null', sqlalchemy.Boolean),
         ('job_company' , sqlalchemy.String),
         ('job_title'   , sqlalchemy.String),
     ]
 
+
+def test_unique(tmp_path):
+    tdir = Path(tmp_path)
+
+    class Breaky(NamedTuple):
+        job_title: int
+        job: Optional[Job]
+
+    assert [c.name for c in Binder(clazz=Breaky).columns] == [
+        'job_title',
+        '_job_is_null',
+        'job_company',
+        '_job_title',
+    ]
+
+    b = Breaky(
+        job_title=123,
+        job=Job(company='123', title='whatever'),
+    )
+    @cachew(db_path=tdir / 'cache')
+    def iter_breaky() -> Iterator[Breaky]:
+        yield b
+        yield b
+
+    assert list(iter_breaky()) == [b, b]
+    assert list(iter_breaky()) == [b, b]
 
 
 def test_stats(tmp_path):
