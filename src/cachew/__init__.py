@@ -555,7 +555,7 @@ class TE2(NamedTuple):
 
 # TODO also profile datetimes?
 def test_many(tmp_path):
-    COUNT = 10 # 00000
+    COUNT = 1000000
     logger = get_logger()
 
     tdir = Path(tmp_path)
