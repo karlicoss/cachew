@@ -18,8 +18,9 @@ if sys.version_info[1] >= 7:
 else:
     fromisoformat = datetime.fromisoformat
 
-def get_kcache_logger() -> logging.Logger:
-    return logging.getLogger('kcache')
+
+def get_logger() -> logging.Logger:
+    return logging.getLogger('cachew')
 
 
 T = TypeVar('T')
@@ -32,7 +33,7 @@ def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
         yield chunk
 
 
-# TODO move to some common thing?
+
 class IsoDateTime(sqlalchemy.TypeDecorator):
     # in theory could use something more effecient? e.g. blob for encoded datetime and tz?
     # but practically, the difference seems to be pretty small, so perhaps fine for now
@@ -50,12 +51,22 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         return fromisoformat(value)
 
 
+# TODO FIXME test bools?
 PRIMITIVES = {
     str     : sqlalchemy.String,
     float   : sqlalchemy.Float,
     int     : sqlalchemy.Integer,
     datetime: IsoDateTime,
 }
+
+
+Types = Union[
+    Type[str],
+    Type[int],
+    Type[float],
+    Type[bool],
+    Type[NamedTuple],
+]
 
 
 def is_primitive(cls) -> bool:
@@ -73,7 +84,7 @@ def isnamedtuple(t):
     return all(type(n)==str for n in f)
 
 
-# TODO use nullable=True from sqlalchemy?
+
 def strip_optional(cls):
     if getattr(cls, '__origin__', None) == Union:
         # handles Optional
@@ -90,8 +101,6 @@ def strip_optional(cls):
 
 # TODO FIXME should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
-# TODO how to make it consistent with PRIMITIVES?
-Types = Union[Type[int], Type[str], Type[bool], Type[float], Type[NamedTuple]]
 
 class NTBinder(NamedTuple):
     name     : Optional[str] # None means toplevel
@@ -99,7 +108,7 @@ class NTBinder(NamedTuple):
     span     : int # TODO not sure if span should include optional col?
     primitive: bool
     optional : bool
-    fields   : Sequence[Any] # TODO FIXME recursive type?
+    fields   : Sequence['NTBinder']
 
     @staticmethod
     def make(tp, name: Optional[str]=None):
@@ -288,7 +297,7 @@ def make_dbcache(db_path: PathProvider, type_, hashf: HashF=default_hashf, chunk
         return str(type_._field_types) + hashf(*args, **kwargs)
 
     if logger is None:
-        logger = get_kcache_logger()
+        logger = get_logger()
 
     def dec(func):
         @functools.wraps(func)
@@ -437,7 +446,7 @@ class TE2(NamedTuple):
 # TODO also profile datetimes?
 def test_dbcache_many(tmp_path):
     COUNT = 1000000
-    logger = get_kcache_logger()
+    logger = get_logger()
 
     tdir = Path(tmp_path)
     src = tdir / 'source'
