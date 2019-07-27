@@ -25,7 +25,7 @@ def get_logger() -> logging.Logger:
 
 T = TypeVar('T')
 def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
-    it: Iterator[T] = iter(l)
+    it = iter(l) # type: Iterator[T]
     while True:
         chunk: List[T] = list(islice(it, 0, n))
         if len(chunk) == 0:

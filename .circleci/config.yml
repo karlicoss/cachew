@@ -8,11 +8,10 @@ jobs:
       - checkout
 
       # TODO preserve apt and pip caches?
-      - run: sudo apt install python3-pip tox
+      # - run: sudo apt install python3-pip
       - run: python3 -m pip install --user tox
 
-        # TODO use different versions of python
-      - run: tox
+      - run: python3 -m tox
 
 workflows:
   version: 2
