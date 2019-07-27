@@ -36,6 +36,9 @@ else:
     fromisoformat = datetime.fromisoformat
 
 
+# in case of changes in the way cachew stores data, this should be changed to discard old caches
+CACHEW_FORMAT = 1
+
 def get_logger() -> logging.Logger:
     return logging.getLogger('cachew')
 
@@ -413,9 +416,8 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
                 # TODO not sure if should be more serious error...
     assert is_namedtuple(cls)
 
-    # TODO include 'global' version as well
     def composite_hash(*args, **kwargs) -> SourceHash:
-        return str(cls._field_types) + hashf(*args, **kwargs)
+        return f'cachew: {CACHEW_FORMAT}, schema: {cls._field_types}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
