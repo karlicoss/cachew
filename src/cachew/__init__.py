@@ -235,19 +235,20 @@ NT = TypeVar('NT')
 # https://github.com/python/mypy/issues/685
 
 
-class Binder(Generic[NT]):
-    def __init__(self, clazz: Type[NT]) -> None:
-        self.clazz = clazz
-        self.nt_binder = NTBinder.make(self.clazz)
+class DbBinder(Generic[NT]):
+    # ugh. Generic has cls as argument and it conflicts..
+    def __init__(self, cls_: Type[NT]) -> None:
+        self.cls = cls_
+        self.nt_binder = NTBinder.make(self.cls)
 
     def __hash__(self):
-        return hash(self.clazz)
+        return hash(self.cls)
 
     def __eq__(self, o):
-        return self.clazz == o.clazz
+        return self.cls == o.cls
 
     @property
-    def columns(self) -> List[Column]:
+    def db_columns(self) -> List[Column]:
         return self.nt_binder.columns
 
     def to_row(self, obj: NT) -> Tuple[Any, ...]:
@@ -267,7 +268,7 @@ SourceHash = str
 
 # TODO give a better name
 class DbWrapper:
-    def __init__(self, db_path: Path, type_) -> None:
+    def __init__(self, db_path: Path, cls) -> None:
         from sqlalchemy.interfaces import PoolListener # type: ignore
         # TODO ugh. not much faster...
         class MyListener(PoolListener):
@@ -299,8 +300,8 @@ class DbWrapper:
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
         self.table_hash.create(self.connection, checkfirst=True)
 
-        self.binder = Binder(clazz=type_)
-        self.table_data = Table('table', self.meta, *self.binder.columns)
+        self.binder = DbBinder(cls)
+        self.table_data = Table('table', self.meta, *self.binder.db_columns)
 
     def __enter__(self):
         return self
@@ -770,9 +771,9 @@ def make_people_data(count: int) -> Iterator[Person]:
 
 
 def test_binder():
-    b = Binder(clazz=Person)
+    b = DbBinder(Person)
 
-    cols = b.columns
+    cols = b.db_columns
 
     # TODO that could be a doctest showing actual database schema
     assert [(c.name, type(c.type)) for c in cols] == [
@@ -793,7 +794,7 @@ def test_unique(tmp_path):
         job_title: int
         job: Optional[Job]
 
-    assert [c.name for c in Binder(clazz=Breaky).columns] == [
+    assert [c.name for c in DbBinder(Breaky).db_columns] == [
         'job_title',
         '_job_is_null',
         'job_company',
