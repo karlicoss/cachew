@@ -27,4 +27,9 @@ if __name__ == "__main__":
                 'py.typed',
             ],
         },
+        extras_require={
+            ':python_version<"3.7"': [
+                'dataclasses',
+            ]
+        },
     )
