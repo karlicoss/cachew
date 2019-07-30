@@ -25,6 +25,7 @@ from random import Random
 import sys
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
                     Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
+import dataclasses
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
@@ -93,7 +94,26 @@ def is_primitive(cls) -> bool:
 
 
 # https://stackoverflow.com/a/2166841/706389
-def is_namedtuple(t):
+def is_dataclassish(t):
+    """
+    >>> is_dataclassish(int)
+    False
+    >>> is_dataclassish(tuple)
+    False
+    >>> from typing import NamedTuple
+    >>> class N(NamedTuple):
+    ...     field: int
+    >>> is_dataclassish(N)
+    True
+    >>> from dataclasses import dataclass
+    >>> @dataclass
+    ... class D:
+    ...     field: str
+    >>> is_dataclassish(D)
+    True
+    """
+    if dataclasses.is_dataclass(t):
+        return True
     b = t.__bases__
     if len(b) != 1 or b[0] != tuple:
         return False
@@ -355,7 +375,7 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     if len(args) != 1:
         return bail(f"wrong number of __args__: {args}")
     arg = args[0]
-    if not is_namedtuple(arg):
+    if not is_dataclassish(arg):
         return bail(f"{arg} is not NamedTuple")
     return arg
 
@@ -439,10 +459,10 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
             if cls != inferred:
                 logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
-    assert is_namedtuple(cls)
+    assert is_dataclassish(cls)
 
     def composite_hash(*args, **kwargs) -> SourceHash:
-        return f'cachew: {CACHEW_FORMAT}, schema: {cls._field_types}, hash: {hashf(*args, **kwargs)}'
+        return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -845,6 +865,21 @@ def test_stats(tmp_path):
     list(get_people_data())
     print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
+
+def test_dataclass(tmp_path):
+    tdir = Path(tmp_path)
+
+    from dataclasses import dataclass
+    @dataclass
+    class Test:
+        field: int
+
+    @cachew(tdir / 'cache')
+    def get_dataclasses() -> Iterator[Test]:
+        yield from [Test(field=i) for i in range(5)]
+
+    assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
+    assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
