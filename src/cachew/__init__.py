@@ -378,7 +378,18 @@ PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 
 @doublewrap
 def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: HashF=default_hash, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
-    """
+    # [[[cog
+    # import cog
+    # lines = open('README.org').readlines()
+    # l = lines.index('#+BEGIN_SRC python\n')
+    # r = lines.index('#+END_SRC\n')
+    # src = lines[l + 1: r]
+    # cog.outl("'''")
+    # for line in src:
+    #     cog.out(line)
+    # cog.outl("'''")
+    # ]]]
+    '''
     >>> from typing import Collection, NamedTuple
     >>> from timeit import Timer
     >>> class Person(NamedTuple):
@@ -395,7 +406,8 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
     >>> assert res < 0.1
     >>> print(f"took {res} seconds to query cached items")
     took ... seconds to query cached items
-    """
+    '''
+    # [[[end]]]
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
     assert func is not None
