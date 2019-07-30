@@ -390,22 +390,24 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
     # cog.outl("'''")
     # ]]]
     '''
-    >>> from typing import Collection, NamedTuple
-    >>> from timeit import Timer
-    >>> class Person(NamedTuple):
-    ...     name: str
-    ...     age: int
+    >>> from typing import NamedTuple, Iterator
+    >>> class Link(NamedTuple):
+    ...     url : str
+    ...     text: str
+    ...
     >>> @cachew
-    ... def person_provider() -> Iterator[Person]:
+    ... def extract_links(archive: str) -> Iterator[Link]:
     ...     for i in range(5):
     ...         import time; time.sleep(1) # simulate slow IO
-    ...         yield Person(name=str(i), age=20 + i)
-    >>> list(person_provider()) # that should take about 5 seconds on first run
-    [Person(name='0', age=20), Person(name='1', age=21), Person(name='2', age=22), Person(name='3', age=23), Person(name='4', age=24)]
-    >>> res = Timer(lambda: list(person_provider())).timeit(number=1) # second run is cached, so should take less time
-    >>> assert res < 0.1
-    >>> print(f"took {res} seconds to query cached items")
-    took ... seconds to query cached items
+    ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
+    ...
+    >>> list(extract_links(archive='wikipedia_20190830.zip')) # that should take about 5 seconds on first run
+    [Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
+
+    >>> from timeit import Timer
+    >>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
+    >>> print(f"took {int(res)} seconds to query cached items")
+    took 0 seconds to query cached items
     '''
     # [[[end]]]
 

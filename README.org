@@ -1,41 +1,81 @@
 #+FILETAGS: cachew
 
-* Cachew: quick cache for your NamedTuples
-It works, or, strictly speaking, [[https://docs.python.org/3/library/typing.html#typing.Iterator][Iterator]]
+[[https://circleci.com/gh/karlicoss/cachew][Build status]]:  [[https://circleci.com/gh/karlicoss/cachew.png]]
+ 
+* Cachew: quick NamedTuple cache
+TLDR: cachew can persistently cache any sequence (strictly speaking, anything that's an [[https://docs.python.org/3/library/typing.html#typing.Iterator][Iterator]] over [[https://docs.python.org/3/library/typing.html#typing.NamedTuple][NamedTuples]]) into an sqlite database on your disk.
+
+Imagine you're working on a data analysis pipeline for some huge dataset, say, extracting urls from Wikipedia archive.
+Parsing it takes hours, however, the archive is presumably updated not very frequently.
+Normally to get around this, you would have to serialize your pipeline results along with some sort of hash (e.g. md5) of input files,
+compare on the next query and return them on matching hash, or discard and compute new ones if the hash (i.e. input data) changed. 
+
+This is pretty tedious to do every time you need to memorize some data, contaminates your code with routine and distracts you from your main task.
+This library is meant to solve that problem through a single line of decorator code.
+
+* TODO Installing
+
+* Example
 
 #+BEGIN_SRC python
->>> from typing import Collection, NamedTuple
->>> from timeit import Timer
->>> class Person(NamedTuple):
-...     name: str
-...     age: int
+>>> from typing import NamedTuple, Iterator
+>>> class Link(NamedTuple):
+...     url : str
+...     text: str
+...
 >>> @cachew
-... def person_provider() -> Iterator[Person]:
+... def extract_links(archive: str) -> Iterator[Link]:
 ...     for i in range(5):
 ...         import time; time.sleep(1) # simulate slow IO
-...         yield Person(name=str(i), age=20 + i)
->>> list(person_provider()) # that should take about 5 seconds on first run
-[Person(name='0', age=20), Person(name='1', age=21), Person(name='2', age=22), Person(name='3', age=23), Person(name='4', age=24)]
->>> res = Timer(lambda: list(person_provider())).timeit(number=1) # second run is cached, so should take less time
->>> assert res < 0.1
->>> print(f"took {res} seconds to query cached items")
-took ... seconds to query cached items
+...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
+...
+>>> list(extract_links(archive='wikipedia_20190830.zip')) # that should take about 5 seconds on first run
+[Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
+
+>>> from timeit import Timer
+>>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
+>>> print(f"took {int(res)} seconds to query cached items")
+took 0 seconds to query cached items
 #+END_SRC
 
-** TODO [2019-07-30 Tue 18:58] how to insert doctest here?
+* How it works
+Basically, your NamedTuple gets flattened out (if it contains nested NamedTuples) and python types are mapped onto sqlite types and back.
 
-* why Sqlite?
-  effecien, easy to interface with other tools
+When the function is called, ~cachew~ computes the hash of your functions' arguments and compares it against the previously stored hash value.
+If they match, it would deserialize and yield whatever is stored in the cache database, if the hash mismatches, the original data provider is called and new data is stored along with the new hash.
 
-* why NamedTuple?
-    
-* why not pandas.DataFrame
-  DataFrames are great and can be serialised to csv or pickled. They are good to have as one of the ways you can interface your data,
-and can't be statically analysed because of dynamic TODO
+** TODO [2019-07-30 Tue 21:06] ugh, really would be nice to write that along the code... e.g. currently supported types would be nice
 
+* Features
+
+- supports nested ~NamedTuples~
+- supports ~datetime~
+- supports  ~Optional~
+- detects schema changes and discards old data automatically 
+- custom hash function TODO example with mtime?
+ 
+* Inspiration
+Mainly this was inspired by [[https://docs.python.org/3/library/functools.html#functools.lru_cache][~functools.lru_cache~]], which is excellent if you need to cache something within a single application run.
+
+
+* Why?  
+** why ~NamedTuple~
+   ~NamedTuple~ provides a very straighforward way to represent a bit of data in Python. Very compact syntax makes it extremely convenitent even for one-off means of communicating between couple of functions.
+*** TODO [2019-07-30 Tue 21:02] some link to data class
+** why ~sqlite~ database for storage
+   It's pretty effecient and sequence of namedtuples maps onto database rows in a very straighforward manner.
+
+** why not ~pandas.DataFrame~
+   DataFrames are great and can be serialised to csv or pickled. They are good to have as one of the ways you can interface with your data, however hardly convenitent to think about it abstractly
+due to their dynamic nature. They also can't be nested.
   
-* why not ORM (e.g. sqlalchemy ORM TODO link)
-see why NamedTuple
-
+** why not ORM
+   ORMs tend to be pretty invasive and require extra attributes/inheriting other base classes, etc. (e.g. see [[https://docs.sqlalchemy.org/en/13/orm/tutorial.html#declare-a-mapping][sqlalchemy]]), which might ruin your abstractions or even performance.
+It's also somewhat an overkill for such a specific purpose.
 
 ** TODO [2019-07-30 Tue 19:00] post some link to data classes?
+   
+* examples
+** [2019-07-30 Tue 20:15] e.g. if hash is date you can ensure you only serve one piece of data a day
+
+
