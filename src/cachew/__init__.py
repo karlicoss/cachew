@@ -821,12 +821,13 @@ def test_binder():
     ]
 
 
+class Breaky(NamedTuple):
+    job_title: int
+    job: Optional[Job]
+
+
 def test_unique(tmp_path):
     tdir = Path(tmp_path)
-
-    class Breaky(NamedTuple):
-        job_title: int
-        job: Optional[Job]
 
     assert [c.name for c in DbBinder(Breaky).db_columns] == [
         'job_title',
