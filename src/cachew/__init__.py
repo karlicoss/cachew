@@ -907,12 +907,14 @@ def test_types(tmp_path):
         a_dt   : datetime
         a_date : date
 
+    import pytz
+    tz = pytz.timezone('Europe/Berlin')
     obj = Test(
         an_int =1123,
         a_bool =True,
         a_float=3.131,
         a_str  ='abac',
-        a_dt   =datetime.now(),
+        a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
     )
 
