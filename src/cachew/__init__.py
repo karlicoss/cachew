@@ -18,7 +18,7 @@ import functools
 import logging
 from itertools import chain, islice
 import string
-from datetime import datetime
+from datetime import datetime, date
 import tempfile
 from pathlib import Path
 from random import Random
@@ -59,7 +59,6 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
     # but practically, the difference seems to be pretty small, so perhaps fine for now
     impl = sqlalchemy.String
 
-    # TODO optional?
     def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[str]:
         if value is None:
             return None
@@ -71,12 +70,24 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         return fromisoformat(value)
 
 
+# a bit hacky, but works...
+class IsoDate(IsoDateTime):
+    impl = sqlalchemy.String
+
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[date]: # type: ignore
+        res = super().process_result_value(value, dialect)
+        if res is None:
+            return None
+        return res.date()
+
+
 PRIMITIVES = {
     str     : sqlalchemy.String,
     float   : sqlalchemy.Float,
     int     : sqlalchemy.Integer,
     bool    : sqlalchemy.Boolean,
     datetime: IsoDateTime,
+    date    : IsoDate,
 }
 
 
@@ -881,6 +892,38 @@ def test_dataclass(tmp_path):
 
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
+
+
+def test_types(tmp_path):
+    tdir = Path(tmp_path)
+
+    from dataclasses import dataclass
+    @dataclass
+    class Test:
+        an_int : int
+        a_bool : bool
+        a_float: float
+        a_str  : str
+        a_dt   : datetime
+        a_date : date
+
+    obj = Test(
+        an_int =1123,
+        a_bool =True,
+        a_float=3.131,
+        a_str  ='abac',
+        a_dt   =datetime.now(),
+        a_date =datetime.now().replace(year=2000).date(),
+    )
+
+    assert len(obj.__dict__) == len(PRIMITIVES) # precondition
+
+    @cachew(tdir / 'cache')
+    def get() -> Iterator[Test]:
+        yield obj
+
+    assert list(get()) == [obj]
+    assert list(get()) == [obj]
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
