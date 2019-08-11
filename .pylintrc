@@ -1,0 +1,24 @@
+[MASTER]
+
+# Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
+# number of processors available to use.
+# jobs=1
+
+[MESSAGES CONTROL]
+
+# Valid levels: HIGH, INFERENCE, INFERENCE_FAILURE, UNDEFINED.
+confidence=
+
+disable= too-few-public-methods,
+         missing-docstring,
+         invalid-name,
+         bad-whitespace,
+         line-too-long,
+         multiple-statements,
+         no-else-return,
+         no-else-raise,
+         len-as-condition,
+         wrong-import-order,
+         wrong-import-position,
+         fixme
+

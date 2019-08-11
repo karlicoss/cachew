@@ -57,6 +57,11 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
     # but practically, the difference seems to be pretty small, so perhaps fine for now
     impl = sqlalchemy.String
 
+    @property
+    def python_type(self): return datetime
+
+    def process_literal_param(self, value, dialect): raise NotImplementedError() # make pylint happy
+
     def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[str]:
         if value is None:
             return None
@@ -71,6 +76,11 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
 # a bit hacky, but works...
 class IsoDate(IsoDateTime):
     impl = sqlalchemy.String
+
+    @property
+    def python_type(self): return date
+
+    def process_literal_param(self, value, dialect): raise NotImplementedError() # make pylint happy
 
     def process_result_value(self, value: Optional[str], dialect) -> Optional[date]: # type: ignore
         res = super().process_result_value(value, dialect)
@@ -129,6 +139,7 @@ def is_dataclassish(t):
     f = getattr(t, '_fields', None)
     if not isinstance(f, tuple):
         return False
+    # pylint: disable=unidiomatic-typecheck
     return all(type(n) == str for n in f)
 
 
@@ -302,18 +313,7 @@ SourceHash = str
 # TODO give a better name
 class DbWrapper:
     def __init__(self, db_path: Path, cls) -> None:
-        from sqlalchemy.interfaces import PoolListener # type: ignore
-        # TODO ugh. not much faster...
-        class MyListener(PoolListener):
-            def connect(self, dbapi_con, con_record):
-                pass
-                # eh. doesn't seem to help much..
-                # dbapi_con.execute('PRAGMA journal_mode=MEMORY')
-                # dbapi_con.execute('PRAGMA synchronous=OFF')
-
-
         self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}')
-        # self.db = sqlalchemy.create_engine(f'sqlite:///{db_path}', listeners=[MyListener()])
         self.connection = self.engine.connect() # TODO do I need to tear anything down??
 
         """
@@ -325,6 +325,7 @@ class DbWrapper:
         Judging by sqlalchemy/dialects/sqlite/base.py, looks like some sort of python sqlite driver problem??
         """
         @event.listens_for(self.connection, "begin")
+        # pylint: disable=unused-variable
         def do_begin(conn):
             conn.execute("BEGIN")
 
@@ -357,6 +358,7 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
 
 Failure = str
 
+# pylint: disable=too-many-return-statements
 def infer_type(func) -> Union[Failure, Type[Any]]:
     """
     >>> from typing import Collection, NamedTuple
@@ -410,7 +412,15 @@ PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 
 
 @doublewrap
-def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: HashF=default_hash, chunk_by=10000, logger=None): # TODO what's a reasonable default?):
+# pylint: disable=too-many-arguments
+def cachew(
+        func=None,
+        db_path: Optional[PathProvider]=None,
+        cls=None,
+        hashf: HashF=default_hash,
+        chunk_by=10000,
+        logger=None,
+): # TODO what's a reasonable default?):
     # [[[cog
     # import cog
     # lines = open('README.org').readlines()
@@ -445,7 +455,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
     # [[[end]]]
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
-    kassert(func is not None)
+    # kassert(func is not None)
 
     if logger is None:
         logger = get_logger()
@@ -474,12 +484,23 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
                 # TODO not sure if should be more serious error...
     kassert(is_dataclassish(cls))
 
+    return cachew_impl(
+        func=func,
+        db_path=db_path,
+        cls=cls,
+        hashf=hashf,
+        logger=logger,
+        chunk_by=chunk_by,
+    )
+
+
+def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: HashF, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        if db_path is None: raise AssertionError  # help mypy
+        # if db_path is None: raise AssertionError  # help mypy
 
         dbp: Path
         if callable(db_path): # TODO test this..
@@ -513,7 +534,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
             h = composite_hash(*args, **kwargs); kassert(h is not None) # just in case
             logger.debug('new hash: %s', h)
 
-            with conn.begin() as transaction:
+            with conn.begin():
                 if h == prev_hash:
                     # TODO not sure if this needs to be in transaction
                     logger.debug('hash matched: loading from cache')

@@ -4,10 +4,10 @@ from random import Random
 import string
 from typing import NamedTuple, Iterator, Optional, List
 
-from .. import cachew, get_logger, mtime_hash, PRIMITIVES, DbBinder, CachewException
-
 import pytz
 import sqlalchemy # type: ignore
+
+from .. import cachew, get_logger, mtime_hash, PRIMITIVES, DbBinder, CachewException
 
 
 # TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
@@ -78,7 +78,7 @@ def test_many(tmp_path):
     src.touch()
 
     @cachew(db_path=lambda path: tdir / (path.name + '.cache'), cls=TE2)
-    def _iter_data(path: Path):
+    def _iter_data(_: Path):
         for i in range(COUNT):
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
@@ -157,6 +157,7 @@ def test_return_type_none(tmp_path):
     import pytest # type: ignore
     with pytest.raises(CachewException):
         @cachew(db_path=tdir / 'cache')
+        # pylint: disable=unused-variable
         def data():
             return []
 
