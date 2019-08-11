@@ -13,9 +13,9 @@ jobs:
       - checkout
 
       # TODO preserve apt and pip caches?
-      # - run: sudo apt install python3-pip
-      - run: python3 -m pip install --user tox
 
+      # no tox by default?
+      - run: python3 -m pip install --user tox
       - run: python3 -m tox
 
 

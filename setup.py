@@ -28,8 +28,16 @@ if __name__ == "__main__":
             ],
         },
         extras_require={
+            # ugh, unclear how to specify python version dependnt code in setup.cfg
             ':python_version<"3.7"': [
-                'dataclasses',
+                'dataclasses', # TODO could make optional?
+            ],
+            'testing': [
+                'pytest',
+                'pytz',
+
+                'pylint',
+                'mypy',
             ]
         },
     )

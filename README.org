@@ -55,8 +55,7 @@ If they match, it would deserialize and yield whatever is stored in the cache da
 - custom hash function TODO example with mtime?
  
 * Inspiration
-Mainly this was inspired by [[https://docs.python.org/3/library/functools.html#functools.lru_cache][~functools.lru_cache~]], which is excellent if you need to cache something within a single application run.
-
+Mainly this was inspired by [[https://docs.python.org/3/library/functools.html#functools.lru_cache][~functools.lru_cache~]], which is excellent if you need to cache something within a single run.
 
 * Why?  
 ** why ~NamedTuple~

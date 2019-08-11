@@ -24,7 +24,7 @@ from pathlib import Path
 from random import Random
 import sys
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, cast)
 import dataclasses
 
 import sqlalchemy # type: ignore
@@ -477,8 +477,11 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        assert db_path is not None # help mypy
+
+        dbp: Path
         if callable(db_path): # TODO test this..
-            dbp = Path(db_path(*args, **kwargs))
+            dbp = Path(db_path(*args, **kwargs)) # type: ignore
         else:
             dbp = Path(db_path)
 
