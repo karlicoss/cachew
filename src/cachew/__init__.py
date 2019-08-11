@@ -149,6 +149,10 @@ def strip_optional(cls):
     return (cls, False)
 
 
+# release mode friendly assert
+def kassert(x: bool) -> None:
+    if x is False:
+        raise AssertionError
 
 
 class NTBinder(NamedTuple):
@@ -164,7 +168,7 @@ class NTBinder(NamedTuple):
         tp, optional = strip_optional(tp)
         primitive = is_primitive(tp)
         if primitive:
-            assert name is not None # TODO too paranoid?
+            kassert(name is not None) # TODO too paranoid?
         fields: Tuple[Any, ...]
         if primitive:
             fields = ()
@@ -193,7 +197,7 @@ class NTBinder(NamedTuple):
                 is_none = obj is None
                 yield is_none
             else:
-                is_none = False; assert obj is not None # TODO hmm, that last assert is not very symmetric...
+                is_none = False; kassert(obj is not None) # TODO hmm, that last assert is not very symmetric...
 
             if is_none:
                 for _ in range(self.span - 1):
@@ -215,7 +219,7 @@ class NTBinder(NamedTuple):
 
             if is_none:
                 for _ in range(self.span - 1):
-                    x = next(row_iter); assert x is None  # huh. assert is kinda opposite of producing value
+                    x = next(row_iter); kassert(x is None)  # huh. assert is kinda opposite of producing value
                 return None
             else:
                 return self.type_(*(
@@ -235,7 +239,7 @@ class NTBinder(NamedTuple):
 
 
         if self.primitive:
-            assert self.name is not None
+            if self.name is None: raise AssertionError
             yield col(self.name, PRIMITIVES[self.type_])
         else:
             prefix = '' if self.name is None else self.name + '_'
@@ -287,7 +291,7 @@ class DbBinder(Generic[NT]):
         riter = iter(row)
         res = self.nt_binder.from_row(riter)
         remaining = list(islice(riter, 0, 1))
-        assert len(remaining) == 0
+        kassert(len(remaining) == 0)
         return res
 
 
@@ -441,7 +445,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
     # [[[end]]]
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
-    assert func is not None
+    kassert(func is not None)
 
     if logger is None:
         logger = get_logger()
@@ -468,14 +472,14 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
             if cls != inferred:
                 logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
-    assert is_dataclassish(cls)
+    kassert(is_dataclassish(cls))
 
     def composite_hash(*args, **kwargs) -> SourceHash:
         return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        assert db_path is not None # help mypy
+        if db_path is None: raise AssertionError  # help mypy
 
         dbp: Path
         if callable(db_path): # TODO test this..
@@ -506,7 +510,7 @@ def cachew(func=None, db_path: Optional[PathProvider]=None, cls=None, hashf: Has
                 prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
 
             logger.debug('old hash: %s', prev_hash)
-            h = composite_hash(*args, **kwargs); assert h is not None # just in case
+            h = composite_hash(*args, **kwargs); kassert(h is not None) # just in case
             logger.debug('new hash: %s', h)
 
             with conn.begin() as transaction:
