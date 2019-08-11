@@ -38,11 +38,14 @@ else:
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_FORMAT = 1
 
+
 def get_logger() -> logging.Logger:
     return logging.getLogger('cachew')
 
 
 T = TypeVar('T')
+
+
 def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
     it: Iterator[T] = iter(l)
     while True:
@@ -108,12 +111,12 @@ Types = Union[
 ]
 
 
-def is_primitive(cls) -> bool:
+def is_primitive(cls: Type) -> bool:
     return cls in PRIMITIVES
 
 
 # https://stackoverflow.com/a/2166841/706389
-def is_dataclassish(t):
+def is_dataclassish(t: Type) -> bool:
     """
     >>> is_dataclassish(int)
     False
@@ -184,7 +187,7 @@ class NTBinder(NamedTuple):
         if primitive:
             fields = ()
             span = 1
-        if not primitive:
+        else:
             fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
             span = sum(f.span for f in fields) + (1 if optional else 0)
         return NTBinder(
@@ -238,16 +241,15 @@ class NTBinder(NamedTuple):
                     for f in self.fields
                 ))
 
-
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
         used_names: Set[str] = set()
+
         def col(name: str, tp) -> Column:
             while name in used_names:
                 name = '_' + name
             used_names.add(name)
             return Column(name, tp)
-
 
         if self.primitive:
             if self.name is None: raise AssertionError
@@ -259,7 +261,6 @@ class NTBinder(NamedTuple):
             for f in self.fields:
                 for c in f.iter_columns():
                     yield col(f'{prefix}{c.name}', c.type)
-
 
     def __str__(self):
         lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + ' '  + str(x.span) for level, x in self.iterxxx()]
@@ -329,7 +330,6 @@ class DbWrapper:
         def do_begin(conn):
             conn.execute("BEGIN")
 
-
         self.meta = sqlalchemy.MetaData(self.connection)
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
         self.table_hash.create(self.connection, checkfirst=True)
@@ -343,7 +343,8 @@ class DbWrapper:
     def __exit__(self, *args):
         self.connection.close()
 
-HashF = Callable[..., SourceHash]
+
+HashFunction = Callable[..., SourceHash]
 
 
 def default_hash(*args, **kwargs) -> SourceHash:
@@ -357,6 +358,7 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
 
 
 Failure = str
+
 
 # pylint: disable=too-many-return-statements
 def infer_type(func) -> Union[Failure, Type[Any]]:
@@ -394,6 +396,7 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
         return bail(f"{arg} is not NamedTuple")
     return arg
 
+
 # https://stackoverflow.com/questions/653368/how-to-create-a-python-decorator-that-can-be-used-either-with-or-without-paramet
 def doublewrap(f):
     @functools.wraps(f)
@@ -415,12 +418,22 @@ PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 # pylint: disable=too-many-arguments
 def cachew(
         func=None,
-        db_path: Optional[PathProvider]=None,
+        cache_path: Optional[PathProvider]=None,
         cls=None,
-        hashf: HashF=default_hash,
-        chunk_by=10000,
+        hashf: HashFunction=default_hash,
         logger=None,
-): # TODO what's a reasonable default?):
+        chunk_by=10000, # TODO dunno maybe remove it?
+):  # TODO what's a reasonable default?):
+    r"""
+    Database-backed cache decorator. TODO more description?
+    # TODO use this doc in readme?
+
+    :param cache_path: if not set, it will be generated in `/tmp` based on function name. It is recommended to always set this parameter.
+    :param cls: if not set, cachew will attempt to infer it from return type annotation. See :func:`infer_type` and :func:`cachew.tests.test_cachew.test_return_type_inference`.
+    :param hashf: hash function to determine whether the. Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
+    :param logger: custom logger, if not specified will use logger named `cachew`. See :func:`get_logger`.
+    :return: iterator over original or cached items
+
     # [[[cog
     # import cog
     # lines = open('README.org').readlines()
@@ -432,7 +445,9 @@ def cachew(
     #     cog.out(line)
     # cog.outl("'''")
     # ]]]
-    '''
+
+    Usage example:
+
     >>> from typing import NamedTuple, Iterator
     >>> class Link(NamedTuple):
     ...     url : str
@@ -451,7 +466,7 @@ def cachew(
     >>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
     >>> print(f"took {int(res)} seconds to query cached items")
     took 0 seconds to query cached items
-    '''
+    """
     # [[[end]]]
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
@@ -460,11 +475,11 @@ def cachew(
     if logger is None:
         logger = get_logger()
 
-    if db_path is None:
+    if cache_path is None:
         td = Path(tempfile.gettempdir()) / 'cachew'
         td.mkdir(parents=True, exist_ok=True)
-        db_path = td / func.__qualname__ # TODO sanitize?
-        logger.info('No db_path specified, using %s as implicit cache', db_path)
+        cache_path = td / func.__qualname__  # TODO sanitize?
+        logger.info('No db_path specified, using %s as implicit cache', cache_path)
 
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
@@ -486,7 +501,7 @@ def cachew(
 
     return cachew_impl(
         func=func,
-        db_path=db_path,
+        db_path=cache_path,
         cls=cls,
         hashf=hashf,
         logger=logger,
@@ -494,7 +509,7 @@ def cachew(
     )
 
 
-def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: HashF, logger: logging.Logger, chunk_by: int):
+def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
 
@@ -563,3 +578,6 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
                     # pylint: disable=no-value-for-parameter
                     conn.execute(db.table_hash.insert().values([{'value': h}]))
     return wrapper
+
+
+__all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'DbBinder']

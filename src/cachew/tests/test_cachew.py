@@ -77,7 +77,7 @@ def test_many(tmp_path):
     src = tdir / 'source'
     src.touch()
 
-    @cachew(db_path=lambda path: tdir / (path.name + '.cache'), cls=TE2)
+    @cachew(cache_path=lambda path: tdir / (path.name + '.cache'), cls=TE2)
     def _iter_data(_: Path):
         for i in range(COUNT):
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
@@ -126,9 +126,12 @@ class AA(NamedTuple):
 
 
 def test_return_type_inference(tmp_path):
+    """
+    Tests that return type (BB) is inferred from the type annotation
+    """
     tdir = Path(tmp_path)
 
-    @cachew(db_path=tdir / 'cache')
+    @cachew(cache_path=tdir / 'cache')
     def data() -> Iterator[BB]:
         yield BB(xx=1, yy=2)
         yield BB(xx=3, yy=4)
@@ -140,7 +143,7 @@ def test_return_type_inference(tmp_path):
 def test_return_type_mismatch(tmp_path):
     tdir = Path(tmp_path)
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
-    @cachew(db_path=tdir / 'cache2', cls=AA)
+    @cachew(cache_path=tdir / 'cache2', cls=AA)
     def data2() -> List[BB]:
         return [ # type: ignore
             AA(value=1, b=None, value2=123),
@@ -156,7 +159,7 @@ def test_return_type_none(tmp_path):
     tdir = Path(tmp_path)
     import pytest # type: ignore
     with pytest.raises(CachewException):
-        @cachew(db_path=tdir / 'cache')
+        @cachew(cache_path=tdir / 'cache')
         # pylint: disable=unused-variable
         def data():
             return []
@@ -179,7 +182,7 @@ def test_nested(tmp_path):
         yield d1
         yield d2
 
-    @cachew(db_path=tdir / 'cache', cls=AA)
+    @cachew(cache_path=tdir / 'cache', cls=AA)
     def get_data():
         yield from data()
 
@@ -200,7 +203,7 @@ def test_schema_change(tmp_path):
     tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
-    @cachew(db_path=tdir / 'cache', cls=BB)
+    @cachew(cache_path=tdir / 'cache', cls=BB)
     def get_data():
         return [b]
 
@@ -208,11 +211,12 @@ def test_schema_change(tmp_path):
 
     # TODO make type part of key?
     b2 = BBv2(xx=3, yy=4, zz=5.0)
-    @cachew(db_path=tdir / 'cache', cls=BBv2)
+    @cachew(cache_path=tdir / 'cache', cls=BBv2)
     def get_data_v2():
         return [b2]
 
     assert list(get_data_v2()) == [b2]
+
 
 def test_transaction(tmp_path):
     """
@@ -224,7 +228,7 @@ def test_transaction(tmp_path):
     class TestError(Exception):
         pass
 
-    @cachew(db_path=tdir / 'cache', cls=BB, chunk_by=1)
+    @cachew(cache_path=tdir / 'cache', cls=BB, chunk_by=1)
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
@@ -322,7 +326,7 @@ def test_unique(tmp_path):
         job_title=123,
         job=Job(company='123', title='whatever'),
     )
-    @cachew(db_path=tdir / 'cache')
+    @cachew(cache_path=tdir / 'cache')
     def iter_breaky() -> Iterator[Breaky]:
         yield b
         yield b
@@ -340,10 +344,9 @@ def test_stats(tmp_path):
     one = (4 + 5) + (4 + 10) + 4 + (4 + 12 + 4 + 8)
     N = 10000
 
-    @cachew(db_path=cache_file, cls=Person)
+    @cachew(cache_path=cache_file, cls=Person)
     def get_people_data() -> Iterator[Person]:
         yield from make_people_data(count=N)
-
 
     list(get_people_data())
     print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
