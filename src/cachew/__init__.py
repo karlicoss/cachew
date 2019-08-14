@@ -1,3 +1,4 @@
+import typing
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -151,16 +152,28 @@ class CachewException(RuntimeError):
 
 
 def strip_optional(cls):
+    """
+    >>> from typing import Optional, NamedTuple
+    >>> strip_optional(Optional[int])
+    (<class 'int'>, True)
+    >>> class X(NamedTuple):
+    ...     x: int
+    >>> strip_optional(X)
+    (<class 'cachew.X'>, False)
+    """
+    is_opt: bool = False
+
     if getattr(cls, '__origin__', None) == Union:
         # handles Optional
         elems = cls.__args__
         elems = [e for e in elems if e != type(None)]
         if len(elems) == 1:
-            nonopt = elems[0] # meh
-            return (nonopt, True)
+            cls = elems[0] # meh
+            is_opt = True
         else:
             raise CachewException(f'{cls} is unsupported!')
-    return (cls, False)
+
+    return (cls, is_opt)
 
 
 # release mode friendly assert
