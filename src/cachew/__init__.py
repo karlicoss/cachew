@@ -95,8 +95,8 @@ class IsoDate(IsoDateTime):
 
 PRIMITIVES = {
     str     : sqlalchemy.String,
-    float   : sqlalchemy.Float,
     int     : sqlalchemy.Integer,
+    float   : sqlalchemy.Float,
     bool    : sqlalchemy.Boolean,
     datetime: IsoDateTime,
     date    : IsoDate,
@@ -108,7 +108,19 @@ Types = Union[
     Type[int],
     Type[float],
     Type[bool],
+    Type[datetime],
+    Type[date],
     Type[NamedTuple],
+]
+
+Values = Union[
+    str,
+    int,
+    float,
+    bool,
+    datetime,
+    date,
+    NamedTuple,
 ]
 
 
@@ -182,6 +194,11 @@ def kassert(x: bool) -> None:
         raise AssertionError
 
 
+NT = TypeVar('NT')
+# sadly, bound=NamedTuple is not working yet in mypy
+# https://github.com/python/mypy/issues/685
+
+
 class NTBinder(NamedTuple):
     name     : Optional[str] # None means toplevel
     type_    : Types
@@ -191,7 +208,7 @@ class NTBinder(NamedTuple):
     fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
-    def make(tp, name: Optional[str]=None) -> 'NTBinder':
+    def make(tp: Type, name: Optional[str]=None) -> 'NTBinder':
         tp, optional = strip_optional(tp)
         primitive = is_primitive(tp)
         if primitive:
@@ -216,7 +233,7 @@ class NTBinder(NamedTuple):
     def columns(self) -> List[Column]:
         return list(self.iter_columns())
 
-    def to_row(self, obj):
+    def _to_row(self, obj) -> Iterator[Optional[Values]]:
         if self.primitive:
             yield obj
         else:
@@ -231,11 +248,11 @@ class NTBinder(NamedTuple):
                     yield None
             else:
                 yield from chain.from_iterable(
-                    f.to_row(getattr(obj, f.name))
+                    f._to_row(getattr(obj, f.name))
                     for f in self.fields
                 )
 
-    def from_row(self, row_iter):
+    def _from_row(self, row_iter):
         if self.primitive:
             return next(row_iter)
         else:
@@ -250,9 +267,35 @@ class NTBinder(NamedTuple):
                 return None
             else:
                 return self.type_(*(
-                    f.from_row(row_iter)
+                    f._from_row(row_iter)
                     for f in self.fields
                 ))
+
+    def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
+        """
+        >>> binder = NTBinder(name=None, type_=int, span=1, primitive=True, optional=False, fields=())
+        >>> tuple(binder.to_row(123))
+        (123,)
+        """
+        return tuple(self._to_row(obj))
+
+    def from_row(self, row: Iterable[Any]) -> NT:
+        """
+        >>> binder = NTBinder(name=None, type_=int, span=1, primitive=True, optional=False, fields=())
+        >>> binder.from_row(iter([123]))
+        123
+        >>> binder.from_row(iter([123, 456]))
+        Traceback (most recent call last):
+        ...
+        cachew.CachewException: unconsumed items in iterator [456]
+        """
+        riter = iter(row)
+        res = self._from_row(riter)
+        remaining = list(islice(riter, 0, 1))
+        if len(remaining) != 0:
+            raise CachewException(f'unconsumed items in iterator {remaining}')
+        assert res is not None  # nosec # help mypy; top level will not be None
+        return res
 
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
@@ -276,48 +319,16 @@ class NTBinder(NamedTuple):
                     yield col(f'{prefix}{c.name}', c.type)
 
     def __str__(self):
-        lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + ' '  + str(x.span) for level, x in self.iterxxx()]
+        lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + ' '  + str(x.span) for level, x in self.flatten()]
         return '\n'.join(lines)
 
     def __repr__(self):
         return str(self)
 
-    def iterxxx(self, level=0):
+    def flatten(self, level=0):
         yield (level, self)
         for f in self.fields:
-            yield from f.iterxxx(level=level + 1)
-
-
-NT = TypeVar('NT')
-# sadly, bound=NamedTuple is not working yet in mypy
-# https://github.com/python/mypy/issues/685
-
-
-class DbBinder(Generic[NT]):
-    # ugh. Generic has cls as argument and it conflicts..
-    def __init__(self, cls_: Type[NT]) -> None:
-        self.cls = cls_
-        self.nt_binder = NTBinder.make(self.cls)
-
-    def __hash__(self):
-        return hash(self.cls)
-
-    def __eq__(self, o):
-        return self.cls == o.cls
-
-    @property
-    def db_columns(self) -> List[Column]:
-        return self.nt_binder.columns
-
-    def to_row(self, obj: NT) -> Tuple[Any, ...]:
-        return tuple(self.nt_binder.to_row(obj))
-
-    def from_row(self, row: Iterable[Any]) -> NT:
-        riter = iter(row)
-        res = self.nt_binder.from_row(riter)
-        remaining = list(islice(riter, 0, 1))
-        kassert(len(remaining) == 0)
-        return res
+            yield from f.flatten(level=level + 1)
 
 
 # TODO better name to represent what it means?
@@ -326,7 +337,7 @@ SourceHash = str
 
 # TODO give a better name
 class DbWrapper:
-    def __init__(self, db_path: Path, cls) -> None:
+    def __init__(self, db_path: Path, cls: Type) -> None:
         self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}')
         self.connection = self.engine.connect() # TODO do I need to tear anything down??
 
@@ -347,8 +358,8 @@ class DbWrapper:
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
         self.table_hash.create(self.connection, checkfirst=True)
 
-        self.binder = DbBinder(cls)
-        self.table_data = Table('table', self.meta, *self.binder.db_columns)
+        self.binder = NTBinder.make(tp=cls)
+        self.table_data = Table('table', self.meta, *self.binder.columns)
 
     def __enter__(self):
         return self
@@ -579,7 +590,7 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
                     datas = func(*args, **kwargs)
 
                     for chunk in ichunks(datas, n=chunk_by):
-                        bound = [tuple(binder.to_row(c)) for c in chunk]
+                        bound = [binder.to_row(c) for c in chunk]
                         # pylint: disable=no-value-for-parameter
                         conn.execute(values_table.insert().values(bound))
                         yield from chunk
@@ -593,4 +604,4 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
     return wrapper
 
 
-__all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'DbBinder']
+__all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'NTBinder']

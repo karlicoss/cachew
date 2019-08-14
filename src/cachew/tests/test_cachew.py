@@ -1,4 +1,5 @@
 from datetime import datetime, date
+from itertools import zip_longest
 from pathlib import Path
 from random import Random
 import string
@@ -7,7 +8,7 @@ from typing import NamedTuple, Iterator, Optional, List
 import pytz
 import sqlalchemy # type: ignore
 
-from .. import cachew, get_logger, mtime_hash, PRIMITIVES, DbBinder, CachewException
+from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
 
 
 # TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
@@ -15,6 +16,17 @@ class TE(NamedTuple):
     dt: datetime
     value: float
     flag: bool
+
+
+def test_mypy_annotations():
+    # mypy won't handle, so this has to be dynamic
+    for t, v in zip_longest(Types.__args__, Values.__args__): # type: ignore
+        (arg, ) = t.__args__
+        assert arg == v
+
+    for p in PRIMITIVES:
+        assert p in Values.__args__ # type: ignore
+
 
 
 def test_simple(tmp_path):
@@ -291,12 +303,10 @@ def make_people_data(count: int) -> Iterator[Person]:
 
 
 def test_binder():
-    b = DbBinder(Person)
-
-    cols = b.db_columns
+    b = NTBinder.make(Person)
 
     # TODO that could be a doctest showing actual database schema
-    assert [(c.name, type(c.type)) for c in cols] == [
+    assert [(c.name, type(c.type)) for c in b.columns] == [
         ('name'        , sqlalchemy.String),
         ('secondname'  , sqlalchemy.String),
         ('age'         , sqlalchemy.Integer),
@@ -315,7 +325,7 @@ class Breaky(NamedTuple):
 def test_unique(tmp_path):
     tdir = Path(tmp_path)
 
-    assert [c.name for c in DbBinder(Breaky).db_columns] == [
+    assert [c.name for c in NTBinder.make(Breaky).columns] == [
         'job_title',
         '_job_is_null',
         'job_company',
