@@ -3,10 +3,10 @@ from itertools import zip_longest
 from pathlib import Path
 from random import Random
 import string
+import sys
 from typing import NamedTuple, Iterator, Optional, List, Set
 
 import pytz
-import sqlalchemy  # type: ignore
 import pytest  # type: ignore
 
 from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
@@ -19,11 +19,26 @@ class TE(NamedTuple):
     flag: bool
 
 
+@pytest.mark.skipif(sys.version_info < (3, 7), reason="""
+wtf??? 
+>>> from typing import Union
+>>> from datetime import date, datetime
+>>> Union[date, datetime]
+<class 'datetime.date'>
+same with bool/int apparently
+""")
 def test_mypy_annotations():
     # mypy won't handle, so this has to be dynamic
-    for t, v in zip_longest(Types.__args__, Values.__args__): # type: ignore
+    from typing import Union
+    vs = []
+    for t in Types.__args__: # type: ignore
         (arg, ) = t.__args__
-        assert arg == v
+        vs.append(arg)
+
+    def types(ts):
+        return list(sorted(ts, key=lambda t: str(t)))
+
+    assert types(vs) == types(Values.__args__)  # type: ignore
 
     for p in PRIMITIVES:
         assert p in Values.__args__ # type: ignore
@@ -306,32 +321,6 @@ def make_people_data(count: int) -> Iterator[Person]:
             age=g.randint(20, 60),
             job=maybe_job,
         )
-
-
-# TODO test NTBinder tree instead
-# def test_namedtuple_schema():
-#     schema = get_namedtuple_schema(Person)
-#     assert schema == (
-#         ('name'      , str, False),
-#         ('secondname', str, False),
-#         ('age'       , int, False),
-#         ('job'       , Job, True),
-#     )
-
-
-def test_binder():
-    b = NTBinder.make(Person)
-
-    # TODO that could be a doctest showing actual database schema
-    assert [(c.name, type(c.type)) for c in b.columns] == [
-        ('name'        , sqlalchemy.String),
-        ('secondname'  , sqlalchemy.String),
-        ('age'         , sqlalchemy.Integer),
-
-        ('_job_is_null', sqlalchemy.Boolean),
-        ('job_company' , sqlalchemy.String),
-        ('job_title'   , sqlalchemy.String),
-    ]
 
 
 class Breaky(NamedTuple):

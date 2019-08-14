@@ -200,6 +200,42 @@ NT = TypeVar('NT')
 
 
 class NTBinder(NamedTuple):
+    """
+    >>> class Job(NamedTuple):
+    ...    company: str
+    ...    title: Optional[str]
+    >>> class Person(NamedTuple):
+    ...     name: str
+    ...     age: int
+    ...     job: Optional[Job]
+
+    NTBinder is a helper class for inteacting with sqlite database.
+    Hierarchy is flattened:
+    >>> binder = NTBinder.make(Person)
+    >>> [(c.name, type(c.type)) for c in binder.columns]
+    ... # doctest: +NORMALIZE_WHITESPACE
+    [('name',         <class 'sqlalchemy.sql.sqltypes.String'>),
+     ('age',          <class 'sqlalchemy.sql.sqltypes.Integer'>),
+     ('_job_is_null', <class 'sqlalchemy.sql.sqltypes.Boolean'>),
+     ('job_company',  <class 'sqlalchemy.sql.sqltypes.String'>),
+     ('job_title',    <class 'sqlalchemy.sql.sqltypes.String'>)]
+
+
+    >>> person = Person(name='alan', age=40, job=None)
+
+    to_row converts object to a sql-friendly tuple. job=None, so we end up with True in _job_is_null field
+    >>> tuple(binder.to_row(person))
+    ('alan', 40, True, None, None)
+
+    from_row does a reverse conversion
+    >>> binder.from_row(('alan', 40, True, None, None))
+    Person(name='alan', age=40, job=None)
+
+    >>> binder.from_row(('ann', 25, True, None, None, 'extra'))
+    Traceback (most recent call last):
+    ...
+    cachew.CachewException: unconsumed items in iterator ['extra']
+    """
     name     : Optional[str] # None means toplevel
     type_    : Types
     span     : int  # not sure if span should include optional col?
@@ -232,6 +268,19 @@ class NTBinder(NamedTuple):
     @property
     def columns(self) -> List[Column]:
         return list(self.iter_columns())
+
+    def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
+        return tuple(self._to_row(obj))
+
+    def from_row(self, row: Iterable[Any]) -> NT:
+        riter = iter(row)
+        res = self._from_row(riter)
+        remaining = list(islice(riter, 0, 1))
+        if len(remaining) != 0:
+            raise CachewException(f'unconsumed items in iterator {remaining}')
+        assert res is not None  # nosec # help mypy; top level will not be None
+        return res
+
 
     def _to_row(self, obj) -> Iterator[Optional[Values]]:
         if self.primitive:
@@ -270,32 +319,6 @@ class NTBinder(NamedTuple):
                     f._from_row(row_iter)
                     for f in self.fields
                 ))
-
-    def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
-        """
-        >>> binder = NTBinder(name=None, type_=int, span=1, primitive=True, optional=False, fields=())
-        >>> tuple(binder.to_row(123))
-        (123,)
-        """
-        return tuple(self._to_row(obj))
-
-    def from_row(self, row: Iterable[Any]) -> NT:
-        """
-        >>> binder = NTBinder(name=None, type_=int, span=1, primitive=True, optional=False, fields=())
-        >>> binder.from_row(iter([123]))
-        123
-        >>> binder.from_row(iter([123, 456]))
-        Traceback (most recent call last):
-        ...
-        cachew.CachewException: unconsumed items in iterator [456]
-        """
-        riter = iter(row)
-        res = self._from_row(riter)
-        remaining = list(islice(riter, 0, 1))
-        if len(remaining) != 0:
-            raise CachewException(f'unconsumed items in iterator {remaining}')
-        assert res is not None  # nosec # help mypy; top level will not be None
-        return res
 
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
