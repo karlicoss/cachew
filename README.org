@@ -5,7 +5,7 @@
 * Cachew: quick NamedTuple cache
 TLDR: cachew can persistently cache any sequence (strictly speaking, anything that's an [[https://docs.python.org/3/library/typing.html#typing.Iterator][Iterator]] over [[https://docs.python.org/3/library/typing.html#typing.NamedTuple][NamedTuples]]) into an sqlite database on your disk.
 
-Imagine you're working on a data analysis pipeline for some huge dataset, say, extracting urls from Wikipedia archive.
+Imagine you're working on a data analysis pipeline for some huge dataset, say, extracting urls and their titles from Wikipedia archive.
 Parsing it takes hours, however, the archive is presumably updated not very frequently.
 Normally to get around this, you would have to serialize your pipeline results along with some sort of hash (e.g. md5) of input files,
 compare on the next query and return them on matching hash, or discard and compute new ones if the hash (i.e. input data) changed. 
@@ -48,29 +48,49 @@ If they match, it would deserialize and yield whatever is stored in the cache da
 
 * Features
 
+- relies on ~typing~ annotations. TODO link to test
 - supports nested ~NamedTuples~
 - supports ~datetime~
 - supports  ~Optional~
 - detects schema changes and discards old data automatically 
 - custom hash function TODO example with mtime?
- 
-* Inspiration
-Mainly this was inspired by [[https://docs.python.org/3/library/functools.html#functools.lru_cache][~functools.lru_cache~]], which is excellent if you need to cache something within a single run.
+- TODO iterative so works if data doesn't fit in memory??
 
-* Why?  
-** why ~NamedTuple~
-   ~NamedTuple~ provides a very straighforward way to represent a bit of data in Python. Very compact syntax makes it extremely convenitent even for one-off means of communicating between couple of functions.
+** TODO links to tests
+
+* Inspiration
+Mainly this was inspired by [[https://docs.python.org/3/library/functools.html#functools.lru_cache][~functools.lru_cache~]], which is excellent if you need to cache something within a single python process run.
+
+* Implementation
+** why tuples and dataclasses?
+   Tuples are natural in Python for quickly grouping together return results.
+   ~NamedTuple~ and ~dataclass~ specifically provide a very straighforward and self documenting way way to represent a bit of data in Python. 
+   Very compact syntax makes it extremely convenitent even for one-off means of communicating between couple of functions.
 *** TODO [2019-07-30 Tue 21:02] some link to data class
-** why ~sqlite~ database for storage
+    
+** why not [[https://docs.python.org/3/library/pickle.html][~pickle~]]?
+   Pickling is a bit heavyweight for data. There are many reports of pickle being slower than even JSON and it's also security risk. Lastly, it can only be loaded via Python.
+
+** why ~sqlite~ database for storage?
    It's pretty effecient and sequence of namedtuples maps onto database rows in a very straighforward manner.
 
-** why not ~pandas.DataFrame~
+** why not ~pandas.DataFrame~?
    DataFrames are great and can be serialised to csv or pickled. They are good to have as one of the ways you can interface with your data, however hardly convenitent to think about it abstractly
 due to their dynamic nature. They also can't be nested.
   
-** why not ORM
-   ORMs tend to be pretty invasive and require extra attributes/inheriting other base classes, etc. (e.g. see [[https://docs.sqlalchemy.org/en/13/orm/tutorial.html#declare-a-mapping][sqlalchemy]]), which might ruin your abstractions or even performance.
-It's also somewhat an overkill for such a specific purpose.
+** why not [[https://en.wikipedia.org/wiki/Object-relational_mapping][ORM]]?
+   ORMs tend to be pretty invasive, which might complicate your scripts or even ruin performance. It's also somewhat an overkill for such a specific purpose.
+
+*** E.g. [[https://docs.sqlalchemy.org/en/13/orm/tutorial.html#declare-a-mapping][SQLAlchemy]] requires you using custom sqlalchemy specific types and inheriting a base class.
+Also it doesn't support nested types.
+
+** why not [[https://marshmallow.readthedocs.io/en/3.0/nesting.html][marshmallow]]?
+   Marshmallow is great, but it requires explicit schema which is an overhead when you have it already in the form of type annotations.
+*** https://github.com/justanr/marshmallow-annotations TODO has support for NamedTuples
+ https://marshmallow-annotations.readthedocs.io/en/latest/ext/namedtuple.html#namedtuple-type-api
+
+ https://pypi.org/project/marshmallow-dataclass/
+*** TODO mention that in code?
 
 ** TODO [2019-07-30 Tue 19:00] post some link to data classes?
    
