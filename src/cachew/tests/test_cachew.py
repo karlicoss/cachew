@@ -3,10 +3,11 @@ from itertools import zip_longest
 from pathlib import Path
 from random import Random
 import string
-from typing import NamedTuple, Iterator, Optional, List
+from typing import NamedTuple, Iterator, Optional, List, Set
 
 import pytz
-import sqlalchemy # type: ignore
+import sqlalchemy  # type: ignore
+import pytest  # type: ignore
 
 from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
 
@@ -26,7 +27,6 @@ def test_mypy_annotations():
 
     for p in PRIMITIVES:
         assert p in Values.__args__ # type: ignore
-
 
 
 def test_simple(tmp_path):
@@ -169,12 +169,29 @@ def test_return_type_mismatch(tmp_path):
 
 def test_return_type_none(tmp_path):
     tdir = Path(tmp_path)
-    import pytest # type: ignore
     with pytest.raises(CachewException):
         @cachew(cache_path=tdir / 'cache')
         # pylint: disable=unused-variable
         def data():
             return []
+
+
+def test_callable_cache_path(tmp_path):
+    tdir = Path(tmp_path)
+    called: Set[str] = set()
+    @cachew(cache_path=lambda kind: tdir / f'{kind}.cache')
+    def get_data(kind: str) -> Iterator[BB]:
+        assert kind not in called
+        called.add(kind)
+        if kind == 'first':
+            yield BB(xx=1, yy=1)
+        else:
+            yield BB(xx=2, yy=2)
+
+    assert list(get_data('first'))  == [BB(xx=1, yy=1)]
+    assert list(get_data('second')) == [BB(xx=2, yy=2)]
+    assert list(get_data('first'))  == [BB(xx=1, yy=1)]
+    assert list(get_data('second')) == [BB(xx=2, yy=2)]
 
 
 def test_nested(tmp_path):

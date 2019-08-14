@@ -202,7 +202,7 @@ NT = TypeVar('NT')
 class NTBinder(NamedTuple):
     name     : Optional[str] # None means toplevel
     type_    : Types
-    span     : int # TODO not sure if span should include optional col?
+    span     : int  # not sure if span should include optional col?
     primitive: bool
     optional : bool
     fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
@@ -212,7 +212,7 @@ class NTBinder(NamedTuple):
         tp, optional = strip_optional(tp)
         primitive = is_primitive(tp)
         if primitive:
-            kassert(name is not None) # TODO too paranoid?
+            kassert(name is not None)  # TODO too paranoid?
         fields: Tuple[Any, ...]
         if primitive:
             fields = ()
@@ -241,7 +241,7 @@ class NTBinder(NamedTuple):
                 is_none = obj is None
                 yield is_none
             else:
-                is_none = False; kassert(obj is not None) # TODO hmm, that last assert is not very symmetric...
+                is_none = False; kassert(obj is not None)  # TODO hmm, that last assert is not very symmetric...
 
             if is_none:
                 for _ in range(self.span - 1):
@@ -335,11 +335,10 @@ class NTBinder(NamedTuple):
 SourceHash = str
 
 
-# TODO give a better name
-class DbWrapper:
+class DbHelper:
     def __init__(self, db_path: Path, cls: Type) -> None:
         self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}')
-        self.connection = self.engine.connect() # TODO do I need to tear anything down??
+        self.connection = self.engine.connect()
 
         """
         Erm... this is pretty confusing.
@@ -398,7 +397,6 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     """
     rtype = getattr(func, '__annotations__', {}).get('return', None)
     if rtype is None:
-        # TODO mm. if
         return f"no return type annotation on {func}"
 
     def bail(reason):
@@ -539,10 +537,8 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # if db_path is None: raise AssertionError  # help mypy
-
         dbp: Path
-        if callable(db_path): # TODO test this..
+        if callable(db_path):
             dbp = Path(db_path(*args, **kwargs)) # type: ignore
         else:
             dbp = Path(db_path)
@@ -553,13 +549,12 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
             raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
         # TODO make sure we have exclusive write lock
-        with DbWrapper(dbp, cls) as db:
+        with DbHelper(dbp, cls) as db:
             binder = db.binder
             conn = db.connection
             values_table = db.table_data
 
             prev_hashes = conn.execute(db.table_hash.select()).fetchall()
-            # TODO .order_by('rowid') ?
             if len(prev_hashes) > 1:
                 raise CachewException(f'Multiple hashes! {prev_hashes}')
 
@@ -567,7 +562,7 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
             if len(prev_hashes) == 0:
                 prev_hash = None
             else:
-                prev_hash = prev_hashes[0][0] # TODO ugh, returns a tuple...
+                prev_hash = prev_hashes[0][0]  # returns a tuple...
 
             logger.debug('old hash: %s', prev_hash)
             h = composite_hash(*args, **kwargs); kassert(h is not None) # just in case
@@ -575,7 +570,6 @@ def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: Hash
 
             with conn.begin():
                 if h == prev_hash:
-                    # TODO not sure if this needs to be in transaction
                     logger.debug('hash matched: loading from cache')
                     rows = conn.execute(values_table.select())
                     for row in rows:
