@@ -509,8 +509,13 @@ def cachew(
     if cache_path is None:
         td = Path(tempfile.gettempdir()) / 'cachew'
         td.mkdir(parents=True, exist_ok=True)
-        cache_path = td / func.__qualname__  # TODO sanitize?
+        cache_path = td
         logger.info('No db_path specified, using %s as implicit cache', cache_path)
+
+    if not callable(cache_path):
+        cache_path = Path(cache_path)
+        if cache_path.exists() and cache_path.is_dir():
+            cache_path = cache_path / str(func.__qualname__)
 
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
@@ -532,7 +537,7 @@ def cachew(
 
     return cachew_impl(
         func=func,
-        db_path=cache_path,
+        cache_path=cache_path,
         cls=cls,
         hashf=hashf,
         logger=logger,
@@ -540,17 +545,17 @@ def cachew(
     )
 
 
-def cachew_impl(*, func: Callable, db_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
+def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         dbp: Path
-        if callable(db_path):
-            dbp = Path(db_path(*args, **kwargs)) # type: ignore
+        if callable(cache_path):
+            dbp = Path(cache_path(*args, **kwargs))  # type: ignore
         else:
-            dbp = Path(db_path)
+            dbp = Path(cache_path)
 
         logger.debug('using %s for db cache', dbp)
 

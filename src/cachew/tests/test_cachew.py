@@ -44,15 +44,13 @@ def test_mypy_annotations():
 
 
 def test_simple(tmp_path):
+    tdir = Path(tmp_path)
+
     mad = pytz.timezone('Europe/Madrid')
     utc = pytz.utc
 
-
-    tdir = Path(tmp_path)
     src = tdir / 'source'
     src.write_text('0')
-
-    db_path = tdir / 'db.sqlite'
 
     entities = [
         TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242, flag=True),
@@ -60,7 +58,7 @@ def test_simple(tmp_path):
     ]
 
     accesses = 0
-    @cachew(db_path, hashf=mtime_hash, cls=TE)
+    @cachew(tdir, hashf=mtime_hash, cls=TE)
     def _get_data(path: Path):
         nonlocal accesses
         accesses += 1
@@ -157,7 +155,7 @@ def test_return_type_inference(tmp_path):
     """
     tdir = Path(tmp_path)
 
-    @cachew(cache_path=tdir / 'cache')
+    @cachew(tdir)
     def data() -> Iterator[BB]:
         yield BB(xx=1, yy=2)
         yield BB(xx=3, yy=4)
@@ -169,7 +167,7 @@ def test_return_type_inference(tmp_path):
 def test_return_type_mismatch(tmp_path):
     tdir = Path(tmp_path)
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
-    @cachew(cache_path=tdir / 'cache2', cls=AA)
+    @cachew(tdir, cls=AA)
     def data2() -> List[BB]:
         return [ # type: ignore
             AA(value=1, b=None, value2=123),
@@ -184,13 +182,16 @@ def test_return_type_mismatch(tmp_path):
 def test_return_type_none(tmp_path):
     tdir = Path(tmp_path)
     with pytest.raises(CachewException):
-        @cachew(cache_path=tdir / 'cache')
+        @cachew(tdir)
         # pylint: disable=unused-variable
         def data():
             return []
 
 
 def test_callable_cache_path(tmp_path):
+    """
+    Cache path can be function dependent on wrapped function's arguments
+    """
     tdir = Path(tmp_path)
     called: Set[str] = set()
     @cachew(cache_path=lambda kind: tdir / f'{kind}.cache')
@@ -225,7 +226,7 @@ def test_nested(tmp_path):
         yield d1
         yield d2
 
-    @cachew(cache_path=tdir / 'cache', cls=AA)
+    @cachew(cache_path=tdir, cls=AA)
     def get_data():
         yield from data()
 
@@ -246,7 +247,7 @@ def test_schema_change(tmp_path):
     tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
-    @cachew(cache_path=tdir / 'cache', cls=BB)
+    @cachew(cache_path=tdir, cls=BB)
     def get_data():
         return [b]
 
@@ -254,7 +255,7 @@ def test_schema_change(tmp_path):
 
     # TODO make type part of key?
     b2 = BBv2(xx=3, yy=4, zz=5.0)
-    @cachew(cache_path=tdir / 'cache', cls=BBv2)
+    @cachew(cache_path=tdir, cls=BBv2)
     def get_data_v2():
         return [b2]
 
@@ -271,7 +272,7 @@ def test_transaction(tmp_path):
     class TestError(Exception):
         pass
 
-    @cachew(cache_path=tdir / 'cache', cls=BB, chunk_by=1)
+    @cachew(cache_path=tdir, cls=BB, chunk_by=1)
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
@@ -301,8 +302,7 @@ def test_optional(tmp_path):
     """
     tdir = Path(tmp_path)
 
-    # TODO deduce db name from method name maybe???
-    @cachew(tmp_path / 'cache')
+    @cachew(tdir)
     def data() -> Iterator[Job]:
         yield Job('google'      , title='engineed')
         yield Job('selfemployed', title=None)
@@ -362,7 +362,7 @@ def test_unique(tmp_path):
         job_title=123,
         job=Job(company='123', title='whatever'),
     )
-    @cachew(cache_path=tdir / 'cache')
+    @cachew(cache_path=tdir)
     def iter_breaky() -> Iterator[Breaky]:
         yield b
         yield b
@@ -396,7 +396,7 @@ def test_dataclass(tmp_path):
     class Test:
         field: int
 
-    @cachew(tdir / 'cache')
+    @cachew(tdir)
     def get_dataclasses() -> Iterator[Test]:
         yield from [Test(field=i) for i in range(5)]
 
@@ -416,6 +416,7 @@ def test_types(tmp_path):
         a_str  : str
         a_dt   : datetime
         a_date : date
+    # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
     tz = pytz.timezone('Europe/Berlin')
@@ -428,7 +429,7 @@ def test_types(tmp_path):
         a_date =datetime.now().replace(year=2000).date(),
     )
 
-    @cachew(tdir / 'cache')
+    @cachew(tdir)
     def get() -> Iterator[Test]:
         yield obj
 
