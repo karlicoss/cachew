@@ -15,7 +15,7 @@ from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewExcep
 
 
 @pytest.fixture
-def tpath(tmp_path):
+def tdir(tmp_path):
     yield Path(tmp_path)
 
 
@@ -50,9 +50,7 @@ def test_mypy_annotations():
         assert p in Values.__args__ # type: ignore
 
 
-def test_simple(tmp_path):
-    tdir = Path(tmp_path)
-
+def test_simple(tdir):
     mad = pytz.timezone('Europe/Madrid')
     utc = pytz.utc
 
@@ -96,9 +94,7 @@ class UUU(NamedTuple):
     yy: int
 
 
-def test_caching(tpath):
-    tdir = tpath
-
+def test_caching(tdir):
     @cachew(tdir)
     def data() -> Iterator[UUU]:
         time.sleep(1)
@@ -135,11 +131,10 @@ class TE2(NamedTuple):
 
 
 # TODO also profile datetimes?
-def test_many(tmp_path):
+def test_many(tdir):
     COUNT = 100000
     logger = get_logger()
 
-    tdir = Path(tmp_path)
     src = tdir / 'source'
     src.touch()
 
@@ -191,11 +186,10 @@ class AA(NamedTuple):
     value2: int
 
 
-def test_return_type_inference(tmp_path):
+def test_return_type_inference(tdir):
     """
     Tests that return type (BB) is inferred from the type annotation
     """
-    tdir = Path(tmp_path)
 
     @cachew(tdir)
     def data() -> Iterator[BB]:
@@ -206,8 +200,7 @@ def test_return_type_inference(tmp_path):
     assert len(list(data())) == 2
 
 
-def test_return_type_mismatch(tmp_path):
-    tdir = Path(tmp_path)
+def test_return_type_mismatch(tdir):
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
     @cachew(tdir, cls=AA)
     def data2() -> List[BB]:
@@ -221,8 +214,7 @@ def test_return_type_mismatch(tmp_path):
     assert list(data2()) == [AA(value=1, b=None, value2=123)]
 
 
-def test_return_type_none(tmp_path):
-    tdir = Path(tmp_path)
+def test_return_type_none(tdir):
     with pytest.raises(CachewException):
         @cachew(tdir)
         # pylint: disable=unused-variable
@@ -230,11 +222,10 @@ def test_return_type_none(tmp_path):
             return []
 
 
-def test_callable_cache_path(tmp_path):
+def test_callable_cache_path(tdir):
     """
     Cache path can be function dependent on wrapped function's arguments
     """
-    tdir = Path(tmp_path)
     called: Set[str] = set()
     @cachew(cache_path=lambda kind: tdir / f'{kind}.cache')
     def get_data(kind: str) -> Iterator[BB]:
@@ -251,8 +242,7 @@ def test_callable_cache_path(tmp_path):
     assert list(get_data('second')) == [BB(xx=2, yy=2)]
 
 
-def test_nested(tmp_path):
-    tdir = Path(tmp_path)
+def test_nested(tdir):
 
     d1 = AA(
         value=1,
@@ -282,11 +272,10 @@ class BBv2(NamedTuple):
     zz: float
 
 
-def test_schema_change(tmp_path):
+def test_schema_change(tdir):
     """
     Should discard cache on schema change (BB to BBv2) in this example
     """
-    tdir = Path(tmp_path)
     b = BB(xx=2, yy=3)
 
     @cachew(cache_path=tdir, cls=BB)
@@ -304,12 +293,11 @@ def test_schema_change(tmp_path):
     assert list(get_data_v2()) == [b2]
 
 
-def test_transaction(tmp_path):
+def test_transaction(tdir):
     """
     Should keep old cache and not leave it in some broken state in case of errors
     """
     # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
-    tdir = Path(tmp_path)
 
     class TestError(Exception):
         pass
@@ -338,11 +326,10 @@ class Job(NamedTuple):
     title: Optional[str]
 
 
-def test_optional(tmp_path):
+def test_optional(tdir):
     """
     Tests support for typing.Optional
     """
-    tdir = Path(tmp_path)
 
     @cachew(tdir)
     def data() -> Iterator[Job]:
@@ -390,9 +377,7 @@ class Breaky(NamedTuple):
     job: Optional[Job]
 
 
-def test_unique(tmp_path):
-    tdir = Path(tmp_path)
-
+def test_unique(tdir):
     assert [c.name for c in NTBinder.make(Breaky).columns] == [
         'job_title',
         '_job_is_null',
@@ -413,9 +398,7 @@ def test_unique(tmp_path):
     assert list(iter_breaky()) == [b, b]
 
 
-def test_stats(tmp_path):
-    tdir = Path(tmp_path)
-
+def test_stats(tdir):
     cache_file = tdir / 'cache'
 
     # 4 + things are string lengths
@@ -430,9 +413,7 @@ def test_stats(tmp_path):
     print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
 
-def test_dataclass(tmp_path):
-    tdir = Path(tmp_path)
-
+def test_dataclass(tdir):
     from dataclasses import dataclass
     @dataclass
     class Test:
@@ -446,9 +427,7 @@ def test_dataclass(tmp_path):
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
 
 
-def test_types(tmp_path):
-    tdir = Path(tmp_path)
-
+def test_types(tdir):
     from dataclasses import dataclass
     @dataclass
     class Test:
