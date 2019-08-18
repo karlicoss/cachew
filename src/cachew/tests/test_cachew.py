@@ -4,12 +4,19 @@ from pathlib import Path
 from random import Random
 import string
 import sys
-from typing import NamedTuple, Iterator, Optional, List, Set
+import time
+import timeit
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast
 
 import pytz
 import pytest  # type: ignore
 
 from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
+
+
+@pytest.fixture
+def tpath(tmp_path):
+    yield Path(tmp_path)
 
 
 class TE(NamedTuple):
@@ -87,10 +94,45 @@ def test_simple(tmp_path):
 class UUU(NamedTuple):
     xx: int
     yy: int
+
+
+def test_caching(tpath):
+    tdir = tpath
+
+    @cachew(tdir)
+    def data() -> Iterator[UUU]:
+        time.sleep(1)
+        for i in range(5):
+            yield UUU(xx=i, yy=i)
+            time.sleep(1)
+
+    # https://stackoverflow.com/a/40385994/706389
+    template = """
+def inner(_it, _timer{init}):
+    {setup}
+    _t0 = _timer()
+    for _i in _it:
+        retval = {stmt}
+    _t1 = _timer()
+    return _t1 - _t0, retval
+"""
+    timeit.template = template # type: ignore
+
+    timer = timeit.Timer(lambda: len(list(data())))
+    t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
+    assert cnt == 5
+    assert t > 5.0, 'should take at least 5 seconds'
+
+    t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
+    assert cnt == 5
+    assert t < 2.0, 'should be pretty much instantaneous'
+
+
 class TE2(NamedTuple):
     value: int
     uuu: UUU
     value2: int
+
 
 # TODO also profile datetimes?
 def test_many(tmp_path):
