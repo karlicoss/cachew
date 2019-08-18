@@ -479,20 +479,7 @@ def cachew(
     :param logger: custom logger, if not specified will use logger named `cachew`. See :func:`get_logger`.
     :return: iterator over original or cached items
 
-    # [[[cog
-    # import cog
-    # lines = open('README.org').readlines()
-    # l = lines.index('#+BEGIN_SRC python\n')
-    # r = lines.index('#+END_SRC\n')
-    # src = lines[l + 1: r]
-    # cog.outl("'''")
-    # for line in src:
-    #     cog.out(line)
-    # cog.outl("'''")
-    # ]]]
-
     Usage example:
-
     >>> from typing import NamedTuple, Iterator
     >>> class Link(NamedTuple):
     ...     url : str
@@ -512,7 +499,6 @@ def cachew(
     >>> print(f"took {int(res)} seconds to query cached items")
     took 0 seconds to query cached items
     """
-    # [[[end]]]
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
     # kassert(func is not None)

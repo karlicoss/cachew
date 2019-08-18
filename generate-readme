@@ -1,0 +1,6 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+
+# '--TagRemovePreprocessor.remove_cell_tags={"noexport"}'
+jupyter nbconvert --to markdown --template readme.tpl README.ipynb

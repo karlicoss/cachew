@@ -1,5 +1,0 @@
-#!/bin/bash
-set -eu
-cd "$(dirname "$0")"
-cog -r src/cachew/__init__.py
-git diff
