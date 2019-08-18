@@ -5,5 +5,5 @@ rm -rf dist build
 python3 setup.py bdist_wheel
 
 twine check dist/*
-twine upload --verbose --repository-url https://test.pypi.org/legacy/ dist/*
-# twine upload --verbose dist/*
+# twine upload --verbose --repository-url https://test.pypi.org/legacy/ dist/*
+twine upload --verbose dist/*
