@@ -491,7 +491,7 @@ def cachew(
     ...         import time; time.sleep(1) # simulate slow IO
     ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
     ...
-    >>> list(extract_links(archive='wikipedia_20190830.zip')) # that should take about 5 seconds on first run
+    >>> list(extract_links(archive='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
     [Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
 
     >>> from timeit import Timer

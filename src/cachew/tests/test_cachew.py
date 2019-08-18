@@ -12,7 +12,6 @@ import pytest  # type: ignore
 from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
 
 
-# TODO mypy is unhappy about inline namedtuples.. perhaps should open an issue
 class TE(NamedTuple):
     dt: datetime
     value: float
@@ -296,6 +295,27 @@ class Job(NamedTuple):
     title: Optional[str]
 
 
+def test_optional(tmp_path):
+    """
+    Tests support for typing.Optional
+    """
+    tdir = Path(tmp_path)
+
+    # TODO deduce db name from method name maybe???
+    @cachew(tmp_path / 'cache')
+    def data() -> Iterator[Job]:
+        yield Job('google'      , title='engineed')
+        yield Job('selfemployed', title=None)
+
+    list(data()) # trigger cachew
+    assert list(data()) == [
+        Job('google'      , title='engineed'),
+        Job('selfemployed', title=None),
+    ]
+
+# TODO add test for optional for misleading type annotation
+
+
 class Person(NamedTuple):
     name: str
     secondname: str
@@ -396,6 +416,7 @@ def test_types(tmp_path):
         a_str  : str
         a_dt   : datetime
         a_date : date
+    assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
     tz = pytz.timezone('Europe/Berlin')
     obj = Test(
@@ -406,8 +427,6 @@ def test_types(tmp_path):
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
     )
-
-    assert len(obj.__dict__) == len(PRIMITIVES) # precondition
 
     @cachew(tdir / 'cache')
     def get() -> Iterator[Test]:
