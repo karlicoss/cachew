@@ -1,28 +1,21 @@
 from datetime import datetime, date
-from itertools import zip_longest
 from pathlib import Path
 from random import Random
 import string
 import sys
 import time
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable
 
 import pytz
 import pytest  # type: ignore
 
-from .. import cachew, get_logger, mtime_hash, PRIMITIVES, NTBinder, CachewException, Types, Values
+from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values
 
 
 @pytest.fixture
 def tdir(tmp_path):
     yield Path(tmp_path)
-
-
-class TE(NamedTuple):
-    dt: datetime
-    value: float
-    flag: bool
 
 
 @pytest.mark.skipif(sys.version_info < (3, 7), reason="""
@@ -50,48 +43,51 @@ def test_mypy_annotations():
         assert p in Values.__args__ # type: ignore
 
 
-def test_simple(tdir):
-    mad = pytz.timezone('Europe/Madrid')
-    utc = pytz.utc
+class UUU(NamedTuple):
+    xx: int
+    yy: int
 
+
+def test_custom_hash(tdir):
+    """
+    Demo of using argument's modification time to determine if underlying data changed
+    """
     src = tdir / 'source'
     src.write_text('0')
 
     entities = [
-        TE(dt=utc.localize(datetime(year=1991, month=5, day=3, minute=1)), value=123.43242, flag=True),
-        TE(dt=mad.localize(datetime(year=1997, month=7, day=4, second=5)), value=9842.4234, flag=False),
+        UUU(xx=1, yy=1),
+        UUU(xx=2, yy=2),
+        UUU(xx=3, yy=3),
     ]
+    calls = 0
 
-    accesses = 0
-    @cachew(tdir, hashf=mtime_hash, cls=TE)
-    def _get_data(path: Path):
-        nonlocal accesses
-        accesses += 1
+    @cachew(
+        cache_path=tdir,
+        hashf=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
+    )
+    def data(path: Path) -> Iterable[UUU]:
+        nonlocal calls
+        calls += 1
         count = int(path.read_text())
         return entities[:count]
 
-    def get_data():
-        return list(_get_data(src))
+    ldata = lambda: list(data(path=src))
 
-    assert len(get_data()) == 0
-    assert len(get_data()) == 0
-    assert len(get_data()) == 0
-    assert accesses == 1
+    assert len(ldata()) == 0
+    assert len(ldata()) == 0
+    assert len(ldata()) == 0
+    assert calls == 1
 
     src.write_text('1')
-    assert get_data() == entities[:1]
-    assert get_data() == entities[:1]
-    assert accesses == 2
+    assert ldata() == entities[:1]
+    assert ldata() == entities[:1]
+    assert calls == 2
 
-    src.write_text('2')
-    assert get_data() == entities
-    assert get_data() == entities
-    assert accesses == 3
-
-
-class UUU(NamedTuple):
-    xx: int
-    yy: int
+    src.write_text('3')
+    assert ldata() == entities
+    assert ldata() == entities
+    assert calls == 3
 
 
 def test_caching(tdir):
