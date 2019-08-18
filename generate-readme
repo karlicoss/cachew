@@ -3,4 +3,6 @@
 cd "$(dirname "$0")"
 
 # '--TagRemovePreprocessor.remove_cell_tags={"noexport"}'
-jupyter nbconvert --to markdown --template readme.tpl README.ipynb
+jupyter nbconvert --execute --to markdown --template readme.tpl README.ipynb
+
+# TODO run it on CI to make sure it renders and up to date?

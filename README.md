@@ -18,10 +18,10 @@ The difference from `functools.lru_cache` is that data is preserved between prog
 
 I often find myself processing big chunks of data, computing some aggregates on it or extracting only bits I'm interested at. While I'm trying to utilize REPL as much as I can, some things are still fragile and often you just have to rerun the whole thing in the process of development. This can be frustrating if data parsing and processing takes seconds, let alone minutes in some cases. 
 
-Conventiaonal way of dealing with it is serializing results along with some sort of hash (e.g. md5) of input files,
+Conventional way of dealing with it is serializing results along with some sort of hash (e.g. md5) of input files,
 comparing on the next run and returning cached data if nothing changed.
 
-Simple as it sounds, this is pretty tedious to do every time you need to memorize some data, contaminates your code with routine and distracts you from your main task.
+Simple as it sounds, it is pretty tedious to do every time you need to memorize some data, contaminates your code with routine and distracts you from your main task.
 
 
 # Example
@@ -57,10 +57,10 @@ took 0 seconds to query cached items
 
 
 # How it works
-Basically, your data object gets [flattened out](src/cachew/__init__.py:272)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py:324)
+Basically, your data objects get [flattened out](src/cachew/__init__.py#L272)
+and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L324)
 
-When the function is called, `cachew` [computes the hash](src/cachew/__init__.py:544)  of your function's arguments 
+When the function is called, cachew [computes the hash](src/cachew/__init__.py:#L549)  of your function's arguments 
 and compares it against the previously stored hash value.
     
 If they match, it would deserialize and yield whatever is stored in the cache database, if the hash mismatches, the original data provider is called and new data is stored along with the new hash.
@@ -74,36 +74,40 @@ If they match, it would deserialize and yield whatever is stored in the cache da
 
 
 * supports primitive types: `str`, `int`, `float`, `bool`, `datetime`, `date`
-* supports [Optional](src/cachew/tests/test_cachew.py:325)
-* supports [nested datatypes](src/cachew/tests/test_cachew.py:241)
-* supports return type inference: [1](src/cachew/tests/test_cachew.py:185), [2](src/cachew/tests/test_cachew.py:199)
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py:271) and discards old data automatically            
+* supports [Optional](src/cachew/tests/test_cachew.py#L325)
+* supports [nested datatypes](src/cachew/tests/test_cachew.py#L241)
+* supports return type inference: [1](src/cachew/tests/test_cachew.py#L185), [2](src/cachew/tests/test_cachew.py#L199)
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L271) and discards old data automatically            
 
 
 
 
 
 # Using
-See [docstring](src/cachew/__init__.py:462) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L462) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some highlights:
     
-* `cache_path` can be a filename, or you can specify a callable [returning path](src/cachew/tests/test_cachew.py:221) and depending on function's arguments.
+* `cache_path` can be a filename, or you can specify a callable [returning path](src/cachew/tests/test_cachew.py#L221) and depending on function's arguments.
   
   It's not required to specify the path (it will be created in `/tmp`) but recommended.
     
 * `hashf` by default just hashes all the arguments, you can also specify a custom callable.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py:51) the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L51) the input file was modified.
     
 * `cls` is deduced from return type annotations by default, but can be specified if you don't control the code you want to cache.    
 
 
 
 # Installing
+Package is available on [pypi](https://pypi.org/project/cachew/).
 
-    TODO
+    pip install cachew
+    
+## Developing
+I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 
 # Implementation
 
