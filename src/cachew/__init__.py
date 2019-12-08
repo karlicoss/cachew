@@ -230,8 +230,8 @@ def strip_generic(tp):
         if isinstance(tp, typing.GenericMeta):
             return tp.__extra__ # type: ignore
     else:
-        # pylint: disable=no-member
-        if isinstance(tp, typing._GenericAlias): # type: ignore[attr-defined]
+        GA = getattr(typing, '_GenericAlias') # ugh, can't make both mypy and pylint happy here?
+        if isinstance(tp, GA):
             return tp.__origin__
     return tp
 
