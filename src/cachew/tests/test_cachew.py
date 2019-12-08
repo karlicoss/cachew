@@ -494,3 +494,22 @@ def test_default(tmp_path: Path):
     assert list(fun()) == [O(2)]
 
 
+from typing import Dict
+class J(NamedTuple):
+    json: Dict
+
+# TODO FIXME sep test for binder
+
+@pytest.mark.skip("TODO need to support Json")
+def test_json(tmp_path: Path):
+    # TODO assume Dicts are json?
+    # TODO defensive mode, if it fails still carry on running? not sure if worth it, but could be a matter of global policy
+    jdict = {'a': True, 'x': {'whatever': 3.14}}
+    @cachew(tmp_path)
+    def fun() -> Iterator[J]:
+        yield J(json=jdict)
+
+    assert list(fun()) == [J(json=jdict)]
+
+
+
