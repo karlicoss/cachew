@@ -93,6 +93,26 @@ class IsoDate(IsoDateTime):
             return None
         return res.date()
 
+import json
+from typing import Dict
+class Json(sqlalchemy.TypeDecorator):
+    impl = sqlalchemy.String
+
+    @property
+    def python_type(self): return Dict
+
+    def process_literal_param(self, value, dialect): raise NotImplementedError() # make pylint happy
+
+    def process_bind_param(self, value: Optional[Dict], dialect) -> Optional[str]:
+        if value is None:
+            return None
+        return json.dumps(value)
+
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[datetime]:
+        if value is None:
+            return None
+        return json.loads(value)
+
 
 PRIMITIVES = {
     str     : sqlalchemy.String,
@@ -101,6 +121,7 @@ PRIMITIVES = {
     bool    : sqlalchemy.Boolean,
     datetime: IsoDateTime,
     date    : IsoDate,
+    Dict    : Json,
 }
 
 
@@ -111,6 +132,7 @@ Types = Union[
     Type[bool],
     Type[datetime],
     Type[date],
+    Type[Dict], # TODO not sure about that? Type[dict] perhaps?
     Type[NamedTuple],
 ]
 
@@ -121,8 +143,10 @@ Values = Union[
     bool,
     datetime,
     date,
+    Dict,
     NamedTuple,
 ]
+# TODO assert all PRIMITIVES are also in Types/Values?
 
 
 def is_primitive(cls: Type) -> bool:

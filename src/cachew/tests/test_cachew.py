@@ -5,7 +5,7 @@ import string
 import sys
 import time
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict
 
 import pytz
 import pytest  # type: ignore
@@ -434,6 +434,7 @@ def test_types(tdir):
         a_str  : str
         a_dt   : datetime
         a_date : date
+        a_json : Dict
     # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
@@ -445,6 +446,7 @@ def test_types(tdir):
         a_str  ='abac',
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
+        a_json ={'a': True, 'x': {'whatever': 3.14}},
     )
 
     @cachew(tdir)
@@ -492,24 +494,3 @@ def test_default(tmp_path: Path):
     # now, change hash. That should cause the composite hash to invalidate and recompute
     hh.x = 2
     assert list(fun()) == [O(2)]
-
-
-from typing import Dict
-class J(NamedTuple):
-    json: Dict
-
-# TODO FIXME sep test for binder
-
-@pytest.mark.skip("TODO need to support Json")
-def test_json(tmp_path: Path):
-    # TODO assume Dicts are json?
-    # TODO defensive mode, if it fails still carry on running? not sure if worth it, but could be a matter of global policy
-    jdict = {'a': True, 'x': {'whatever': 3.14}}
-    @cachew(tmp_path)
-    def fun() -> Iterator[J]:
-        yield J(json=jdict)
-
-    assert list(fun()) == [J(json=jdict)]
-
-
-
