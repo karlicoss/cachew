@@ -18,6 +18,7 @@ __license__   = "mit"
 import functools
 import logging
 from itertools import chain, islice
+import inspect
 from datetime import datetime, date
 import tempfile
 from pathlib import Path
@@ -394,6 +395,8 @@ HashFunction = Callable[..., SourceHash]
 
 
 def default_hash(*args, **kwargs) -> SourceHash:
+    # TODO eh FIXME demand hash? not sure..
+    # can lead to werid consequences otherwise..
     return str(args + tuple(sorted(kwargs.items()))) # good enough??
 
 
@@ -547,7 +550,16 @@ def cachew(
 
 def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
-        return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
+        sig = inspect.signature(func)
+        # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
+        defaults = {
+            k: v.default
+            for k, v in sig.parameters.items()
+            if v.default is not inspect.Parameter.empty
+        }
+        # TODO not sure if passing them makes sense??
+        # TODO FIXME use inspect.signature to inspect return type annotations at least?
+        return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs, **defaults)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):

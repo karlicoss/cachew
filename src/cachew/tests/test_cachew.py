@@ -468,3 +468,32 @@ def test_primitive(tmp_path: Path):
     assert list(fun()) == [1, 2]
     assert list(fun()) == [1, 2]
 
+
+class O(NamedTuple):
+    x: int
+
+def test_default(tmp_path: Path):
+    class HackHash:
+        def __init__(self, x: int) -> None:
+            self.x = x
+
+        def __hash__(self):
+            return hash(self.x)
+
+        def __repr__(self):
+            return repr(self.x)
+
+    hh = HackHash(1)
+
+    @cachew(tmp_path)
+    def fun(param=hh) -> Iterator[O]:
+        yield O(hh.x)
+
+    list(fun())
+    assert list(fun()) == [O(1)]
+
+    # now, change hash. That should cause the composite hash to invalidate and recompute
+    hh.x = 2
+    assert list(fun()) == [O(2)]
+
+
