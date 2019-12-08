@@ -494,3 +494,6 @@ def test_default(tmp_path: Path):
     # now, change hash. That should cause the composite hash to invalidate and recompute
     hh.x = 2
     assert list(fun()) == [O(2)]
+
+    # should be ok with explicitly passing
+    assert list(fun(param=HackHash(2))) == [O(2)]
