@@ -477,15 +477,12 @@ def test_default(tmp_path: Path):
         def __init__(self, x: int) -> None:
             self.x = x
 
-        def __hash__(self):
-            return hash(self.x)
-
         def __repr__(self):
             return repr(self.x)
 
     hh = HackHash(1)
 
-    @cachew(tmp_path)
+    @cachew(tmp_path, hashf=lambda param: param.x)
     def fun(param=hh) -> Iterator[O]:
         yield O(hh.x)
 

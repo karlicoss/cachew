@@ -395,7 +395,7 @@ HashFunction = Callable[..., SourceHash]
 
 
 def default_hash(*args, **kwargs) -> SourceHash:
-    # TODO eh FIXME demand hash? not sure..
+    # TODO eh, demand hash? it's not safe either... ugh
     # can lead to werid consequences otherwise..
     return str(args + tuple(sorted(kwargs.items()))) # good enough??
 
