@@ -5,7 +5,7 @@ import string
 import sys
 import time
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any
 
 import pytz
 import pytest  # type: ignore
@@ -434,7 +434,7 @@ def test_types(tdir):
         a_str  : str
         a_dt   : datetime
         a_date : date
-        a_json : Dict
+        a_json : Dict[str, Any]
     # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 

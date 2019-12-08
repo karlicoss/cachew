@@ -121,7 +121,7 @@ PRIMITIVES = {
     bool    : sqlalchemy.Boolean,
     datetime: IsoDateTime,
     date    : IsoDate,
-    Dict    : Json,
+    dict    : Json,
 }
 
 
@@ -132,7 +132,7 @@ Types = Union[
     Type[bool],
     Type[datetime],
     Type[date],
-    Type[Dict], # TODO not sure about that? Type[dict] perhaps?
+    Type[dict],
     Type[NamedTuple],
 ]
 
@@ -143,13 +143,22 @@ Values = Union[
     bool,
     datetime,
     date,
-    Dict,
+    dict,
     NamedTuple,
 ]
 # TODO assert all PRIMITIVES are also in Types/Values?
 
 
 def is_primitive(cls: Type) -> bool:
+    """
+    >>> from typing import Dict, Any
+    >>> is_primitive(int)
+    True
+    >>> is_primitive(set)
+    False
+    >>> is_primitive(dict)
+    True
+    """
     return cls in PRIMITIVES
 
 
@@ -271,6 +280,12 @@ class NTBinder(NamedTuple):
     @staticmethod
     def make(tp: Type, name: Optional[str]=None) -> 'NTBinder':
         tp, optional = strip_optional(tp)
+
+        # strip off generic alias arguments
+        if hasattr(tp, '__origin__'):
+            # TODO ugh, a bit horrible..., but not sure if I can rely on isinstance (e.g. differences between py36 and py37)
+            tp = tp.__origin__
+
         primitive = is_primitive(tp)
         if primitive:
             kassert(name is not None)  # TODO too paranoid?
