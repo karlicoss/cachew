@@ -23,6 +23,7 @@ from datetime import datetime, date
 import tempfile
 from pathlib import Path
 import sys
+import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
                     Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
 import dataclasses
@@ -222,6 +223,19 @@ def strip_optional(cls):
     return (cls, is_opt)
 
 
+# TODO ugh, a bit horrible..., but couldn't find a uniform way
+def strip_generic(tp):
+    if sys.version_info[1] < 7:
+        # pylint: disable=no-member
+        if isinstance(tp, typing.GenericMeta):
+            return tp.__extra__ # type: ignore
+    else:
+        GA = getattr(typing, '_GenericAlias') # ugh, can't make both mypy and pylint happy here?
+        if isinstance(tp, GA):
+            return tp.__origin__
+    return tp
+
+
 # release mode friendly assert
 def kassert(x: bool) -> None:
     if x is False:
@@ -282,9 +296,7 @@ class NTBinder(NamedTuple):
         tp, optional = strip_optional(tp)
 
         # strip off generic alias arguments
-        if hasattr(tp, '__origin__'):
-            # TODO ugh, a bit horrible..., but not sure if I can rely on isinstance (e.g. differences between py36 and py37)
-            tp = tp.__origin__
+        tp = strip_generic(tp)
 
         primitive = is_primitive(tp)
         if primitive:
