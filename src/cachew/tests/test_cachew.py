@@ -201,8 +201,8 @@ def test_return_type_mismatch(tdir):
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
     @cachew(tdir, cls=AA)
     def data2() -> List[BB]:
-        return [ # type: ignore
-            AA(value=1, b=None, value2=123),
+        return [
+            AA(value=1, b=None, value2=123),  # type: ignore[list-item]
         ]
 
     # TODO hmm, this is kinda a downside that it always returns
