@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "cachew"
+version = "0.1.0"
+description = ""
+
+authors = ["Dima Gerasimov <karlicoss@gmail.com>"]
+
+# license = "MIT"
+
+# authors = [
+#     "Sébastien Eustace <sebastien@eustace.io>"
+# ]
+
+# readme = 'README.md'  # Markdown files are supported
+
+# repository = "https://github.com/python-poetry/poetry"
+# homepage = "https://github.com/python-poetry/poetry"
+
+# keywords = ['packaging', 'poetry']
+
+[tool.poetry.dependencies]
+python = ">=3.6"
+# toml = "^0.9"
+# # Dependencies with extras
+# requests = { version = "^2.13", extras = [ "security" ] }
+# # Python specific dependencies with prereleases allowed
+# pathlib2 = { version = "^2.2", python = "~2.7", allow-prereleases = true }
+# # Git dependencies
+# cleo = { git = "https://github.com/sdispater/cleo.git", branch = "master" }
+
+# # Optional dependencies (extras)
+# pendulum = { version = "^1.4", optional = true }
+
+# [tool.poetry.dev-dependencies]
+# pytest = "^3.0"
+# pytest-cov = "^2.4"
+
+# [tool.poetry.scripts]
+# my-script = 'my_package:main'
+
+# pytest = { optional = true }
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.3.2"
+pytz = { version = "^2019.3", optional = true }
+
+[tool.poetry.extras]
+testing = ['pytest'] # , 'pytz', 'pylint', 'mypy', 'bandit']
+
+
+# poetry install
+# poetry install -E testing
+# poetry run pytest
+
+
+# [2019-12-15 Sun 09:27] ok, so far seems that quite a few tools don't support pyproject.toml
+# TODO do that for dataclasses https://python-poetry.org/docs/versions/#python-restricted-dependencies
