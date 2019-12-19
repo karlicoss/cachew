@@ -312,7 +312,7 @@ class NTBinder(NamedTuple):
         union_args = get_union_args(tp)
         if union_args is not None:
             CachewUnion = NamedTuple('_CachewUnionRepr', [ # type: ignore[misc]
-                (x.__name__, x) for x in union_args
+                (x.__name__, Optional[x]) for x in union_args
             ])
             union = CachewUnion
             primitive = False
@@ -367,8 +367,8 @@ class NTBinder(NamedTuple):
             (uf,) = self.fields
             # TODO assert only one of them matches??
             union = CachewUnion(**{
-                name: obj if isinstance(obj, tp) else None
-                for name, tp in CachewUnion._field_types.items()
+                f.name: obj if isinstance(obj, f.type_) else None
+                for f in uf.fields
             })
             yield from uf._to_row(union)
         else:
@@ -396,9 +396,9 @@ class NTBinder(NamedTuple):
             # TODO assert only one of them is not None?
             union_params = [
                 r
-                for r in uf._from_row(row_iter)
+                for r in uf._from_row(row_iter) if r is not None
             ]
-            return any(union_params)
+            kassert(len(union_params) == 1); return union_params[0]
         else:
             if self.optional:
                 is_none = next(row_iter)
@@ -428,8 +428,6 @@ class NTBinder(NamedTuple):
         if self.primitive:
             if self.name is None: raise AssertionError
             yield col(self.name, PRIMITIVES[self.type_])
-        elif self.union is not None:
-            raise NotImplementedError("TODO")
         else:
             prefix = '' if self.name is None else self.name + '_'
             if self.optional:
