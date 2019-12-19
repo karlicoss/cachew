@@ -511,3 +511,16 @@ def test_default(tmp_path: Path):
 
     # should be ok with explicitly passing
     assert list(fun(param=HackHash(2))) == [O(2)]
+
+
+class U(NamedTuple):
+    x: Union[str, O]
+
+def test_union(tmp_path: Path):
+    @cachew(tmp_path)
+    def fun() -> Iterator[U]:
+        yield U('hi')
+        yield U(O(123))
+
+    list(fun())
+    assert list(fun()) == [U('hi'), U(O(123))]
