@@ -449,6 +449,7 @@ def test_types(tdir):
         a_dt   : datetime
         a_date : date
         a_json : Dict[str, Any]
+        a_exc  : Optional[Exception] # TODO ugh. exceptions can't be compared really...
     # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
@@ -461,6 +462,7 @@ def test_types(tdir):
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
         a_json ={'a': True, 'x': {'whatever': 3.14}},
+        a_exc=None,
     )
 
     @cachew(tdir)
@@ -627,3 +629,20 @@ def test_mcachew(tmp_path: Path):
 
     assert list(func()) == ['one', 'two']
     assert list(func()) == ['one', 'two']
+
+
+class E(NamedTuple):
+    e: Exception
+
+def test_exceptions(tmp_path: Path):
+    # TODO test Result type
+    @cachew(tmp_path)
+    def fun() -> Iterator[E]:
+        yield E(RuntimeError('whatever', 123))
+
+    list(fun())
+    [ee] = list(fun())
+    e = ee.e
+    assert type(e) == Exception # sadly we lose type information at the moment..
+    assert e.args == ("('whatever', 123)", )
+
