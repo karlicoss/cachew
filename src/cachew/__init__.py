@@ -198,7 +198,17 @@ class CachewException(RuntimeError):
     pass
 
 
-def strip_optional(cls):
+def get_union_args(cls) -> Optional[Tuple[Type]]:
+    if getattr(cls, '__origin__', None) != Union:
+        return None
+
+    args = cls.__args__
+    args = [e for e in args if e != type(None)]
+    assert len(args) > 0
+    return args
+
+
+def strip_optional(cls) -> Tuple[Type, bool]:
     """
     >>> from typing import Optional, NamedTuple
     >>> strip_optional(Optional[int])
@@ -210,21 +220,21 @@ def strip_optional(cls):
     """
     is_opt: bool = False
 
-    if getattr(cls, '__origin__', None) == Union:
-        # handles Optional
-        elems = cls.__args__
-        elems = [e for e in elems if e != type(None)]
-        if len(elems) == 1:
-            cls = elems[0] # meh
-            is_opt = True
-        else:
-            raise CachewException(f'{cls} is unsupported!')
+    args = get_union_args(cls)
+    if args is not None and len(args) == 1:
+        cls = args[0] # meh
+        is_opt = True
 
     return (cls, is_opt)
 
 
-# TODO ugh, a bit horrible..., but couldn't find a uniform way
 def strip_generic(tp):
+    """
+    >>> strip_generic(List[int])
+    <class 'list'>
+    >>> strip_generic(str)
+    <class 'str'>
+    """
     if sys.version_info[1] < 7:
         # pylint: disable=no-member
         if isinstance(tp, typing.GenericMeta):
@@ -289,31 +299,45 @@ class NTBinder(NamedTuple):
     span     : int  # not sure if span should include optional col?
     primitive: bool
     optional : bool
+    union    : Optional[Type] # helper, which isn't None if type is Union
     fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
     def make(tp: Type, name: Optional[str]=None) -> 'NTBinder':
         tp, optional = strip_optional(tp)
-
-        # strip off generic alias arguments
-        tp = strip_generic(tp)
-
-        primitive = is_primitive(tp)
-        if primitive:
-            kassert(name is not None)  # might need to get rid of it if supports top level primitive types
+        union: Optional[Type]
         fields: Tuple[Any, ...]
-        if primitive:
-            fields = ()
+        primitive: bool
+
+        union_args = get_union_args(tp)
+        if union_args is not None:
+            CachewUnion = NamedTuple('_CachewUnionRepr', [ # type: ignore[misc]
+                (x.__name__, x) for x in union_args
+            ])
+            union = CachewUnion
+            primitive = False
+            fields = (NTBinder.make(tp=CachewUnion, name='_cachew_union_repr'),)
             span = 1
         else:
-            fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
-            span = sum(f.span for f in fields) + (1 if optional else 0)
+            union = None
+            tp = strip_generic(tp)
+            primitive = is_primitive(tp)
+
+            if primitive:
+                kassert(name is not None)  # might need to get rid of it if supports top level primitive types
+            if primitive:
+                fields = ()
+                span = 1
+            else:
+                fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
+                span = sum(f.span for f in fields) + (1 if optional else 0)
         return NTBinder(
             name=name,
             type_=tp,
             span=span,
             primitive=primitive,
             optional=optional,
+            union=union,
             fields=fields,
         )
 
@@ -338,6 +362,15 @@ class NTBinder(NamedTuple):
     def _to_row(self, obj) -> Iterator[Optional[Values]]:
         if self.primitive:
             yield obj
+        elif self.union is not None:
+            CachewUnion = self.union
+            (uf,) = self.fields
+            # TODO assert only one of them matches??
+            union = CachewUnion(**{
+                name: obj if isinstance(obj, tp) else None
+                for name, tp in CachewUnion._field_types.items()
+            })
+            yield from uf._to_row(union)
         else:
             if self.optional:
                 is_none = obj is None
@@ -357,6 +390,15 @@ class NTBinder(NamedTuple):
     def _from_row(self, row_iter):
         if self.primitive:
             return next(row_iter)
+        elif self.union is not None:
+            CachewUnion = self.union
+            (uf,) = self.fields
+            # TODO assert only one of them is not None?
+            union_params = [
+                r
+                for r in uf._from_row(row_iter)
+            ]
+            return any(union_params)
         else:
             if self.optional:
                 is_none = next(row_iter)
@@ -386,6 +428,8 @@ class NTBinder(NamedTuple):
         if self.primitive:
             if self.name is None: raise AssertionError
             yield col(self.name, PRIMITIVES[self.type_])
+        elif self.union is not None:
+            raise NotImplementedError("TODO")
         else:
             prefix = '' if self.name is None else self.name + '_'
             if self.optional:
@@ -395,7 +439,7 @@ class NTBinder(NamedTuple):
                     yield col(f'{prefix}{c.name}', c.type)
 
     def __str__(self):
-        lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + ' '  + str(x.span) for level, x in self.flatten()]
+        lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + f' <span {x.span}>' for level, x in self.flatten()]
         return '\n'.join(lines)
 
     def __repr__(self):
