@@ -275,7 +275,7 @@ class NTBinder(NamedTuple):
     >>> tuple(binder.to_row(person))
     ('alan', 40, True, None, None)
 
-    from_row does a reverse conversion
+    from_row does reverse conversion
     >>> binder.from_row(('alan', 40, True, None, None))
     Person(name='alan', age=40, job=None)
 
@@ -300,7 +300,7 @@ class NTBinder(NamedTuple):
 
         primitive = is_primitive(tp)
         if primitive:
-            kassert(name is not None)  # TODO too paranoid?
+            kassert(name is not None)  # might need to get rid of it if supports top level primitive types
         fields: Tuple[Any, ...]
         if primitive:
             fields = ()
@@ -321,6 +321,7 @@ class NTBinder(NamedTuple):
     def columns(self) -> List[Column]:
         return list(self.iter_columns())
 
+    # TODO not necessarily namedtuple? could be primitive type
     def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
         return tuple(self._to_row(obj))
 
