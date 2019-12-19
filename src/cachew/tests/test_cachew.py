@@ -5,7 +5,7 @@ import string
 import sys
 import time
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union
 
 import pytz
 import pytest  # type: ignore
@@ -42,6 +42,21 @@ def test_mypy_annotations():
 
     for p in PRIMITIVES:
         assert p in Values.__args__ # type: ignore
+
+
+def test_ntbinder_primitive():
+    # TODO good candidate for property tests...
+    for tp, val in [
+            (int, 22),
+            (bool, False),
+            (Optional[str], 'abacaba'),
+    ]:
+        b = NTBinder.make(tp, name='x')
+        row = b.to_row(val)
+        assert row == (val,)
+        vv = b.from_row(list(row))
+        assert vv == val
+
 
 
 class UUU(NamedTuple):
