@@ -634,15 +634,31 @@ def test_mcachew(tmp_path: Path):
 class E(NamedTuple):
     e: Exception
 
+
 def test_exceptions(tmp_path: Path):
-    # TODO test Result type
     @cachew(tmp_path)
     def fun() -> Iterator[E]:
         yield E(RuntimeError('whatever', 123))
 
     list(fun())
-    [ee] = list(fun())
+    [ee] = fun()
     e = ee.e
     assert type(e) == Exception # sadly we lose type information at the moment..
     assert e.args == ("('whatever', 123)", )
+
+
+# see https://beepb00p.xyz/mypy-error-handling.html#kiss
+def test_result(tmp_path: Path):
+    @cachew(tmp_path)
+    def fun() -> Iterator[Union[Exception, int]]:
+        yield 1
+        yield RuntimeError("sad!")
+        yield 123
+    list(fun())
+    [v1, ve, v123] = fun()
+    assert v1 == 1
+    assert v123 == 123
+    assert ve.args == ("('sad!',)",)
+    # looks bit sad indeed, but whatever...
+    # TODO need to warn perhaps
 
