@@ -231,6 +231,10 @@ def get_union_args(cls) -> Optional[Tuple[Type]]:
     return args
 
 
+def is_union(cls):
+    return get_union_args(cls) is not None
+
+
 def strip_optional(cls) -> Tuple[Type, bool]:
     """
     >>> from typing import Optional, NamedTuple
@@ -549,6 +553,13 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     ...     return (1, 2, 3)
     >>> infer_type(int_provider)
     <class 'int'>
+
+    >> from typing import Iterator, Union
+    >>> def union_provider() -> Iterator[Union[str, int]]:
+    ...     yield 1
+    ...     yield 'aaa'
+    >>> infer_type(union_provider)
+    typing.Union[str, int]
     """
     rtype = getattr(func, '__annotations__', {}).get('return', None)
     if rtype is None:
@@ -571,6 +582,8 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     arg = args[0]
     if is_primitive(arg):
         return arg
+    if is_union(arg):
+        return arg # meh?
     if not is_dataclassish(arg):
         return bail(f"{arg} is not NamedTuple")
     return arg
@@ -689,8 +702,9 @@ def cachew(
 def get_schema(cls: Type) -> Dict[str, Any]:
     if is_primitive(cls):
         return {'_': cls} # TODO meh
-    else:
-        return cls.__annotations__
+    if is_union(cls):
+        return {'_': cls} # TODO meh
+    return cls.__annotations__
 
 
 def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
