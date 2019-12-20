@@ -474,15 +474,14 @@ def test_types(tdir):
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
 # TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
-@pytest.mark.skip("TODO need to support primitive types as well")
 def test_primitive(tmp_path: Path):
     @cachew(tmp_path)
-    def fun() -> Iterator[int]:
-        yield 1
-        yield 2
+    def fun() -> Iterator[str]:
+        yield 'aba'
+        yield 'caba'
 
-    assert list(fun()) == [1, 2]
-    assert list(fun()) == [1, 2]
+    assert list(fun()) == ['aba', 'caba']
+    assert list(fun()) == ['aba', 'caba']
 
 
 class O(NamedTuple):

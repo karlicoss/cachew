@@ -324,7 +324,8 @@ class NTBinder(NamedTuple):
             primitive = is_primitive(tp)
 
             if primitive:
-                kassert(name is not None)  # might need to get rid of it if supports top level primitive types
+                if name is None:
+                    name = '_cachew_primitive' # meh. presumably, top level
             if primitive:
                 fields = ()
                 span = 1
@@ -514,6 +515,12 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     ...     return []
     >>> infer_type(person_provider)
     <class 'cachew.Person'>
+
+    >>> from typing import Sequence
+    >>> def int_provider() -> Sequence[int]:
+    ...     return (1, 2, 3)
+    >>> infer_type(int_provider)
+    <class 'int'>
     """
     rtype = getattr(func, '__annotations__', {}).get('return', None)
     if rtype is None:
@@ -534,6 +541,8 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     if len(args) != 1:
         return bail(f"wrong number of __args__: {args}")
     arg = args[0]
+    if is_primitive(arg):
+        return arg
     if not is_dataclassish(arg):
         return bail(f"{arg} is not NamedTuple")
     return arg
@@ -630,7 +639,6 @@ def cachew(
             if cls != inferred:
                 logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
-    kassert(is_dataclassish(cls))
 
     return cachew_impl(
         func=func,
@@ -640,6 +648,13 @@ def cachew(
         logger=logger,
         chunk_by=chunk_by,
     )
+
+
+def get_schema(cls: Type) -> Dict[str, Any]:
+    if is_primitive(cls):
+        return {'_': cls} # TODO meh
+    else:
+        return cls.__annotations__
 
 
 def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
@@ -654,7 +669,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         kwargs = {**defaults, **kwargs}
         # TODO not sure if passing them makes sense??
         # TODO FIXME use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_FORMAT}, schema: {cls.__annotations__}, hash: {hashf(*args, **kwargs)}'
+        return f'cachew: {CACHEW_FORMAT}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
