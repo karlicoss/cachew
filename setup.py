@@ -39,6 +39,8 @@ if __name__ == "__main__":
                 'pylint',
                 'mypy',
                 'bandit',
+
+                'patchy',
             ]
         },
     )

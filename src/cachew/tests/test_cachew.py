@@ -538,8 +538,30 @@ def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
     return list(test(count=count))
 
 
-# TODO hmm, inject sleep into cachew_impl via patchy perhaps?
-# tbh, replace() would be enough
+@pytest.fixture
+def fuzz_cachew_impl():
+    """
+    Insert random sleeps in cachew_impl to increase likelihood of concurrency issues
+    """
+    import patchy  # type: ignore[import]
+    from .. import cachew_impl
+    patch = '''\
+@@ -47,6 +47,11 @@
+
+                 logger.debug('old hash: %s', prev_hash)
+
++                from random import random
++                rs = random() * 2
++                print("sleeping for: ", rs)
++                from time import sleep; sleep(rs)
++
+                 if h == prev_hash:
+                     logger.debug('hash matched: loading from cache')
+                     rows = conn.execute(values_table.select()
+'''
+    patchy.patch(cachew_impl, patch)
+    yield
+    patchy.unpatch(cachew_impl, patch)
 
 
 # TODO fuzz when they start so they enter transaction at different times?
@@ -547,7 +569,7 @@ def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
 # TODO how to run it enough times on CI and increase likelihood of failing?
 # for now, stress testing manually:
 # while PYTHONPATH=src pytest -s cachew -k concurrent_writes ; do sleep 0.5; done
-def test_concurrent_writes(tmp_path: Path):
+def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl):
     cache_path = tmp_path / 'cache.sqlite'
     from concurrent.futures import ProcessPoolExecutor as Pool
 
@@ -567,7 +589,7 @@ def test_concurrent_writes(tmp_path: Path):
 
 # TODO ugh. need to keep two processes around to test for yield holding transaction lock
 
-def test_concurrent_reads(tmp_path: Path):
+def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
     cache_path = tmp_path / 'cache.sqlite'
     from concurrent.futures import ProcessPoolExecutor as Pool
 
