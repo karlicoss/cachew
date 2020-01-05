@@ -7,12 +7,12 @@
 [![CircleCI](https://circleci.com/gh/karlicoss/cachew.svg?style=svg)](https://circleci.com/gh/karlicoss/cachew)
 
 # What is Cachew?
-TLDR: cachew lets you cache function calls into an sqlite database on your disk in a matter of single decorator (similar to [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache)). The difference from `functools.lru_cache` is that data is preserved between program runs, so next time you call your function, it will only be a matter of reading from the cache.
-Cache is invalidated automatically if your function's arguments change, so you don't have to think about maintaing it.
+TLDR: cachew lets you **cache function calls** into an sqlite database on your disk in a matter of **single decorator** (similar to [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache)). The difference from `functools.lru_cache` is that cached data is persisted between program runs, so next time you call your function, it will only be a matter of reading from the cache.
+Cache is **invalidated automatically** if your function's arguments change, so you don't have to think about maintaining it.
 
 In order to be cacheable, your function needs to return (an [Iterator](https://docs.python.org/3/library/typing.html#typing.Iterator), that is generator, tuple or list) of simple data types:
 
-- primitive types like string, ints, floats and datetimes
+- primitive types: `str`/`int`/`float`/`datetime`
 - [NamedTuples](https://docs.python.org/3/library/typing.html#typing.NamedTuple)
 - [dataclasses](https://docs.python.org/3/library/dataclasses.html)
 
@@ -20,7 +20,7 @@ That allows to **automatically infer schema from type hints** ([PEP 526](https:/
 
 ## Motivation
 
-I often find myself processing big chunks of data, computing some aggregates on it or extracting few bits I'm interested at. While I'm trying to utilize REPL as much as I can, some things are still fragile and often you just have to rerun the whole thing in the process of development. This can be frustrating if data parsing and processing takes seconds, let alone minutes in some cases.
+I often find myself processing big chunks of data, merging data together, computing some aggregates on it or extracting few bits I'm interested at. While I'm trying to utilize REPL as much as I can, some things are still fragile and often you just have to rerun the whole thing in the process of development. This can be frustrating if data parsing and processing takes seconds, let alone minutes in some cases.
 
 Conventional way of dealing with it is serializing results along with some sort of hash (e.g. md5) of input files,
 comparing on the next run and returning cached data if nothing changed.
@@ -47,7 +47,7 @@ With this library your can achieve it through single `@cachew` decorator.
 ... def extract_links(archive_path: str) -> Iterator[Link]:
 ...     for i in range(5):
 ...         # simulate slow IO
-...         # this function runs for five seconds for the purpose of demonstration, but realisically it might take hours
+...         # this function runs for five seconds for the purpose of demonstration, but realistically it might take hours
 ...         import time; time.sleep(1)
 ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
 ...
@@ -82,24 +82,24 @@ That means that I end up with a new database every few days which contains, each
 
 To access **all** of historic temperature data, I have two options:
 
-- Go through all the data chunks every time I wan to access them and 'merge' into a unified stream of measurements, e.g. somethingg like:
+- Go through all the data chunks every time I wan to access them and 'merge' into a unified stream of measurements, e.g. something like:
   
       def measurements(chunks: List[Path]) -> Iterator[Measurement]:
           for chunk in chunks:
-              # read measurements from 'chunk' and yeild unseen ones
+              # read measurements from 'chunk' and yield unseen ones
 
   This is very **easy, but slow** and you waste CPU for no reason every time you need data.
 
 - Keep a 'master' database and write code to merge chunks in it.
 
-  This is very **effecient, but tedious**:
+  This is very **efficient, but tedious**:
   
   - requires serializing/deserializing data -- boilerplate
   - requires manually managing sqlite database -- error prone, hard to get right every time
   - requires careful scheduling, ideally you want to access new data without having to refresh cache
 
   
-Cachew gives me best of two worlds and makes it **easy and effecient**. Only thing you have to do is to decorate your function:
+Cachew gives me best of two worlds and makes it **easy and efficient**. Only thing you have to do is to decorate your function:
 
     @cachew("/data/cache/measurements.sqlite")      
     def measurements(chunks: List[Path]) -> Iterator[Measurement]:
@@ -131,13 +131,22 @@ and compares it against the previously stored hash value.
 
 
 * automatic schema inference: [1](src/cachew/tests/test_cachew.py#L200), [2](src/cachew/tests/test_cachew.py#L214)
-* supports primitive types: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`
-* supports [Optional](src/cachew/tests/test_cachew.py#L340) types
-* supports [Union](src/cachew/tests/test_cachew.py#L518) types
-* supports [nested datatypes](src/cachew/tests/test_cachew.py#L256)
+* supported types:    
+
+    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`
+    * [Optional](src/cachew/tests/test_cachew.py#L340) types
+    * [Union](src/cachew/tests/test_cachew.py#L518) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L256)
 * detects [datatype schema changes](src/cachew/tests/test_cachew.py#L286) and discards old data automatically            
 
 
+
+# Performance
+Updating cache takes certain overhead, but that would depend on how complicated your datatype in the first place, so I'd suggest measuring if you're not sure.
+
+During reading cache all that happens is reading rows from sqlite and mapping them onto your target datatype, so the only overhead would be from reading sqlite, which is quite fast.
+
+I haven't set up formal benchmarking/regression tests yet, so don't want to make specific claims, however that would almost certainly make your programm faster if computations take more than several seconds.
 
 
 
@@ -145,17 +154,19 @@ and compares it against the previously stored hash value.
 See [docstring](src/cachew/__init__.py#L568) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
-Some highlights:
+Some useful arguments of `@cachew` decorator:
     
 * `cache_path` can be a filename, or you can specify a callable that [returns a path](src/cachew/tests/test_cachew.py#L236) and depends on function's arguments.
   
   It's not required to specify the path (it will be created in `/tmp`) but recommended.
     
-* `hashf` by default just hashes all the arguments, you can also specify a custom callable.
+* `hashf` is a function that determines whether your arguments have changed.
+    
+   By default it just uses string representation of the arguments, you can also specify a custom callable.
     
    For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L66) if the input file was modified.
     
-* `cls` is inferred from return type annotations by default, but can be specified if you don't control the code you want to cache.    
+* `cls` is the type that would be serialized. It is inferred from return type annotations by default, but can be specified if you don't control the code you want to cache.    
 
 
 
@@ -172,8 +183,8 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 * why tuples and dataclasses?
   
   Tuples are natural in Python for quickly grouping together return results.
-  `NamedTuple` and `dataclass` specifically provide a very straighforward and self documenting way to represent data in Python.
-  Very compact syntax makes it extremely convenitent even for one-off means of communicating between couple of functions.
+  `NamedTuple` and `dataclass` specifically provide a very straightforward and self documenting way to represent data in Python.
+  Very compact syntax makes it extremely convenient even for one-off means of communicating between couple of functions.
    
   If you want to find out more why you should use more dataclasses in your code I suggest these links:
   
@@ -187,12 +198,12 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 
 * why `sqlite` database for storage?
 
-  It's pretty effecient and sequence of namedtuples maps onto database rows in a very straighforward manner.
+  It's pretty efficient and sequence of namedtuples maps onto database rows in a very straightforward manner.
 
 * why not `pandas.DataFrame`?
 
   DataFrames are great and can be serialised to csv or pickled.
-  They are good to have as one of the ways you can interface with your data, however hardly convenitent to think about it abstractly due to their dynamic nature.
+  They are good to have as one of the ways you can interface with your data, however hardly convenient to think about it abstractly due to their dynamic nature.
   They also can't be nested.
   
 * why not [ORM](https://en.wikipedia.org/wiki/Object-relational_mapping)?
@@ -204,7 +215,7 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 
 * why not [marshmallow](https://marshmallow.readthedocs.io/en/3.0/nesting.html)?
   
-  Marshmallow is a common way to map data into db-friendly format, but it requires explicit schema which is an overhead when you have it already in the form of type annotations. I've looked at existing projects to utilise type annotations, but didn't find them covering all I wanted:
+  Marshmallow is a common way to map data into db-friendly format, but it requires explicit schema which is an overhead when you have it already in the form of type annotations. I've looked at existing projects to utilize type annotations, but didn't find them covering all I wanted:
   
   * https://marshmallow-annotations.readthedocs.io/en/latest/ext/namedtuple.html#namedtuple-type-api
   * https://pypi.org/project/marshmallow-dataclass
