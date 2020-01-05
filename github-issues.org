@@ -1,0 +1,49 @@
+#+todo: OPEN | CLOSED
+* Issues of cachew
+:PROPERTIES:
+:since:    
+:url:      https://api.github.com/repos/karlicoss/cachew
+:END:
+** OPEN better pytz support?
+:PROPERTIES:
+:tags:     ("prio-A")
+:id:       6
+:date-modification: 2020-01-05T13:33:25+0000
+:date-creation: 2020-01-05T13:33:25+0000
+:author:   "karlicoss"
+:END:
+** CLOSED support for dataclasses
+:PROPERTIES:
+:id:       1
+:date-modification: 2020-01-05T13:34:18+0000
+:date-creation: 2019-07-30T21:45:30+0100
+:author:   "karlicoss"
+:END:
+** CLOSED support top level primitive types
+:PROPERTIES:
+:id:       5
+:date-modification: 2019-12-20T00:12:10+0000
+:date-creation: 2019-12-20T00:09:00+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Union types
+:PROPERTIES:
+:id:       4
+:date-modification: 2019-12-19T23:45:05+0000
+:date-creation: 2019-12-19T23:32:55+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Fix bug when default argument is explicitly specified
+:PROPERTIES:
+:id:       3
+:date-modification: 2019-12-08T17:57:25+0000
+:date-creation: 2019-12-08T17:56:51+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Fix Json support for python3.6
+:PROPERTIES:
+:id:       2
+:date-modification: 2019-12-08T12:29:07+0000
+:date-creation: 2019-12-08T12:21:58+0000
+:author:   "karlicoss"
+:END:
