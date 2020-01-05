@@ -592,9 +592,11 @@ def cachew(
     ...     text: str
     ...
     >>> @cachew
-    ... def extract_links(archive: str) -> Iterator[Link]:
+    ... def extract_links(archive_path: str) -> Iterator[Link]:
     ...     for i in range(5):
-    ...         import time; time.sleep(1) # simulate slow IO
+    ...         # simulate slow IO
+    ...         # this function runs for five seconds for the purpose of demonstration, but realisically it might take hours
+    ...         import time; time.sleep(1)
     ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
     ...
     >>> list(extract_links(archive='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
