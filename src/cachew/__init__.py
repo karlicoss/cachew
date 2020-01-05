@@ -469,10 +469,11 @@ class DbHelper:
 
         test_transaction should check this behaviour
         """
-        @event.listens_for(self.connection, "begin")
+        @event.listens_for(self.connection, 'begin')
         # pylint: disable=unused-variable
         def do_begin(conn):
-            conn.execute("BEGIN")
+            # NOTE there is also BEGIN CONCURRENT in newer versions of sqlite. could use it later?
+            conn.execute('BEGIN DEFERRED')
 
         self.meta = sqlalchemy.MetaData(self.connection)
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
@@ -480,6 +481,8 @@ class DbHelper:
 
         self.binder = NTBinder.make(tp=cls)
         self.table_data = Table('table', self.meta, *self.binder.columns)
+
+        # TODO FIXME database/tables need to be created atomically?
 
     def __enter__(self):
         return self
@@ -694,27 +697,28 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         if not dbp.parent.exists():
             raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
-        # TODO make sure we have exclusive write lock
+
         with DbHelper(dbp, cls) as db:
             binder = db.binder
             conn = db.connection
             values_table = db.table_data
 
-            prev_hashes = conn.execute(db.table_hash.select()).fetchall()
-            if len(prev_hashes) > 1:
-                raise CachewException(f'Multiple hashes! {prev_hashes}')
-
-            prev_hash: Optional[SourceHash]
-            if len(prev_hashes) == 0:
-                prev_hash = None
-            else:
-                prev_hash = prev_hashes[0][0]  # returns a tuple...
-
-            logger.debug('old hash: %s', prev_hash)
-            h = composite_hash(*args, **kwargs); kassert(h is not None) # just in case
+            h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
             logger.debug('new hash: %s', h)
 
+            # transaction is DEFERRED  (see DbHelper constructor)
             with conn.begin():
+                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+                kassert(len(prev_hashes) <= 1)  # shouldn't happen
+
+                prev_hash: Optional[SourceHash]
+                if len(prev_hashes) == 0:
+                    prev_hash = None
+                else:
+                    prev_hash = prev_hashes[0][0]  # returns a tuple...
+
+                logger.debug('old hash: %s', prev_hash)
+
                 if h == prev_hash:
                     logger.debug('hash matched: loading from cache')
                     rows = conn.execute(values_table.select())
@@ -723,8 +727,20 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                 else:
                     logger.debug('hash mismatch: computing data and writing to db')
 
-                    # drop and create to incorporate schema changes
-                    values_table.drop(conn, checkfirst=True)
+                    # first write statement will upgrade transaction to write transaction which might fail due to concurrency
+                    # see https://www.sqlite.org/lang_transaction.html
+                    # TODO i'd prefer some explicit transaction upgrade statement; but not sure if there is any?
+                    try:
+                        # drop and create to incorporate schema changes
+                        values_table.drop(conn, checkfirst=True)
+                    except sqlalchemy.exc.OperationalError as e:
+                        if e.code == 'e3q8':
+                            # database is locked; someone else must be writing
+                            # not much we can do here
+                            yield from func(*args, **kwargs)
+                            return
+                        else:
+                            raise e
                     values_table.create(conn)
 
                     datas = func(*args, **kwargs)

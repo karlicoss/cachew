@@ -546,8 +546,8 @@ def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
 
 # TODO how to run it enough times on CI and increase likelihood of failing?
 # for now, stress testing manually:
-# while PYTHONPATH=src pytest -s cachew -k concurrent_write ; do sleep 0.5; done
-def test_concurrent_write(tmp_path: Path):
+# while PYTHONPATH=src pytest -s cachew -k concurrent_writes ; do sleep 0.5; done
+def test_concurrent_writes(tmp_path: Path):
     cache_path = tmp_path / 'cache.sqlite'
     from concurrent.futures import ProcessPoolExecutor as Pool
 
