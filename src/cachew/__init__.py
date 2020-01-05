@@ -592,18 +592,26 @@ def cachew(
     ...     text: str
     ...
     >>> @cachew
-    ... def extract_links(archive: str) -> Iterator[Link]:
+    ... def extract_links(archive_path: str) -> Iterator[Link]:
     ...     for i in range(5):
-    ...         import time; time.sleep(1) # simulate slow IO
+    ...         # simulate slow IO
+    ...         # this function runs for five seconds for the purpose of demonstration, but realistically it might take hours
+    ...         import time; time.sleep(1)
     ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
     ...
-    >>> list(extract_links(archive='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
+    >>> list(extract_links(archive_path='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
     [Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
 
     >>> from timeit import Timer
-    >>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
-    >>> print(f"took {int(res)} seconds to query cached items")
-    took 0 seconds to query cached items
+    >>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20190830.zip'))).timeit(number=1)
+    ... # second run is cached, so should take less time
+    >>> print(f"call took {int(res)} seconds")
+    call took 0 seconds
+
+    >>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20200101.zip'))).timeit(number=1)
+    ... # now file has changed, so the cache will be discarded
+    >>> print(f"call took {int(res)} seconds")
+    call took 5 seconds
     """
 
     # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259

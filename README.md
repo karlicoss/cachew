@@ -6,17 +6,21 @@
 
 [![CircleCI](https://circleci.com/gh/karlicoss/cachew.svg?style=svg)](https://circleci.com/gh/karlicoss/cachew)
 
-# Cachew: quick NamedTuple/dataclass cache
-TLDR: cachew can persistently cache any sequence (an [Iterator](https://docs.python.org/3/library/typing.html#typing.Iterator)) over [NamedTuples](https://docs.python.org/3/library/typing.html#typing.NamedTuple) or [dataclasses](https://docs.python.org/3/library/dataclasses.html) into an sqlite database on your disk.
-Database schema is automatically inferred from type annotations ([PEP 526](https://www.python.org/dev/peps/pep-0526)).
+# What is Cachew?
+TLDR: cachew lets you **cache function calls** into an sqlite database on your disk in a matter of **single decorator** (similar to [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache)). The difference from `functools.lru_cache` is that cached data is persisted between program runs, so next time you call your function, it will only be a matter of reading from the cache.
+Cache is **invalidated automatically** if your function's arguments change, so you don't have to think about maintaining it.
 
-It works in a similar manner to [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache): caching your data is just a matter of decorating it.
+In order to be cacheable, your function needs to return (an [Iterator](https://docs.python.org/3/library/typing.html#typing.Iterator), that is generator, tuple or list) of simple data types:
 
-The difference from `functools.lru_cache` is that data is preserved between program runs.
+- primitive types: `str`/`int`/`float`/`datetime`
+- [NamedTuples](https://docs.python.org/3/library/typing.html#typing.NamedTuple)
+- [dataclasses](https://docs.python.org/3/library/dataclasses.html)
+
+That allows to **automatically infer schema from type hints** ([PEP 526](https://www.python.org/dev/peps/pep-0526)) and not think about serializing/deserializing.
 
 ## Motivation
 
-I often find myself processing big chunks of data, computing some aggregates on it or extracting only bits I'm interested at. While I'm trying to utilize REPL as much as I can, some things are still fragile and often you just have to rerun the whole thing in the process of development. This can be frustrating if data parsing and processing takes seconds, let alone minutes in some cases. 
+I often find myself processing big chunks of data, merging data together, computing some aggregates on it or extracting few bits I'm interested at. While I'm trying to utilize REPL as much as I can, some things are still fragile and often you just have to rerun the whole thing in the process of development. This can be frustrating if data parsing and processing takes seconds, let alone minutes in some cases.
 
 Conventional way of dealing with it is serializing results along with some sort of hash (e.g. md5) of input files,
 comparing on the next run and returning cached data if nothing changed.
@@ -24,9 +28,10 @@ comparing on the next run and returning cached data if nothing changed.
 Simple as it sounds, it is pretty tedious to do every time you need to memorize some data, contaminates your code with routine and distracts you from your main task.
 
 
-# Example
+# Examples
+## Processing Wikipedia
 Imagine you're working on a data analysis pipeline for some huge dataset, say, extracting urls and their titles from Wikipedia archive.
-Parsing it (`extract_links` function) takes hours, however, the archive is presumably updated not very frequently.
+Parsing it (`extract_links` function) takes hours, however, as long as the archive is same you will always get same results. So it would be nice to be able to cache the results somehow.
 
 
 With this library your can achieve it through single `@cachew` decorator.
@@ -39,31 +44,89 @@ With this library your can achieve it through single `@cachew` decorator.
 ...     text: str
 ...
 >>> @cachew
-... def extract_links(archive: str) -> Iterator[Link]:
+... def extract_links(archive_path: str) -> Iterator[Link]:
 ...     for i in range(5):
-...         import time; time.sleep(1) # simulate slow IO
+...         # simulate slow IO
+...         # this function runs for five seconds for the purpose of demonstration, but realistically it might take hours
+...         import time; time.sleep(1)
 ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
 ...
->>> list(extract_links(archive='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
+>>> list(extract_links(archive_path='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
 [Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
 
 >>> from timeit import Timer
->>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
->>> print(f"took {int(res)} seconds to query cached items")
-took 0 seconds to query cached items
+>>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20190830.zip'))).timeit(number=1)
+... # second run is cached, so should take less time
+>>> print(f"call took {int(res)} seconds")
+call took 0 seconds
+
+>>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20200101.zip'))).timeit(number=1)
+... # now file has changed, so the cache will be discarded
+>>> print(f"call took {int(res)} seconds")
+call took 5 seconds
 ```
 
+
+When you call `extract_links` with the same archive, you start getting results in a matter of milliseconds, as fast as sqlite reads it.
+
+When you use newer archive, `archive_path` changes, which will make cachew invalidate old cache and recompute it, so you don't need to think about maintaining it separately.
+
+## Incremental data exports
+This is my most common usecase of cachew, which I'll illustrate with example.
+
+I'm using an [environment sensor](https://bluemaestro.com/products/product-details/bluetooth-environmental-monitor-and-logger) to log stats about temperature and humidity.
+Data is synchronized via bluetooth in the sqlite database, which is easy to access. However sensor has limited memory (e.g. 1000 latest measurements).
+That means that I end up with a new database every few days which contains, each of them containing only slice of data I need: e.g.:
+
+    ...
+    20190715100026.db
+    20190716100138.db
+    20190717101651.db
+    20190718100118.db
+    20190719100701.db
+    ...
+
+To access **all** of historic temperature data, I have two options:
+
+- Go through all the data chunks every time I wan to access them and 'merge' into a unified stream of measurements, e.g. something like:
+  
+      def measurements(chunks: List[Path]) -> Iterator[Measurement]:
+          for chunk in chunks:
+              # read measurements from 'chunk' and yield unseen ones
+
+  This is very **easy, but slow** and you waste CPU for no reason every time you need data.
+
+- Keep a 'master' database and write code to merge chunks in it.
+
+  This is very **efficient, but tedious**:
+  
+  - requires serializing/deserializing data -- boilerplate
+  - requires manually managing sqlite database -- error prone, hard to get right every time
+  - requires careful scheduling, ideally you want to access new data without having to refresh cache
+
+  
+Cachew gives me best of two worlds and makes it **easy and efficient**. Only thing you have to do is to decorate your function:
+
+    @cachew("/data/cache/measurements.sqlite")      
+    def measurements(chunks: List[Path]) -> Iterator[Measurement]:
+        # ...
+        
+- as long as `chunks` stay same, data stays same so you always read from sqlite cache which is very fast
+- you don't need to maintain the database, cache is automatically refreshed when `chunks` change (i.e. you got new data)
+
+  All the complexity of handling database is hidden in `cachew` implementation.
 
 
 
 # How it works
-Basically, your data objects get [flattened out](src/cachew/__init__.py#L272)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L324)
+Basically, your data objects get [flattened out](src/cachew/__init__.py#L350)
+and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L420).
 
-When the function is called, cachew [computes the hash](src/cachew/__init__.py:#L549)  of your function's arguments 
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L669)
 and compares it against the previously stored hash value.
     
-If they match, it would deserialize and yield whatever is stored in the cache database, if the hash mismatches, the original data provider is called and new data is stored along with the new hash.
+- If they match, it would deserialize and yield whatever is stored in the cache database
+- If the hash mismatches, the original function is called and new data is stored along with the new hash
 
 
 
@@ -73,31 +136,43 @@ If they match, it would deserialize and yield whatever is stored in the cache da
 
 
 
-* supports primitive types: `str`, `int`, `float`, `bool`, `datetime`, `date`
-* supports [Optional](src/cachew/tests/test_cachew.py#L325)
-* supports [nested datatypes](src/cachew/tests/test_cachew.py#L241)
-* supports return type inference: [1](src/cachew/tests/test_cachew.py#L185), [2](src/cachew/tests/test_cachew.py#L199)
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L271) and discards old data automatically            
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L200), [2](src/cachew/tests/test_cachew.py#L214)
+* supported types:    
+
+    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`
+    * [Optional](src/cachew/tests/test_cachew.py#L340) types
+    * [Union](src/cachew/tests/test_cachew.py#L518) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L256)
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L286) and discards old data automatically            
 
 
+
+# Performance
+Updating cache takes certain overhead, but that would depend on how complicated your datatype in the first place, so I'd suggest measuring if you're not sure.
+
+During reading cache all that happens is reading rows from sqlite and mapping them onto your target datatype, so the only overhead would be from reading sqlite, which is quite fast.
+
+I haven't set up formal benchmarking/regression tests yet, so don't want to make specific claims, however that would almost certainly make your programm faster if computations take more than several seconds.
 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L462) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L568) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
-Some highlights:
+Some useful arguments of `@cachew` decorator:
     
-* `cache_path` can be a filename, or you can specify a callable [returning path](src/cachew/tests/test_cachew.py#L221) and depending on function's arguments.
+* `cache_path` can be a filename, or you can specify a callable that [returns a path](src/cachew/tests/test_cachew.py#L236) and depends on function's arguments.
   
   It's not required to specify the path (it will be created in `/tmp`) but recommended.
     
-* `hashf` by default just hashes all the arguments, you can also specify a custom callable.
+* `hashf` is a function that determines whether your arguments have changed.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L51) the input file was modified.
+   By default it just uses string representation of the arguments, you can also specify a custom callable.
     
-* `cls` is deduced from return type annotations by default, but can be specified if you don't control the code you want to cache.    
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L66) if the input file was modified.
+    
+* `cls` is the type that would be serialized. It is inferred from return type annotations by default, but can be specified if you don't control the code you want to cache.    
 
 
 
@@ -114,25 +189,27 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 * why tuples and dataclasses?
   
   Tuples are natural in Python for quickly grouping together return results.
-  `NamedTuple` and `dataclass` specifically provide a very straighforward and self documenting way way to represent a bit of data in Python.
-  Very compact syntax makes it extremely convenitent even for one-off means of communicating between couple of functions.
+  `NamedTuple` and `dataclass` specifically provide a very straightforward and self documenting way to represent data in Python.
+  Very compact syntax makes it extremely convenient even for one-off means of communicating between couple of functions.
    
   If you want to find out more why you should use more dataclasses in your code I suggest these links:
-  [What are data classes?](https://stackoverflow.com/questions/47955263/what-are-data-classes-and-how-are-they-different-from-common-classes), [basic data classes](https://realpython.com/python-data-classes/#basic-data-classes).
+  
+  - [What are data classes?](https://stackoverflow.com/questions/47955263/what-are-data-classes-and-how-are-they-different-from-common-classes)
+  - [basic data classes](https://realpython.com/python-data-classes/#basic-data-classes)
    
     
 * why not [pickle](https://docs.python.org/3/library/pickle.html)?
 
-  Pickling is a bit heavyweight for plain data class. There are many reports of pickle being slower than even JSON and it's also security risk. Lastly, it can only be loaded via Python.
+  Pickling is a bit heavyweight for plain data class. There are many reports of pickle being slower than even JSON and it's also security risk. Lastly, it can only be loaded via Python, whereas sqlite has numerous bindings and tools to explore and interface.
 
 * why `sqlite` database for storage?
 
-  It's pretty effecient and sequence of namedtuples maps onto database rows in a very straighforward manner.
+  It's pretty efficient and sequence of namedtuples maps onto database rows in a very straightforward manner.
 
 * why not `pandas.DataFrame`?
 
   DataFrames are great and can be serialised to csv or pickled.
-  They are good to have as one of the ways you can interface with your data, however hardly convenitent to think about it abstractly due to their dynamic nature.
+  They are good to have as one of the ways you can interface with your data, however hardly convenient to think about it abstractly due to their dynamic nature.
   They also can't be nested.
   
 * why not [ORM](https://en.wikipedia.org/wiki/Object-relational_mapping)?
@@ -144,7 +221,7 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
 
 * why not [marshmallow](https://marshmallow.readthedocs.io/en/3.0/nesting.html)?
   
-  Marshmallow is a common way to map data into db-friendly format, but it requires explicit schema which is an overhead when you have it already in the form of type annotations. I've looked at existing projects to utilise type annotations, but didn't find them covering all I wanted:
+  Marshmallow is a common way to map data into db-friendly format, but it requires explicit schema which is an overhead when you have it already in the form of type annotations. I've looked at existing projects to utilize type annotations, but didn't find them covering all I wanted:
   
   * https://marshmallow-annotations.readthedocs.io/en/latest/ext/namedtuple.html#namedtuple-type-api
   * https://pypi.org/project/marshmallow-dataclass
