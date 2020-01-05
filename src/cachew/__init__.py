@@ -466,6 +466,8 @@ class DbHelper:
         Somehow without this thing sqlalchemy logs BEGIN (implicit) instead of BEGIN TRANSACTION which actually works in sqlite...
 
         Judging by sqlalchemy/dialects/sqlite/base.py, looks like some sort of python sqlite driver problem??
+
+        test_transaction should check this behaviour
         """
         @event.listens_for(self.connection, "begin")
         # pylint: disable=unused-variable
