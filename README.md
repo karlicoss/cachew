@@ -51,19 +51,25 @@ With this library your can achieve it through single `@cachew` decorator.
 ...         import time; time.sleep(1)
 ...         yield Link(url=f'http://link{i}.org', text=f'text {i}')
 ...
->>> list(extract_links(archive='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
+>>> list(extract_links(archive_path='wikipedia_20190830.zip')) # that would take about 5 seconds on first run
 [Link(url='http://link0.org', text='text 0'), Link(url='http://link1.org', text='text 1'), Link(url='http://link2.org', text='text 2'), Link(url='http://link3.org', text='text 3'), Link(url='http://link4.org', text='text 4')]
 
 >>> from timeit import Timer
->>> res = Timer(lambda: list(extract_links(archive='wikipedia_20190830.zip'))).timeit(number=1) # second run is cached, so should take less time
->>> print(f"took {int(res)} seconds to query cached items")
-took 0 seconds to query cached items
+>>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20190830.zip'))).timeit(number=1)
+... # second run is cached, so should take less time
+>>> print(f"call took {int(res)} seconds")
+call took 0 seconds
+
+>>> res = Timer(lambda: list(extract_links(archive_path='wikipedia_20200101.zip'))).timeit(number=1)
+... # now file has changed, so the cache will be discarded
+>>> print(f"call took {int(res)} seconds")
+call took 5 seconds
 ```
 
 
-Next time you call `extract_links` with the same archive, you will start getting results in a matter of milliseconds, as fast as sqlite reads it.
+When you call `extract_links` with the same archive, you start getting results in a matter of milliseconds, as fast as sqlite reads it.
 
-When you use newer archive, `archive_path` will change, which will make cachew invalidate old cache and recompute it, so you don't need to think about maintaining it separately.
+When you use newer archive, `archive_path` changes, which will make cachew invalidate old cache and recompute it, so you don't need to think about maintaining it separately.
 
 ## Incremental data exports
 This is my most common usecase of cachew, which I'll illustrate with example.
@@ -116,7 +122,7 @@ Cachew gives me best of two worlds and makes it **easy and efficient**. Only thi
 Basically, your data objects get [flattened out](src/cachew/__init__.py#L350)
 and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L420).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L663)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L669)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
