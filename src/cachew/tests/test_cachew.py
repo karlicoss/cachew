@@ -523,3 +523,38 @@ def test_union(tmp_path: Path):
 
     list(fun())
     assert list(fun()) == [U('hi'), U(O(123))]
+
+
+
+def _concurrent_helper(cache_path: Path, count: int):
+    from time import sleep
+    @cachew(cache_path)
+    def test(count: int) -> Iterator[int]:
+        for i in range(count):
+            print(f"{count}: GENERATING {i}")
+            sleep(0.1)
+            yield i * i
+
+    return list(test(count=count))
+
+
+# TODO how to run it enough times on CI and increase likelihood of failing?
+# for now, stress testing manually:
+# while PYTHONPATH=src pytest -s cachew -k concurrent ; do sleep 0.5; done
+def test_concurrent_write(tmp_path: Path):
+    cache_path = tmp_path / 'cache.sqlite'
+
+    from concurrent.futures import ProcessPoolExecutor as Pool
+
+    # warm up to create the database
+    # FIXME ok, that will be fixed separately with atomic move I suppose
+    _concurrent_helper(cache_path, 1)
+
+    processes = 5
+    with Pool() as pool:
+        futures = [
+            pool.submit(_concurrent_helper, cache_path, count)
+        for count in range(processes)]
+
+        for count, f in enumerate(futures):
+            assert f.result() == [i * i for i in range(count)]
