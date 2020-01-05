@@ -526,24 +526,29 @@ def test_union(tmp_path: Path):
 
 
 
-def _concurrent_helper(cache_path: Path, count: int):
+def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
     from time import sleep
     @cachew(cache_path)
     def test(count: int) -> Iterator[int]:
         for i in range(count):
             print(f"{count}: GENERATING {i}")
-            sleep(0.1)
+            sleep(sleep_s)
             yield i * i
 
     return list(test(count=count))
 
 
+# TODO hmm, inject sleep into cachew_impl via patchy perhaps?
+# tbh, replace() would be enough
+
+
+# TODO fuzz when they start so they enter transaction at different times?
+
 # TODO how to run it enough times on CI and increase likelihood of failing?
 # for now, stress testing manually:
-# while PYTHONPATH=src pytest -s cachew -k concurrent ; do sleep 0.5; done
+# while PYTHONPATH=src pytest -s cachew -k concurrent_write ; do sleep 0.5; done
 def test_concurrent_write(tmp_path: Path):
     cache_path = tmp_path / 'cache.sqlite'
-
     from concurrent.futures import ProcessPoolExecutor as Pool
 
     # warm up to create the database
@@ -558,3 +563,32 @@ def test_concurrent_write(tmp_path: Path):
 
         for count, f in enumerate(futures):
             assert f.result() == [i * i for i in range(count)]
+
+
+# TODO ugh. need to keep two processes around to test for yield holding transaction lock
+
+def test_concurrent_reads(tmp_path: Path):
+    cache_path = tmp_path / 'cache.sqlite'
+    from concurrent.futures import ProcessPoolExecutor as Pool
+
+    count = 10
+    # warm up
+    _concurrent_helper(cache_path, count, sleep_s=0)
+
+    processes = 4
+
+    import time
+    start = time.time()
+    with Pool() as pool:
+        futures = [
+            pool.submit(_concurrent_helper, cache_path, count, 1)
+        for _ in range(processes)]
+
+        for f in futures:
+            print(f.result())
+    end = time.time()
+
+    taken = end - start
+    # should be pretty instantaneous
+    # if it takes more, most likely means that helper was called again
+    assert taken < 5
