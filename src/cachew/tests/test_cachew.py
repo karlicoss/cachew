@@ -614,3 +614,16 @@ def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
     # should be pretty instantaneous
     # if it takes more, most likely means that helper was called again
     assert taken < 5
+
+
+def test_mcachew(tmp_path: Path):
+    # TODO how to test for defensive behaviour?
+    from cachew.misc import mcachew
+
+    @mcachew(cache_path=tmp_path / 'cache')
+    def func() -> Iterator[str]:
+        yield 'one'
+        yield 'two'
+
+    assert list(func()) == ['one', 'two']
+    assert list(func()) == ['one', 'two']
