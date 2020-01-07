@@ -122,7 +122,7 @@ Cachew gives me best of two worlds and makes it **easy and efficient**. Only thi
 Basically, your data objects get [flattened out](src/cachew/__init__.py#L350)
 and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L420).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L669)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L674)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -157,7 +157,7 @@ I haven't set up formal benchmarking/regression tests yet, so don't want to make
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L568) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L573) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful arguments of `@cachew` decorator:
@@ -225,3 +225,28 @@ I'm using [tox](tox.ini) to run tests, and [circleci](.circleci/config.yml).
   
   * https://marshmallow-annotations.readthedocs.io/en/latest/ext/namedtuple.html#namedtuple-type-api
   * https://pypi.org/project/marshmallow-dataclass
+
+# Tips and tricks
+## Optional dependency
+You can benefit from `cachew` even if you don't want to bloat your app's dependencies. Just use the following snippet:
+
+
+```python
+def mcachew(*args, **kwargs):
+    """
+    Stands for 'Maybe cachew'.
+    Defensive wrapper around @cachew to make it an optional dependency.
+    """
+    try:
+        import cachew
+    except ModuleNotFoundError:
+        import warnings
+        warnings.warn('cachew library not found. You might want to install it to speed things up. See https://github.com/karlicoss/cachew')
+        return lambda orig_func: orig_func
+    else:
+        return cachew.cachew(*args, **kwargs)
+
+```
+
+
+Now you can use `@mcachew` in place of `@cachew`, and be certain things don't break if `cachew` is missing.
