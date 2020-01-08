@@ -4,46 +4,127 @@
 :since:    
 :url:      https://api.github.com/repos/karlicoss/cachew
 :END:
+** OPEN keep hash along each cached entity instead of separate table?
+:PROPERTIES:
+:tags:     ("prio-B")
+:id:       15
+:date-modification: 2020-01-08T22:26:04+0000
+:date-creation: 2020-01-08T22:26:04+0000
+:author:   "karlicoss"
+:END:
+: At the moment there are two separate tables: one for latest hash value, another for cached entities.
+: It might be simpler and safer to keep a single table, with hash along with each cached entity.
+: 
+** OPEN support multiple cached values?
+:PROPERTIES:
+:tags:     ("prio-B")
+:id:       14
+:date-modification: 2020-01-08T22:26:03+0000
+:date-creation: 2020-01-08T22:26:02+0000
+:author:   "karlicoss"
+:END:
+: At the moment it's LRU(1) cache, it some usecases it makes sense to cache more values though
+: 
+** OPEN support pathlib.Path
+:PROPERTIES:
+:tags:     ("prio-C")
+:id:       13
+:date-modification: 2020-01-08T22:26:02+0000
+:date-creation: 2020-01-08T22:26:01+0000
+:author:   "karlicoss"
+:END:
+: Path is a trivial wrapper around str. I guess generally think of a good way to allow adhoc mapping of simple types.
+: Perhaps current Exception makes sense.
+: 
+** OPEN support defensive behaviour
+:PROPERTIES:
+:tags:     ("prio-C")
+:id:       12
+:date-modification: 2020-01-08T22:26:01+0000
+:date-creation: 2020-01-08T22:26:00+0000
+:author:   "karlicoss"
+:END:
+: E.g. if we can't serialize for some reason, bail the database but at least yield values anyway
+: 
+** OPEN Add Redis support
+:PROPERTIES:
+:id:       9
+:date-modification: 2020-01-06T00:48:59+0000
+:date-creation: 2020-01-06T00:48:59+0000
+:author:   "softinio"
+:END:
+: Add Redis support as an alternative to sqlite
+: 
+: This would be a great feature as it will make this solution easier to use in an enterprise production environment as getting a redis instance shared amonst multiple instances of your app is very easy and cost effective to use.
+: 
 ** OPEN better pytz support?
 :PROPERTIES:
-:tags:     ("prio-A")
+:tags:     ("prio-C")
 :id:       6
-:date-modification: 2020-01-05T13:33:25+0000
+:date-modification: 2020-01-05T13:34:51+0000
 :date-creation: 2020-01-05T13:33:25+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Optional feature: Exception support
+:PROPERTIES:
+:id:       11
+:date-modification: 2020-01-08T21:56:56+0000
+:date-creation: 2020-01-08T21:34:03+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Add doc on defensive/optional usage
+:PROPERTIES:
+:id:       10
+:date-modification: 2020-01-06T23:48:54+0000
+:date-creation: 2020-01-06T23:47:39+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Safer concurrent writes handling
+:PROPERTIES:
+:id:       8
+:date-modification: 2020-01-05T22:32:13+0000
+:date-creation: 2020-01-05T22:08:24+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Update readme
+:PROPERTIES:
+:id:       7
+:date-modification: 2020-01-05T15:29:37+0000
+:date-creation: 2020-01-05T15:24:38+0000
 :author:   "karlicoss"
 :END:
 ** CLOSED support for dataclasses
 :PROPERTIES:
 :id:       1
-:date-modification: 2020-01-05T13:34:18+0000
+:date-modification: 2020-01-05T13:34:50+0000
 :date-creation: 2019-07-30T21:45:30+0100
-:author:   "karlicoss"
-:END:
-** CLOSED support top level primitive types
-:PROPERTIES:
-:id:       5
-:date-modification: 2019-12-20T00:12:10+0000
-:date-creation: 2019-12-20T00:09:00+0000
-:author:   "karlicoss"
-:END:
-** CLOSED Union types
-:PROPERTIES:
-:id:       4
-:date-modification: 2019-12-19T23:45:05+0000
-:date-creation: 2019-12-19T23:32:55+0000
-:author:   "karlicoss"
-:END:
-** CLOSED Fix bug when default argument is explicitly specified
-:PROPERTIES:
-:id:       3
-:date-modification: 2019-12-08T17:57:25+0000
-:date-creation: 2019-12-08T17:56:51+0000
 :author:   "karlicoss"
 :END:
 ** CLOSED Fix Json support for python3.6
 :PROPERTIES:
 :id:       2
-:date-modification: 2019-12-08T12:29:07+0000
+:date-modification: 2020-01-05T13:33:28+0000
 :date-creation: 2019-12-08T12:21:58+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Fix bug when default argument is explicitly specified
+:PROPERTIES:
+:id:       3
+:date-modification: 2020-01-05T13:33:27+0000
+:date-creation: 2019-12-08T17:56:51+0000
+:author:   "karlicoss"
+:END:
+** CLOSED Union types
+:PROPERTIES:
+:id:       4
+:date-modification: 2020-01-05T13:33:27+0000
+:date-creation: 2019-12-19T23:32:55+0000
+:author:   "karlicoss"
+:END:
+** CLOSED support top level primitive types
+:PROPERTIES:
+:id:       5
+:date-modification: 2020-01-05T13:33:26+0000
+:date-creation: 2019-12-20T00:09:00+0000
 :author:   "karlicoss"
 :END:
