@@ -119,10 +119,10 @@ Cachew gives me best of two worlds and makes it **easy and efficient**. Only thi
 
 
 # How it works
-Basically, your data objects get [flattened out](src/cachew/__init__.py#L350)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L420).
+Basically, your data objects get [flattened out](src/cachew/__init__.py#L356)
+and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L426).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L674)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L690)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -141,8 +141,17 @@ and compares it against the previously stored hash value.
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`
     * [Optional](src/cachew/tests/test_cachew.py#L340) types
-    * [Union](src/cachew/tests/test_cachew.py#L518) types
+    * [Union](src/cachew/tests/test_cachew.py#L521) types
     * [nested datatypes](src/cachew/tests/test_cachew.py#L256)
+    * [Exceptions](src/cachew/tests/test_cachew.py#L644) (experimental, enabled by calling [`cachew.experimental.enable_exceptions`](src/cachew/__init__.py#L28))
+       
+       Enables support for caching Exceptions. Exception arguments are going to be serialized as strings.
+
+       It's useful for defensive error handling, in case of cachew in particular for preserving error state.
+
+       I elaborate on it here: [mypy-driven error handling](https://beepb00p.xyz/mypy-error-handling.html#kiss).
+       
+    
 * detects [datatype schema changes](src/cachew/tests/test_cachew.py#L286) and discards old data automatically            
 
 
@@ -157,7 +166,7 @@ I haven't set up formal benchmarking/regression tests yet, so don't want to make
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L573) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L588) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful arguments of `@cachew` decorator:

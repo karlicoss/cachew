@@ -449,7 +449,9 @@ def test_types(tdir):
         a_dt   : datetime
         a_date : date
         a_json : Dict[str, Any]
-        a_exc  : Optional[Exception] # TODO ugh. exceptions can't be compared really...
+
+        # temporary commented: experimental feature
+        # a_exc  : Optional[Exception] # TODO ugh. exceptions can't be compared really...
     # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
@@ -462,7 +464,6 @@ def test_types(tdir):
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
         a_json ={'a': True, 'x': {'whatever': 3.14}},
-        a_exc=None,
     )
 
     @cachew(tdir)
