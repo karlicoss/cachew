@@ -527,7 +527,6 @@ def test_union(tmp_path: Path):
     assert list(fun()) == [U('hi'), U(O(123))]
 
 
-
 def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
     from time import sleep
     @cachew(cache_path)
@@ -631,24 +630,29 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
-class E(NamedTuple):
-    e: Exception
+@pytest.fixture
+def with_exceptions():
+    from cachew.experimental import enable_exceptions, disable_exceptions
+    enable_exceptions()
+    try:
+        yield
+    finally:
+        disable_exceptions()
 
 
-def test_exceptions(tmp_path: Path):
+def test_exceptions(tmp_path: Path, with_exceptions):
     @cachew(tmp_path)
-    def fun() -> Iterator[E]:
-        yield E(RuntimeError('whatever', 123))
+    def fun() -> Iterator[Exception]:
+        yield RuntimeError('whatever', 123)
 
     list(fun())
-    [ee] = fun()
-    e = ee.e
-    assert type(e) == Exception # sadly we lose type information at the moment..
+    [e] = fun()
+    assert type(e) == Exception  # sadly we lose type information at the moment..
     assert e.args == ("('whatever', 123)", )
 
 
 # see https://beepb00p.xyz/mypy-error-handling.html#kiss
-def test_result(tmp_path: Path):
+def test_result(tmp_path: Path, with_exceptions):
     @cachew(tmp_path)
     def fun() -> Iterator[Union[Exception, int]]:
         yield 1

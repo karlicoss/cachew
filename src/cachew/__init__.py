@@ -115,26 +115,6 @@ class Json(sqlalchemy.TypeDecorator):
         return json.loads(value)
 
 
-# TODO ok, not ideal converting everything to str; but after all what else you will to with Exception??
-class ExceptionAdapter(sqlalchemy.TypeDecorator):
-    impl = sqlalchemy.String
-
-    @property
-    def python_type(self): return Exception
-
-    def process_literal_param(self, value, dialect): raise NotImplementedError() # make pylint happy
-
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[str]:
-        if value is None:
-            return None
-        return str(value.args)
-
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[Exception]:
-        if value is None:
-            return None
-        return Exception(value)
-
-
 PRIMITIVES = {
     str     : sqlalchemy.String,
     int     : sqlalchemy.Integer,
@@ -143,7 +123,6 @@ PRIMITIVES = {
     datetime: IsoDateTime,
     date    : IsoDate,
     dict    : Json,
-    Exception: ExceptionAdapter,
 }
 
 
