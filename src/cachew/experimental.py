@@ -26,6 +26,13 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
 
 
 def enable_exceptions():
+    """
+    Enables support for caching Exceptions. Exception arguments are going to be serialized as strings.
+
+    It's useful for defensive error handling, in case of cachew in particular for preserving error state.
+
+    I elaborate on it here: [mypy-driven error handling](https://beepb00p.xyz/mypy-error-handling.html#kiss).
+    """
     if Exception not in PRIMITIVES:
         PRIMITIVES[Exception] = ExceptionAdapter
 
