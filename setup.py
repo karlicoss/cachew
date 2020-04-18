@@ -1,46 +1,54 @@
-# -*- coding: utf-8 -*-
-"""
-    Setup file for cachew.
-    Use setup.cfg to configure your project.
-
-    This file was generated with PyScaffold 3.2.
-    PyScaffold helps you to put up the scaffold of your new Python project.
-    Learn more under: https://pyscaffold.org/
-"""
-import sys
-
-from pkg_resources import require, VersionConflict
-from setuptools import setup
-
-try:
-    require('setuptools>=38.3')
-except VersionConflict:
-    print("Error: version of setuptools is too old (<38.3)!")
-    sys.exit(1)
+# see https://github.com/karlicoss/pymplate for up-to-date reference
 
 
-if __name__ == "__main__":
+url = 'https://github.com/karlicoss/cachew'
+author = 'Dima Gerasimov'
+author_email = 'karlicoss@gmail.com'
+description = 'Easy sqlite-backed persistent cache for dataclasses'
+
+install_requires = [
+    'sqlalchemy',
+]
+
+
+from setuptools import setup, find_packages # type: ignore
+
+
+def main():
+    pkgs = find_packages('src', exclude=['*.tests'])
+    [pkg] = pkgs
     setup(
-        use_pyscaffold=True,
-        package_data={
-            'cachew': [
-                'py.typed',
-            ],
+        name=pkg,
+        use_scm_version={
+            'version_scheme': 'python-simplified-semver',
+            'local_scheme': 'dirty-tag',
         },
-        extras_require={
-            # ugh, unclear how to specify python version dependnt code in setup.cfg
-            ':python_version<"3.7"': [
-                'dataclasses', # TODO could make optional?
-            ],
-            'testing': [
-                'pytest',
-                'pytz',
+        setup_requires=['setuptools_scm'],
 
+        url=url,
+        author=author,
+        author_email=author_email,
+        description=description,
+
+        packages=[pkg],
+        package_dir={'': 'src'},
+        package_data={pkg: ['py.typed']},
+
+        install_requires=install_requires,
+        extras_require={
+            # can't specify this in setup.cfg!
+            ':python_version<"3.7"': ['dataclasses'],
+            'testing': [
+                'pytest', 'pytz', 'patchy',
                 'pylint',
                 'mypy',
                 'bandit',
-
-                'patchy',
-            ]
+            ],
         },
+
+        zip_safe=False,
     )
+
+
+if __name__ == '__main__':
+    main()
