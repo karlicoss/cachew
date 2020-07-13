@@ -1,4 +1,4 @@
-# TODO Ideally, needs doublewraps as well?
+# TODO Ideally, needs doublewraps as well? also typing helpers
 def mcachew(*args, **kwargs):
     """
     Stands for 'Maybe cachew'.

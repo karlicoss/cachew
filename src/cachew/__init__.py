@@ -46,17 +46,6 @@ def get_logger() -> logging.Logger:
     return logging.getLogger('cachew')
 
 
-T = TypeVar('T')
-
-
-def ichunks(l: Iterable[T], n: int) -> Iterator[List[T]]:
-    it: Iterator[T] = iter(l)
-    while True:
-        chunk: List[T] = list(islice(it, 0, n))
-        if len(chunk) == 0:
-            break
-        yield chunk
-
 
 class IsoDateTime(sqlalchemy.TypeDecorator):
     # in theory could use something more effecient? e.g. blob for encoded datetime and tz?
@@ -593,6 +582,7 @@ def cachew(
         cls=None,
         hashf: HashFunction=default_hash,
         logger=None,
+        # TODO I had some notes about this?? it probably doesn't impact the performance..
         chunk_by=10000, # TODO dunno maybe remove it?
 ):  # TODO what's a reasonable default?):
     r"""
@@ -761,11 +751,20 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
 
                     datas = func(*args, **kwargs)
 
-                    for chunk in ichunks(datas, n=chunk_by):
-                        bound = [binder.to_row(c) for c in chunk]
-                        # pylint: disable=no-value-for-parameter
-                        conn.execute(values_table.insert().values(bound))
-                        yield from chunk
+                    chunk: List[Any] = []
+                    def flush():
+                        nonlocal chunk
+                        if len(chunk) > 0:
+                            # pylint: disable=no-value-for-parameter
+                            conn.execute(values_table.insert().values(chunk))
+                            chunk = []
+
+                    for d in datas:
+                        yield d
+                        chunk.append(binder.to_row(d))
+                        if len(chunk) >= chunk_by:
+                            flush()
+                    flush()
 
                     # TODO insert and replace instead?
 
