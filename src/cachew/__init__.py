@@ -472,7 +472,6 @@ class DbHelper:
 
         self.meta = sqlalchemy.MetaData(self.connection)
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
-        self.table_hash.create(self.connection, checkfirst=True)
 
         self.binder = NTBinder.make(tp=cls)
         self.table_data = Table('table', self.meta, *self.binder.columns)
@@ -715,7 +714,14 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
 
             # transaction is DEFERRED  (see DbHelper constructor)
             with conn.begin():
-                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+                try:
+                    prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+                except sqlalchemy.exc.OperationalError as e:
+                    # meh. not sure if this is a good way to handle this..
+                    if 'no such table: hash' in str(e):
+                        prev_hashes = []
+                    else:
+                        raise e
                 kassert(len(prev_hashes) <= 1)  # shouldn't happen
 
                 prev_hash: Optional[SourceHash]
@@ -739,6 +745,8 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                     # TODO i'd prefer some explicit transaction upgrade statement; but not sure if there is any?
                     try:
                         # drop and create to incorporate schema changes
+
+                        db.table_hash.create(conn, checkfirst=True)
                         values_table.drop(conn, checkfirst=True)
                         values_table.create(conn)
                     except sqlalchemy.exc.OperationalError as e:
