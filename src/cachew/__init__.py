@@ -740,6 +740,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                     try:
                         # drop and create to incorporate schema changes
                         values_table.drop(conn, checkfirst=True)
+                        values_table.create(conn)
                     except sqlalchemy.exc.OperationalError as e:
                         if e.code == 'e3q8':
                             # database is locked; someone else must be writing
@@ -748,7 +749,6 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                             return
                         else:
                             raise e
-                    values_table.create(conn)
 
                     datas = func(*args, **kwargs)
 
@@ -777,3 +777,4 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
 
 
 __all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'NTBinder']
+# TODO add test for migration? actually commit a db in the repository?
