@@ -451,8 +451,13 @@ SourceHash = str
 
 class DbHelper:
     def __init__(self, db_path: Path, cls: Type) -> None:
-        self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}')
+        self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}', connect_args={'timeout': 0})
+        # NOTE: timeout is necessary so we don't lose time waiting during recursive calls
+        # by default, it's several seconds? you'd see 'test_recursive' test performance degrade
         self.connection = self.engine.connect()
+
+        # todo right, so maybe sqlalchemy caches the engines or something? so it ends up the same connection
+        # on the other hand, we don't really want new connection on every recursive call
 
         """
         Erm... this is pretty confusing.
@@ -468,6 +473,8 @@ class DbHelper:
         # pylint: disable=unused-variable
         def do_begin(conn):
             # NOTE there is also BEGIN CONCURRENT in newer versions of sqlite. could use it later?
+            # meh. not sure if it's the right place for pragma, but doesn't work in 'connect' callback?
+            conn.execute('PRAGMA journal_mode=WAL')
             conn.execute('BEGIN DEFERRED')
 
         self.meta = sqlalchemy.MetaData(self.connection)
@@ -712,9 +719,10 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
             h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
             logger.debug('new hash: %s', h)
 
-            # transaction is DEFERRED  (see DbHelper constructor)
             with conn.begin():
+                # first, try to do as much as possible read-only, benefiting from deferred transaction
                 try:
+                    # not sure if there is a better way...
                     prev_hashes = conn.execute(db.table_hash.select()).fetchall()
                 except sqlalchemy.exc.OperationalError as e:
                     # meh. not sure if this is a good way to handle this..
@@ -722,8 +730,8 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                         prev_hashes = []
                     else:
                         raise e
-                kassert(len(prev_hashes) <= 1)  # shouldn't happen
 
+                kassert(len(prev_hashes) <= 1)  # shouldn't happen
                 prev_hash: Optional[SourceHash]
                 if len(prev_hashes) == 0:
                     prev_hash = None
@@ -740,23 +748,29 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                 else:
                     logger.debug('hash mismatch: computing data and writing to db')
 
-                    # first write statement will upgrade transaction to write transaction which might fail due to concurrency
-                    # see https://www.sqlite.org/lang_transaction.html
-                    # TODO i'd prefer some explicit transaction upgrade statement; but not sure if there is any?
-                    try:
-                        # drop and create to incorporate schema changes
+                    # NOTE on recursive calls
+                    # somewhat magically, they should work as expected with no extra database inserts?
+                    # the top level call 'wins' the write transaction and once it's gathered all data, will write it
+                    # the 'intermediate' level calls fail to get it and will pass data through
+                    # the cached 'bottom' level is read only and will be yielded withotu a write transaction
 
+                    try:
+                        # first write statement will upgrade transaction to write transaction which might fail due to concurrency
+                        # see https://www.sqlite.org/lang_transaction.html
+                        # note I guess, because of 'checkfirst', only the last create is actually guaranteed to upgrade the transaction to write one
+                        # drop and create to incorporate schema changes
                         db.table_hash.create(conn, checkfirst=True)
                         values_table.drop(conn, checkfirst=True)
                         values_table.create(conn)
                     except sqlalchemy.exc.OperationalError as e:
                         if e.code == 'e3q8':
-                            # database is locked; someone else must be writing
+                            # database is locked; someone else must be have won the write lock
                             # not much we can do here
                             yield from func(*args, **kwargs)
                             return
                         else:
                             raise e
+                    # at this point we're guaranteed to have an exclusive write transaction
 
                     datas = func(*args, **kwargs)
 

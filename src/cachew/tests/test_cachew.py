@@ -653,10 +653,10 @@ def test_recursive(tmp_path: Path):
     assert calls == 4
     assert list(factorials(3)) == [1, 1, 2, 6]
     assert calls == 4
-    assert list(factorials(4)) == [1, 1, 2, 6, 24]
-    assert calls == 5
+    assert list(factorials(5)) == [1, 1, 2, 6, 24, 120]
+    assert calls == 6
     assert list(factorials(3)) == [1, 1, 2, 6]
-    assert calls == 9
+    assert calls == 10
 
 
 @pytest.fixture
