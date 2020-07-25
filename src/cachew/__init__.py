@@ -580,6 +580,7 @@ def cachew(
         func=None,
         cache_path: Optional[PathProvider]=None,
         cls=None,
+        # TODO name 'dependencies'? or 'depends_on'?
         hashf: HashFunction=default_hash,
         logger=None,
         # TODO I had some notes about this?? it probably doesn't impact the performance..

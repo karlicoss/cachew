@@ -631,6 +631,30 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
+def test_recursive(tmp_path: Path):
+    calls = 0
+    @cachew(tmp_path)
+    def factorials(n: int) -> Iterable[int]:
+        nonlocal calls
+        calls += 1
+        if n == 0:
+            yield 1
+            return
+        prev = factorials(n - 1)
+        last = 1
+        # TODO potentially quadratic? measure perf perhaps?
+        for x in prev:
+            yield x
+            last = x
+        yield last * n
+
+    assert calls == 0
+    assert list(factorials(5)) == [1, 1, 2, 6, 24, 120]
+    assert calls == 6
+    assert list(factorials(5)) == [1, 1, 2, 6, 24, 120]
+    assert calls == 6
+
+
 @pytest.fixture
 def with_exceptions():
     from cachew.experimental import enable_exceptions, disable_exceptions
