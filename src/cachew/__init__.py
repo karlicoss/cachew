@@ -454,10 +454,14 @@ class DbHelper:
         self.engine = sqlalchemy.create_engine(f'sqlite:///{db_path}', connect_args={'timeout': 0})
         # NOTE: timeout is necessary so we don't lose time waiting during recursive calls
         # by default, it's several seconds? you'd see 'test_recursive' test performance degrade
-        self.connection = self.engine.connect()
 
-        # todo right, so maybe sqlalchemy caches the engines or something? so it ends up the same connection
-        # on the other hand, we don't really want new connection on every recursive call
+        from sqlalchemy.engine import Engine # type: ignore
+        @event.listens_for(Engine, 'connect')
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            # without wal, concurrent reading/writing is not gonna work
+            dbapi_connection.execute('PRAGMA journal_mode=WAL')
+
+        self.connection = self.engine.connect()
 
         """
         Erm... this is pretty confusing.
@@ -473,8 +477,6 @@ class DbHelper:
         # pylint: disable=unused-variable
         def do_begin(conn):
             # NOTE there is also BEGIN CONCURRENT in newer versions of sqlite. could use it later?
-            # meh. not sure if it's the right place for pragma, but doesn't work in 'connect' callback?
-            conn.execute('PRAGMA journal_mode=WAL')
             conn.execute('BEGIN DEFERRED')
 
         self.meta = sqlalchemy.MetaData(self.connection)
@@ -767,6 +769,9 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
                 if e.code == 'e3q8':
                     # database is locked; someone else must be have won the write lock
                     # not much we can do here
+                    # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
+                    # see test_deep_recursive
+                    conn.close()
                     yield from func(*args, **kwargs)
                     return
                 else:
