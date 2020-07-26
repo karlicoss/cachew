@@ -548,18 +548,18 @@ def fuzz_cachew_impl():
     import patchy  # type: ignore[import]
     from .. import cachew_impl
     patch = '''\
-@@ -47,6 +47,11 @@
+@@ -740,6 +740,11 @@
 
-                 logger.debug('old hash: %s', prev_hash)
+             logger.debug('old hash: %s', prev_hash)
 
-+                from random import random
-+                rs = random() * 2
-+                print("sleeping for: ", rs)
-+                from time import sleep; sleep(rs)
++            from random import random
++            rs = random() * 2
++            print("sleeping for: ", rs)
++            from time import sleep; sleep(rs)
 +
-                 if h == prev_hash:
-                     logger.debug('hash matched: loading from cache')
-                     rows = conn.execute(values_table.select()
+             if h == prev_hash:
+                 logger.debug('hash matched: loading from cache')
+                 rows = conn.execute(values_table.select())
 '''
     patchy.patch(cachew_impl, patch)
     yield

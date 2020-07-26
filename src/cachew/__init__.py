@@ -710,91 +710,92 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         if not dbp.parent.exists():
             raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
+        h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
+        logger.debug('new hash: %s', h)
 
-        with DbHelper(dbp, cls) as db:
-            binder = db.binder
+        with DbHelper(dbp, cls) as db, \
+             db.connection.begin():
+            # NOTE: defferred transaction
             conn = db.connection
+            binder = db.binder
             values_table = db.table_data
 
-            h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
-            logger.debug('new hash: %s', h)
-
-            with conn.begin():
-                # first, try to do as much as possible read-only, benefiting from deferred transaction
-                try:
-                    # not sure if there is a better way...
-                    prev_hashes = conn.execute(db.table_hash.select()).fetchall()
-                except sqlalchemy.exc.OperationalError as e:
-                    # meh. not sure if this is a good way to handle this..
-                    if 'no such table: hash' in str(e):
-                        prev_hashes = []
-                    else:
-                        raise e
-
-                kassert(len(prev_hashes) <= 1)  # shouldn't happen
-                prev_hash: Optional[SourceHash]
-                if len(prev_hashes) == 0:
-                    prev_hash = None
+            # first, try to do as much as possible read-only, benefiting from deferred transaction
+            try:
+                # not sure if there is a better way...
+                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+            except sqlalchemy.exc.OperationalError as e:
+                # meh. not sure if this is a good way to handle this..
+                if 'no such table: hash' in str(e):
+                    prev_hashes = []
                 else:
-                    prev_hash = prev_hashes[0][0]  # returns a tuple...
+                    raise e
 
-                logger.debug('old hash: %s', prev_hash)
+            kassert(len(prev_hashes) <= 1)  # shouldn't happen
+            prev_hash: Optional[SourceHash]
+            if len(prev_hashes) == 0:
+                prev_hash = None
+            else:
+                prev_hash = prev_hashes[0][0]  # returns a tuple...
 
-                if h == prev_hash:
-                    logger.debug('hash matched: loading from cache')
-                    rows = conn.execute(values_table.select())
-                    for row in rows:
-                        yield binder.from_row(row)
+            logger.debug('old hash: %s', prev_hash)
+
+            if h == prev_hash:
+                logger.debug('hash matched: loading from cache')
+                rows = conn.execute(values_table.select())
+                for row in rows:
+                    yield binder.from_row(row)
+                return
+
+            logger.debug('hash mismatch: computing data and writing to db')
+
+            # NOTE on recursive calls
+            # somewhat magically, they should work as expected with no extra database inserts?
+            # the top level call 'wins' the write transaction and once it's gathered all data, will write it
+            # the 'intermediate' level calls fail to get it and will pass data through
+            # the cached 'bottom' level is read only and will be yielded withotu a write transaction
+
+            try:
+                # first write statement will upgrade transaction to write transaction which might fail due to concurrency
+                # see https://www.sqlite.org/lang_transaction.html
+                # note I guess, because of 'checkfirst', only the last create is actually guaranteed to upgrade the transaction to write one
+                # drop and create to incorporate schema changes
+                db.table_hash.create(conn, checkfirst=True)
+                values_table.drop(conn, checkfirst=True)
+                values_table.create(conn)
+            except sqlalchemy.exc.OperationalError as e:
+                if e.code == 'e3q8':
+                    # database is locked; someone else must be have won the write lock
+                    # not much we can do here
+                    yield from func(*args, **kwargs)
+                    return
                 else:
-                    logger.debug('hash mismatch: computing data and writing to db')
+                    raise e
+            # at this point we're guaranteed to have an exclusive write transaction
 
-                    # NOTE on recursive calls
-                    # somewhat magically, they should work as expected with no extra database inserts?
-                    # the top level call 'wins' the write transaction and once it's gathered all data, will write it
-                    # the 'intermediate' level calls fail to get it and will pass data through
-                    # the cached 'bottom' level is read only and will be yielded withotu a write transaction
+            datas = func(*args, **kwargs)
 
-                    try:
-                        # first write statement will upgrade transaction to write transaction which might fail due to concurrency
-                        # see https://www.sqlite.org/lang_transaction.html
-                        # note I guess, because of 'checkfirst', only the last create is actually guaranteed to upgrade the transaction to write one
-                        # drop and create to incorporate schema changes
-                        db.table_hash.create(conn, checkfirst=True)
-                        values_table.drop(conn, checkfirst=True)
-                        values_table.create(conn)
-                    except sqlalchemy.exc.OperationalError as e:
-                        if e.code == 'e3q8':
-                            # database is locked; someone else must be have won the write lock
-                            # not much we can do here
-                            yield from func(*args, **kwargs)
-                            return
-                        else:
-                            raise e
-                    # at this point we're guaranteed to have an exclusive write transaction
+            chunk: List[Any] = []
+            def flush():
+                nonlocal chunk
+                if len(chunk) > 0:
+                    # pylint: disable=no-value-for-parameter
+                    conn.execute(values_table.insert().values(chunk))
+                    chunk = []
 
-                    datas = func(*args, **kwargs)
-
-                    chunk: List[Any] = []
-                    def flush():
-                        nonlocal chunk
-                        if len(chunk) > 0:
-                            # pylint: disable=no-value-for-parameter
-                            conn.execute(values_table.insert().values(chunk))
-                            chunk = []
-
-                    for d in datas:
-                        yield d
-                        chunk.append(binder.to_row(d))
-                        if len(chunk) >= chunk_by:
-                            flush()
+            for d in datas:
+                yield d
+                chunk.append(binder.to_row(d))
+                if len(chunk) >= chunk_by:
                     flush()
+            flush()
 
-                    # TODO insert and replace instead?
+            # TODO insert and replace instead?
 
-                    # pylint: disable=no-value-for-parameter
-                    conn.execute(db.table_hash.delete())
-                    # pylint: disable=no-value-for-parameter
-                    conn.execute(db.table_hash.insert().values([{'value': h}]))
+            # pylint: disable=no-value-for-parameter
+            conn.execute(db.table_hash.delete())
+            # pylint: disable=no-value-for-parameter
+            conn.execute(db.table_hash.insert().values([{'value': h}]))
     return wrapper
 
 
