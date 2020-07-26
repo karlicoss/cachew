@@ -34,6 +34,9 @@ def main():
         package_dir={'': 'src'},
         package_data={pkg: ['py.typed']},
 
+        # need at least NamedTuples
+        python_requires='>=3.6',
+
         install_requires=install_requires,
         extras_require={
             # can't specify this in setup.cfg!

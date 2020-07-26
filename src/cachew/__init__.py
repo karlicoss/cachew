@@ -604,9 +604,14 @@ def cachew(
         # TODO name 'dependencies'? or 'depends_on'?
         hashf: HashFunction=default_hash,
         logger=None,
-        # TODO I had some notes about this?? it probably doesn't impact the performance..
-        chunk_by=10000, # TODO dunno maybe remove it?
-):  # TODO what's a reasonable default?):
+        chunk_by=100,
+        # NOTE: allowed values for chunk_by depend on the system.
+        # some systems (to be more specific, sqlite builds), it might be too large and cause issues
+        # ideally this would be more defensive/autodetected, maybe with a warning?
+        # you can use 'test_many' to experiment
+        # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
+        # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
+):
     r"""
     Database-backed cache decorator. TODO more description?
     # TODO use this doc in readme?
