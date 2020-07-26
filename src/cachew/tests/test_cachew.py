@@ -1,4 +1,5 @@
 from datetime import datetime, date
+import logging
 from pathlib import Path
 from random import Random
 from subprocess import check_call
@@ -12,6 +13,9 @@ import pytz
 import pytest  # type: ignore
 
 from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values
+
+
+logger = get_logger()
 
 
 @pytest.fixture
@@ -725,7 +729,7 @@ def test_result(tmp_path: Path, with_exceptions):
 
 def test_version_change(tmp_path: Path):
     calls = 0
-    @cachew(tmp_path)
+    @cachew(tmp_path, logger=logger)
     def fun() -> Iterator[str]:
         nonlocal calls
         calls += 1
@@ -738,16 +742,23 @@ def test_version_change(tmp_path: Path):
 
     # todo ugh. not sure how to do this as a relative import??
     import cachew as cachew_module
-    old_version = cachew_module.CACHEW_FORMAT
+    old_version = cachew_module.CACHEW_VERSION
 
     try:
-        cachew_module.CACHEW_FORMAT = str(old_version) + '_whatever'
+        cachew_module.CACHEW_VERSION = old_version + '_whatever'
         # should invalidate cachew now
         list(fun())
         assert calls == 2
+        list(fun())
+        assert calls == 2
     finally:
-        cachew_module.CACHEW_FORMAT = old_version
+        cachew_module.CACHEW_VERSION = old_version
 
+    # and now again, back to the old version
+    list(fun())
+    assert calls == 3
+    list(fun())
+    assert calls == 3
 
 
 def dump_old_cache(tmp_path: Path):

@@ -39,7 +39,7 @@ else:
 
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
-CACHEW_FORMAT = 1
+CACHEW_VERSION: str = __version__
 
 
 def get_logger() -> logging.Logger:
@@ -710,7 +710,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         kwargs = {**defaults, **kwargs}
         # TODO not sure if passing them makes sense??
         # TODO FIXME use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_FORMAT}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
+        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
