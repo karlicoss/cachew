@@ -1,6 +1,7 @@
 from datetime import datetime, date
 from pathlib import Path
 from random import Random
+from subprocess import check_call
 import string
 import sys
 import time
@@ -721,3 +722,72 @@ def test_result(tmp_path: Path, with_exceptions):
     # looks bit sad indeed, but whatever...
     # TODO need to warn perhaps
 
+
+def test_version_change(tmp_path: Path):
+    calls = 0
+    @cachew(tmp_path)
+    def fun() -> Iterator[str]:
+        nonlocal calls
+        calls += 1
+
+        yield from ['a', 'b', 'c']
+
+    list(fun())
+    list(fun())
+    assert calls == 1
+
+    # todo ugh. not sure how to do this as a relative import??
+    import cachew as cachew_module
+    old_version = cachew_module.CACHEW_FORMAT
+
+    try:
+        cachew_module.CACHEW_FORMAT = str(old_version) + '_whatever'
+        # should invalidate cachew now
+        list(fun())
+        assert calls == 2
+    finally:
+        cachew_module.CACHEW_FORMAT = old_version
+
+
+
+def dump_old_cache(tmp_path: Path):
+    # call this if you want to get an sql script for version upgrade tests..
+    oc = tmp_path / 'old_cache.sqlite'
+    @cachew(oc)
+    def fun() -> Iterator[int]:
+        yield from [1, 2, 3]
+
+    list(fun())
+    assert oc.exists(), oc
+    from subprocess import check_output, check_call
+    sql = check_output(['sqlite3', oc, '.dump']).decode('utf8')
+    print(sql, file=sys.stderr)
+
+
+
+def test_old_cache_v0_6_3(tmp_path: Path):
+    sql = '''
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE hash (
+	value VARCHAR
+);
+INSERT INTO hash VALUES('cachew: 1, schema: {''_'': <class ''int''>}, hash: ()');
+CREATE TABLE IF NOT EXISTS "table" (
+	_cachew_primitive INTEGER
+);
+INSERT INTO "table" VALUES(1);
+INSERT INTO "table" VALUES(2);
+INSERT INTO "table" VALUES(3);
+COMMIT;
+    '''
+    db = tmp_path / 'cache.sqlite'
+    check_call(['sqlite3', db, sql])
+
+    @cachew(db)
+    def fun() -> Iterator[int]:
+        yield from [1, 2, 3]
+
+    # this tests that it doesn't crash
+    # for actual version upgrade test see test_version_change
+    assert [1, 2, 3] == list(fun())
