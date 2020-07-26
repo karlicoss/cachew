@@ -659,6 +659,32 @@ def test_recursive(tmp_path: Path):
     assert calls == 10
 
 
+def test_deep_recursive(tmp_path: Path):
+    import time
+    @cachew(tmp_path)
+    def rec(n: int) -> Iterable[int]:
+        time.sleep(0.01)
+        if n == 0:
+            yield 0
+            return
+        yield from rec(n - 1)
+        yield n
+
+    import sys
+    rlimit = sys.getrecursionlimit()
+
+    # NOTE in reality it has to do with the number of file descriptors (ulimit -Sn, e.g. 1024?)
+    # but it seems that during the error unrolling, pytest or something else actually hits the recursion limit somehow
+    # pytest ends up with an internal error in such case... which is good enough as long as tests are concerned I guess.
+    try:
+        sys.setrecursionlimit(2000)
+        list(rec(800))
+        list(rec(800))
+    finally:
+        sys.setrecursionlimit(rlimit)
+
+
+
 @pytest.fixture
 def with_exceptions():
     from cachew.experimental import enable_exceptions, disable_exceptions
