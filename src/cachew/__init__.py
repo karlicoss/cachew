@@ -455,11 +455,24 @@ class DbHelper:
         # NOTE: timeout is necessary so we don't lose time waiting during recursive calls
         # by default, it's several seconds? you'd see 'test_recursive' test performance degrade
 
+        import sqlite3
+        import time
+
         from sqlalchemy.engine import Engine # type: ignore
         @event.listens_for(Engine, 'connect')
         def set_sqlite_pragma(dbapi_connection, connection_record):
             # without wal, concurrent reading/writing is not gonna work
-            dbapi_connection.execute('PRAGMA journal_mode=WAL')
+
+            # ugh. that's odd, how are we supposed to set WAL if the very fact of setting wal might lock the db?
+            while True:
+                try:
+                    dbapi_connection.execute('PRAGMA journal_mode=WAL')
+                    break
+                except sqlite3.OperationalError as oe:
+                    if 'database is locked' not in str(oe):
+                        raise oe
+                time.sleep(0.1)
+
 
         self.connection = self.engine.connect()
 
