@@ -664,18 +664,16 @@ def test_recursive(tmp_path: Path):
     assert calls == 10
 
 
+
 def test_deep_recursive(tmp_path: Path):
-    import time
     @cachew(tmp_path)
     def rec(n: int) -> Iterable[int]:
-        time.sleep(0.01)
         if n == 0:
             yield 0
             return
         yield from rec(n - 1)
         yield n
 
-    import sys
     rlimit = sys.getrecursionlimit()
 
     # NOTE in reality it has to do with the number of file descriptors (ulimit -Sn, e.g. 1024?)
@@ -688,6 +686,29 @@ def test_deep_recursive(tmp_path: Path):
     finally:
         sys.setrecursionlimit(rlimit)
 
+
+def test_recursive_error(tmp_path: Path):
+    @cachew(tmp_path)
+    def rec(n: int) -> Iterable[int]:
+        if n == 0:
+            yield 0
+            return
+        yield from rec(n - 1)
+        yield n
+
+    rlimit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(50)
+        list(rec(100))
+        raise AssertionError('Expecting recursion error')
+    except RecursionError:
+        pass
+    finally:
+        sys.setrecursionlimit(rlimit)
+
+    # todo not sure if cache file should exist??
+    # either way, at least check that the db is not completely messed up
+    assert len(list(rec(100))) == 101
 
 
 @pytest.fixture
