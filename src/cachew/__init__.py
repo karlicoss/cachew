@@ -42,12 +42,14 @@ else:
 CACHEW_VERSION: str = __version__
 
 
+PathIsh = Union[Path, str]
+
 '''
 Global settings, you can override them after importing cachew
 '''
 class settings:
     # switch to appdirs and using user cache dir?
-    DEFAULT_CACHEW_DIR: Path = Path(tempfile.gettempdir()) / 'cachew'
+    DEFAULT_CACHEW_DIR: PathIsh = Path(tempfile.gettempdir()) / 'cachew'
 
     '''
     Set to true if you want to fail early. Otherwise falls back to non-cached version
@@ -673,8 +675,17 @@ def doublewrap(f):
     return new_dec
 
 
-PathIsh = Union[Path, str]
 PathProvider = Union[PathIsh, Callable[..., PathIsh]]
+
+
+def cachew_error(e: Exception) -> None:
+    if settings.THROW_ON_ERROR:
+        raise e
+    else:
+        logger = get_logger()
+        # todo add func name?
+        logger.error("Error while setting up cache, falling back to non-cached version")
+        logger.exception(e)
 
 
 @doublewrap
@@ -741,8 +752,9 @@ def cachew(
     if logger is None:
         logger = get_logger()
 
+    # todo this might fail too due to IO... need to make defensive
     if cache_path is None:
-        td = settings.DEFAULT_CACHEW_DIR
+        td = Path(settings.DEFAULT_CACHEW_DIR)
         td.mkdir(parents=True, exist_ok=True)
         cache_path = td
         logger.info('No db_path specified, using %s as implicit cache', cache_path)
@@ -754,11 +766,14 @@ def cachew(
         if cache_path.exists() and cache_path.is_dir():
             cache_path = cache_path / str(func.__qualname__)
 
+    # TODO fuzz infer_type, should never crash?
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
         msg = f"failed to infer cache type: {inferred}"
         if cls is None:
-            raise CachewException(msg)
+            ex = CachewException(msg)
+            cachew_error(ex)
+            return func
         else:
             # it's ok, assuming user knows better
             logger.debug(msg)
@@ -803,8 +818,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         # TODO FIXME use inspect.signature to inspect return type annotations at least?
         return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
 
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def cached_wrapper(*args, **kwargs):
         dbp: Path
         if callable(cache_path):
             dbp = Path(cache_path(*args, **kwargs))  # type: ignore
@@ -905,8 +919,18 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
             conn.execute(db.table_hash.delete())
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': h}]))
-    return wrapper
+
+    @functools.wraps(func)
+    def defensive_wrapper(*args, **kwargs):
+        try:
+            yield from cached_wrapper(*args, **kwargs)
+        except Exception as e:
+            # todo hmm, kinda annoying that it tries calling the function twice?
+            # but gonna require some sophisticated cooperation with the cached wrapper otherwise
+            cachew_error(e)
+            yield from func(*args, **kwargs)
+
+    return defensive_wrapper
 
 
 __all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'NTBinder']
-# TODO add test for migration? actually commit a db in the repository?

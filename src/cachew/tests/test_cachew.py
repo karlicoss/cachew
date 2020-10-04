@@ -14,10 +14,26 @@ from more_itertools import one
 import pytz
 import pytest  # type: ignore
 
-from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values
+from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values, settings
 
 
 logger = get_logger()
+
+@pytest.fixture(autouse=True)
+def throw_on_errors():
+    # a more reasonable default for tests
+    settings.THROW_ON_ERROR = True
+    yield
+
+
+@pytest.fixture
+def restore_settings():
+    orig = {k: v for k, v in settings.__dict__.items() if not k.startswith('__')}
+    try:
+        yield
+    finally:
+        for k, v in orig.items():
+            setattr(settings, k, v)
 
 
 @pytest.fixture
@@ -332,7 +348,6 @@ def test_transaction(tdir):
     assert list(get_data(1)) == exp
 
     # TODO test that hash is unchanged?
-    import pytest # type: ignore
     with pytest.raises(TestError):
         list(get_data(2))
 
@@ -675,6 +690,7 @@ def test_mcachew(tmp_path: Path):
     # TODO how to test for defensive behaviour?
     from cachew.misc import mcachew
 
+    # TODO check throw on error
     @mcachew(cache_path=tmp_path / 'cache')
     def func() -> Iterator[str]:
         yield 'one'
@@ -684,17 +700,38 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
-# todo control it via a variable maybe?
-def test_defensive():
+def test_defensive(restore_settings):
     '''
     Make sure that cachew doesn't crash on misconfiguration
     '''
     def orig() -> Iterator[int]:
         yield 123
 
+    def orig2():
+        yield "x"
+        yield 123
+
     fun = cachew(bad_arg=123)(orig)
     assert list(fun()) == [123]
     assert list(fun()) == [123]
+
+    from cachew.compat import nullcontext
+    for throw in [True, False]:
+        ctx = pytest.raises(Exception) if throw else nullcontext()
+        settings.THROW_ON_ERROR = throw
+
+        with ctx: # type: ignore
+            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig) # type: ignore
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
+
+            fun = cachew(cache_path=lambda p: '/tmp/' + str(p))(orig)
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
+
+            fun = cachew(orig2)
+            assert list(fun()) == ['x', 123]
+            assert list(fun()) == ['x', 123]
 
 
 def test_recursive(tmp_path: Path):
