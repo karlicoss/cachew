@@ -20,6 +20,7 @@ import logging
 from itertools import chain, islice
 import inspect
 from datetime import datetime, date
+import stat
 import tempfile
 from pathlib import Path
 import sys
@@ -696,6 +697,7 @@ use_default_path = cast(Path, object())
 def cachew(
         func=None,
         cache_path: Optional[PathProvider]=use_default_path,
+        force_file: bool=False,
         cls=None,
         depends_on: HashFunction=default_hash,
         logger=None,
@@ -713,6 +715,7 @@ def cachew(
     # TODO use this doc in readme?
 
     :param cache_path: if not set, `cachew.settings.DEFAULT_CACHEW_DIR` will be used.
+    :param force_file: if set to True, assume `cache_path` is a regular file (instead of a directory)
     :param cls: if not set, cachew will attempt to infer it from return type annotation. See :func:`infer_type` and :func:`cachew.tests.test_cachew.test_return_type_inference`.
     :param depends_on: hash function to determine whether the underlying . Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
     :param logger: custom logger, if not specified will use logger named `cachew`. See :func:`get_logger`.
@@ -790,6 +793,7 @@ def cachew(
     return cachew_impl(
         func=func,
         cache_path=cache_path,
+        force_file=force_file,
         cls=cls,
         depends_on=depends_on,
         logger=logger,
@@ -810,7 +814,7 @@ def cname(func: Callable) -> str:
     return f'{mod}:{func.__qualname__}'
 
 
-def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, depends_on: HashFunction, logger: logging.Logger, chunk_by: int):
+def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, cls: Type, depends_on: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         fsig = inspect.signature(func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
@@ -831,6 +835,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, depends_
         return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, dependencies: {depends_on(*args, **kwargs)}'
 
     def cached_wrapper(*args, **kwargs):
+        cn = cname(func)
         dbp: Path
         if callable(cache_path):
             dbp = Path(cache_path(*args, **kwargs))  # type: ignore
@@ -839,13 +844,23 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, depends_
 
         dbp.parent.mkdir(parents=True, exist_ok=True)
 
-        if dbp.is_dir():
-            dbp = dbp / cname(func)
+        # need to be atomic here
+        try:
+            # note: stat follows symlinks (which is what we want)
+            st = dbp.stat()
+        except FileNotFoundError:
+            # doesn't exist. then it's controlled by force_file
+            if force_file:
+                dbp = dbp
+            else:
+                dbp.mkdir(parents=True, exist_ok=True)
+                dbp = dbp / cn
+        else:
+            # already exists, so just use cname if it's a dir
+            if stat.S_ISDIR(st.st_mode):
+                dbp = dbp / cn
 
         logger.debug('using %s for db cache', dbp)
-
-        if not dbp.parent.exists():
-            raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
 
         h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
         logger.debug('new hash: %s', h)

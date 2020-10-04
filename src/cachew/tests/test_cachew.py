@@ -166,11 +166,14 @@ def test_cache_path(tdir):
         yield 2
         calls += 1
 
-    fun = cachew(tdir / 'non_existent_dir' / 'name')(orig)
+    fun = cachew(tdir / 'non_existent_dir' / 'cache_dir')(orig)
     assert list(fun()) == [1, 2]
     assert calls == 1
     assert list(fun()) == [1, 2]
     assert calls == 1
+
+    # dir by default
+    assert (tdir / 'non_existent_dir' / 'cache_dir').is_dir()
 
     # treat None as "don't cache"
     fun = cachew(cache_path=None)(orig)
@@ -178,6 +181,28 @@ def test_cache_path(tdir):
     assert calls == 2
     assert list(fun()) == [1, 2]
     assert calls == 3
+
+    f = tdir / 'a_file'
+    f.touch()
+    fun = cachew(cache_path=f)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 4
+    assert list(fun()) == [1, 2]
+    assert calls == 4
+
+    fun = cachew(tdir / 'name', force_file=True)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 5
+    assert list(fun()) == [1, 2]
+    assert calls == 5
+
+    # if passed force_file, also treat as file
+    assert (tdir / 'name').is_file()
+
+    # TODO this won't work at the moment
+    # f.write_text('garbage')
+    # not sure... on the one hand could just delete the garbage file and overwrite with db
+    # on the other hand, wouldn't want to delete some user file by accident
 
 
 class TE2(NamedTuple):
