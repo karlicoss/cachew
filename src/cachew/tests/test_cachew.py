@@ -720,16 +720,19 @@ def test_recursive_error(tmp_path: Path):
 
 
 def test_exceptions(tmp_path: Path):
+    class X(NamedTuple):
+        a: int
+
+    d = datetime.strptime('20200102 03:04:05', '%Y%m%d %H:%M:%S')
     @cachew(tmp_path)
     def fun() -> Iterator[Exception]:
-        # TODO include datetime??
-        yield RuntimeError('whatever', 123)
+        yield RuntimeError('whatever', 123, d, X(a=123))
 
     list(fun())
     [e] = fun()
     # not sure if there is anything that can be done to preserve type information?
     assert type(e) == Exception
-    assert e.args == ('whatever', 123)
+    assert e.args == ('whatever', 123, '2020-01-02T03:04:05', 'X(a=123)')
 
 
 # see https://beepb00p.xyz/mypy-error-handling.html#kiss

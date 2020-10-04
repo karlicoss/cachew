@@ -104,6 +104,7 @@ class Json(sqlalchemy.TypeDecorator):
         return json.loads(value)
 
 
+jtypes = (int, float, bool, type(None))
 class ExceptionAdapter(sqlalchemy.TypeDecorator):
     '''
     Enables support for caching Exceptions. Exception is treated as JSON and serialized.
@@ -119,14 +120,23 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
 
     def process_literal_param(self, value, dialect): raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[Tuple[Any, ...]]:
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:
         if value is None:
             return None
-        return value.args
+        sargs: List[Any] = []
+        for a in value.args:
+            if any(isinstance(a, t) for t in jtypes):
+                sargs.append(a)
+            elif isinstance(a, date):
+                sargs.append(a.isoformat())
+            else:
+                sargs.append(str(a))
+        return sargs
 
     def process_result_value(self, value: Optional[str], dialect) -> Optional[Exception]:
         if value is None:
             return None
+        # sadly, can't do much to convert back from the strings? Unless I serialize the type info as well?
         return Exception(*value)
 
 
