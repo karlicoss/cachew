@@ -158,6 +158,28 @@ def inner(_it, _timer{init}):
     assert t < 2.0, 'should be pretty much instantaneous'
 
 
+def test_cache_path(tdir):
+    calls = 0
+    def orig() -> Iterable[int]:
+        nonlocal calls
+        yield 1
+        yield 2
+        calls += 1
+
+    fun = cachew(tdir / 'non_existent_dir' / 'name')(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+
+    # treat None as "don't cache"
+    fun = cachew(cache_path=None)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 2
+    assert list(fun()) == [1, 2]
+    assert calls == 3
+
+
 class TE2(NamedTuple):
     value: int
     uuu: UUU
@@ -732,6 +754,11 @@ def test_defensive(restore_settings):
             fun = cachew(orig2)
             assert list(fun()) == ['x', 123]
             assert list(fun()) == ['x', 123]
+
+            settings.DEFAULT_CACHEW_DIR = '/dev/nonexistent'
+            fun = cachew(orig)
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
 
 
 def test_recursive(tmp_path: Path):

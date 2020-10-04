@@ -25,7 +25,7 @@ from pathlib import Path
 import sys
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, cast)
 import dataclasses
 
 import sqlalchemy # type: ignore
@@ -688,12 +688,13 @@ def cachew_error(e: Exception) -> None:
         logger.exception(e)
 
 
+use_default_path = cast(Path, object())
+
 @doublewrap
 # pylint: disable=too-many-arguments
 def cachew(
         func=None,
-        # todo hmm. maybe allow it to return None, then cache is disabled? not sure..
-        cache_path: Optional[PathProvider]=None,
+        cache_path: Optional[PathProvider]=use_default_path,
         cls=None,
         # TODO name 'dependencies'? or 'depends_on'?
         hashf: HashFunction=default_hash,
@@ -752,19 +753,14 @@ def cachew(
     if logger is None:
         logger = get_logger()
 
-    # todo this might fail too due to IO... need to make defensive
+    cn = cname(func)
     if cache_path is None:
-        td = Path(settings.DEFAULT_CACHEW_DIR)
-        td.mkdir(parents=True, exist_ok=True)
-        cache_path = td
-        logger.info('No db_path specified, using %s as implicit cache', cache_path)
-    # TODO always make cache path??
+        logger.info('[%s]: cache disabled', cn)
+        return func
 
-    # TODO if cache provider returns a dir, still infer in cachew_impl!!
-    if not callable(cache_path):
-        cache_path = Path(cache_path)
-        if cache_path.exists() and cache_path.is_dir():
-            cache_path = cache_path / str(func.__qualname__)
+    if cache_path is use_default_path:
+        cache_path = settings.DEFAULT_CACHEW_DIR
+        logger.info('[%s]: no cache_path specified, using the default %s', cn, cache_path)
 
     # TODO fuzz infer_type, should never crash?
     inferred = infer_type(func)
@@ -779,7 +775,7 @@ def cachew(
             logger.debug(msg)
     else:
         if cls is None:
-            logger.debug("using inferred type %s", inferred)
+            logger.debug('[%s] using inferred type %s', cn, inferred)
             cls = inferred
         else:
             if cls != inferred:
@@ -804,6 +800,11 @@ def get_schema(cls: Type) -> Dict[str, Any]:
     return cls.__annotations__
 
 
+def cname(func: Callable) -> str:
+    mod = func.__module__ or ''
+    return f'{mod}:{func.__qualname__}'
+
+
 def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         sig = inspect.signature(func)
@@ -824,6 +825,11 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
             dbp = Path(cache_path(*args, **kwargs))  # type: ignore
         else:
             dbp = Path(cache_path)
+
+        dbp.parent.mkdir(parents=True, exist_ok=True)
+
+        if dbp.is_dir():
+            dbp = dbp / cname(func)
 
         logger.debug('using %s for db cache', dbp)
 
