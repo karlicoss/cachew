@@ -102,7 +102,7 @@ def test_custom_hash(tdir):
 
     @cachew(
         cache_path=tdir,
-        hashf=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
+        depends_on=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
     )
     def data(path: Path) -> Iterable[UUU]:
         nonlocal calls
@@ -596,7 +596,7 @@ def test_default_arguments(tmp_path: Path):
         nonlocal calls
         calls += 1
 
-    fun = cachew(tmp_path, hashf=lambda a, param: (a, param.x))(orig)
+    fun = cachew(tmp_path, depends_on=lambda a, param: (a, param.x))(orig)
 
     list(fun(123))
     assert list(fun(123)) == [O(1)]
@@ -624,7 +624,7 @@ def test_default_arguments(tmp_path: Path):
     assert calls == 4
 
     # you don't have to pass the default parameter explicitly
-    fun = cachew(tmp_path, hashf=lambda a: a)(orig)
+    fun = cachew(tmp_path, depends_on=lambda a: a)(orig)
     assert list(fun(456)) == [O(3)]
     assert calls == 5
 

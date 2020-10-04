@@ -27,6 +27,8 @@ import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
                     Type, Union, TypeVar, Generic, Sequence, Iterable, Set, cast)
 import dataclasses
+import warnings
+
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
@@ -111,7 +113,6 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return dt.astimezone(tz)
 
     def warn_pytz(self) -> None:
-        import warnings
         warnings.warn('install pytz for better timezone support while serializing with cachew')
 
 
@@ -696,8 +697,7 @@ def cachew(
         func=None,
         cache_path: Optional[PathProvider]=use_default_path,
         cls=None,
-        # TODO name 'dependencies'? or 'depends_on'?
-        hashf: HashFunction=default_hash,
+        depends_on: HashFunction=default_hash,
         logger=None,
         chunk_by=100,
         # NOTE: allowed values for chunk_by depend on the system.
@@ -712,9 +712,9 @@ def cachew(
     Database-backed cache decorator. TODO more description?
     # TODO use this doc in readme?
 
-    :param cache_path: if not set, it will be generated in `/tmp` based on function name. It is recommended to always set this parameter.
+    :param cache_path: if not set, `cachew.settings.DEFAULT_CACHEW_DIR` will be used.
     :param cls: if not set, cachew will attempt to infer it from return type annotation. See :func:`infer_type` and :func:`cachew.tests.test_cachew.test_return_type_inference`.
-    :param hashf: hash function to determine whether the. Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
+    :param depends_on: hash function to determine whether the underlying . Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
     :param logger: custom logger, if not specified will use logger named `cachew`. See :func:`get_logger`.
     :return: iterator over original or cached items
 
@@ -753,6 +753,11 @@ def cachew(
     if logger is None:
         logger = get_logger()
 
+    hashf = kwargs.get('hashf', None)
+    if hashf is not None:
+        warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead")
+        depends_on = hashf
+
     cn = cname(func)
     if cache_path is None:
         logger.info('[%s]: cache disabled', cn)
@@ -786,7 +791,7 @@ def cachew(
         func=func,
         cache_path=cache_path,
         cls=cls,
-        hashf=hashf,
+        depends_on=depends_on,
         logger=logger,
         chunk_by=chunk_by,
     )
@@ -805,7 +810,7 @@ def cname(func: Callable) -> str:
     return f'{mod}:{func.__qualname__}'
 
 
-def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
+def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, depends_on: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
         fsig = inspect.signature(func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
@@ -815,7 +820,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
             if v.default is not inspect.Parameter.empty
         }
         # but only pass default if the user wants it in the hash function?
-        hsig = inspect.signature(hashf)
+        hsig = inspect.signature(depends_on)
         defaults = {
             k: v
             for k, v in defaults.items()
@@ -823,7 +828,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
         }
         kwargs = {**defaults, **kwargs}
         # TODO use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
+        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, dependencies: {depends_on(*args, **kwargs)}'
 
     def cached_wrapper(*args, **kwargs):
         dbp: Path
