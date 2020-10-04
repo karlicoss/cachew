@@ -790,15 +790,22 @@ def cachew(
                 logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
 
-    return cachew_impl(
-        func=func,
+    ctx = Context(
+        func      =func,
         cache_path=cache_path,
         force_file=force_file,
-        cls=cls,
+        cls       =cls,
         depends_on=depends_on,
-        logger=logger,
-        chunk_by=chunk_by,
+        logger    =logger,
+        chunk_by  =chunk_by,
     )
+
+    # hack to avoid extra stack frame (see test_recursive, test_deep-recursive)
+    @functools.wraps(func)
+    def binder(*args, **kwargs):
+        kwargs['_cachew_context'] = ctx
+        return cachew_wrapper(*args, **kwargs)
+    return binder
 
 
 def get_schema(cls: Type) -> Dict[str, Any]:
@@ -810,13 +817,22 @@ def get_schema(cls: Type) -> Dict[str, Any]:
 
 
 def cname(func: Callable) -> str:
-    mod = func.__module__ or ''
+    # some functions don't have __module__
+    mod = getattr(func, '__module__', None) or ''
     return f'{mod}:{func.__qualname__}'
 
 
-def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, cls: Type, depends_on: HashFunction, logger: logging.Logger, chunk_by: int):
-    def composite_hash(*args, **kwargs) -> SourceHash:
-        fsig = inspect.signature(func)
+class Context(NamedTuple):
+    func      : Callable
+    cache_path: PathProvider
+    force_file: bool
+    cls       : Type
+    depends_on: HashFunction
+    logger    : logging.Logger
+    chunk_by  : int
+
+    def composite_hash(self, *args, **kwargs) -> SourceHash:
+        fsig = inspect.signature(self.func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
             k: v.default
@@ -824,7 +840,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, c
             if v.default is not inspect.Parameter.empty
         }
         # but only pass default if the user wants it in the hash function?
-        hsig = inspect.signature(depends_on)
+        hsig = inspect.signature(self.depends_on)
         defaults = {
             k: v
             for k, v in defaults.items()
@@ -832,9 +848,27 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, c
         }
         kwargs = {**defaults, **kwargs}
         # TODO use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, dependencies: {depends_on(*args, **kwargs)}'
+        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(self.cls)}, dependencies: {self.depends_on(*args, **kwargs)}'
 
-    def cached_wrapper(*args, **kwargs):
+
+def cachew_wrapper(
+        *args,
+        _cachew_context: Context,
+        **kwargs,
+):
+    C = _cachew_context
+    func       = C.func
+    cache_path = C.cache_path
+    force_file = C.force_file
+    cls        = C.cls
+    depend_on  = C.depends_on
+    logger     = C.logger
+    chunk_by   = C.chunk_by
+
+    # WARNING: annoyingly huge try/catch ahead...
+    # but it lets us save a function call, hence a stack frame
+    # see test_recursive and test_deep_recursive
+    try:
         cn = cname(func)
         dbp: Path
         if callable(cache_path):
@@ -862,7 +896,7 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, c
 
         logger.debug('using %s for db cache', dbp)
 
-        h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
+        h = C.composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
         logger.debug('new hash: %s', h)
 
         with DbHelper(dbp, cls) as db, \
@@ -951,18 +985,11 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, force_file: bool, c
             conn.execute(db.table_hash.delete())
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': h}]))
-
-    @functools.wraps(func)
-    def defensive_wrapper(*args, **kwargs):
-        try:
-            yield from cached_wrapper(*args, **kwargs)
-        except Exception as e:
-            # todo hmm, kinda annoying that it tries calling the function twice?
-            # but gonna require some sophisticated cooperation with the cached wrapper otherwise
-            cachew_error(e)
-            yield from func(*args, **kwargs)
-
-    return defensive_wrapper
+    except Exception as e:
+        # todo hmm, kinda annoying that it tries calling the function twice?
+        # but gonna require some sophisticated cooperation with the cached wrapper otherwise
+        cachew_error(e)
+        yield from func(*args, **kwargs)
 
 
 __all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'NTBinder']

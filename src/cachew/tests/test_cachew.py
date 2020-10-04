@@ -1,4 +1,5 @@
 from datetime import datetime, date, timezone
+import inspect
 import logging
 from pathlib import Path
 from random import Random
@@ -173,7 +174,10 @@ def test_cache_path(tdir):
     assert calls == 1
 
     # dir by default
-    assert (tdir / 'non_existent_dir' / 'cache_dir').is_dir()
+    cdir = tdir / 'non_existent_dir' / 'cache_dir'
+    assert cdir.is_dir()
+    cfile = one(cdir.glob('*'))
+    assert cfile.name.startswith('cachew.tests.test_cachew:test_cache_path.')
 
     # treat None as "don't cache"
     fun = cachew(cache_path=None)(orig)
@@ -690,7 +694,7 @@ def fuzz_cachew_impl():
     Insert random sleeps in cachew_impl to increase likelihood of concurrency issues
     """
     import patchy  # type: ignore[import]
-    from .. import cachew_impl
+    from .. import cachew_wrapper
     patch = '''\
 @@ -740,6 +740,11 @@
 
@@ -705,9 +709,9 @@ def fuzz_cachew_impl():
                  logger.debug('hash matched: loading from cache')
                  rows = conn.execute(values_table.select())
 '''
-    patchy.patch(cachew_impl, patch)
+    patchy.patch(cachew_wrapper, patch)
     yield
-    patchy.unpatch(cachew_impl, patch)
+    patchy.unpatch(cachew_wrapper, patch)
 
 
 # TODO fuzz when they start so they enter transaction at different times?
@@ -816,11 +820,19 @@ def test_defensive(restore_settings):
 
 
 def test_recursive(tmp_path: Path):
+    d0 = 0
+    d1 = 1000
     calls = 0
     @cachew(tmp_path)
     def factorials(n: int) -> Iterable[int]:
-        nonlocal calls
+        nonlocal calls, d0, d1
         calls += 1
+
+        if n == 0:
+            d0 = len(inspect.stack(0))
+        if n == 1:
+            d1 = len(inspect.stack(0))
+
         if n == 0:
             yield 1
             return
@@ -834,6 +846,12 @@ def test_recursive(tmp_path: Path):
 
     assert calls == 0
     assert list(factorials(3)) == [1, 1, 2, 6]
+
+    # make sure the recursion isn't eating too much stack
+    # ideally would have 1? not sure if possible without some insane hacking?
+    # todo maybe check stack frame size as well?
+    assert abs(d0 - d1) <= 2
+
     assert calls == 4
     assert list(factorials(3)) == [1, 1, 2, 6]
     assert calls == 4
