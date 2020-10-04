@@ -580,7 +580,7 @@ def test_primitive(tmp_path: Path):
 class O(NamedTuple):
     x: int
 
-def test_default(tmp_path: Path):
+def test_default_arguments(tmp_path: Path):
     class HackHash:
         def __init__(self, x: int) -> None:
             self.x = x
@@ -590,19 +590,48 @@ def test_default(tmp_path: Path):
 
     hh = HackHash(1)
 
-    @cachew(tmp_path, hashf=lambda param: param.x)
-    def fun(param=hh) -> Iterator[O]:
+    calls = 0
+    def orig(a: int, param=hh) -> Iterator[O]:
         yield O(hh.x)
+        nonlocal calls
+        calls += 1
 
-    list(fun())
-    assert list(fun()) == [O(1)]
+    fun = cachew(tmp_path, hashf=lambda a, param: (a, param.x))(orig)
+
+    list(fun(123))
+    assert list(fun(123)) == [O(1)]
+    assert calls == 1
 
     # now, change hash. That should cause the composite hash to invalidate and recompute
     hh.x = 2
-    assert list(fun()) == [O(2)]
+    assert list(fun(123)) == [O(2)]
+    assert calls == 2
 
     # should be ok with explicitly passing
-    assert list(fun(param=HackHash(2))) == [O(2)]
+    assert list(fun(123, param=HackHash(2))) == [O(2)]
+    assert calls == 2
+
+    # we don't have to handle the default param in the default hash key
+    fun = cachew(tmp_path)(fun)
+    assert list(fun(456)) == [O(2)]
+    assert calls == 3
+    assert list(fun(456)) == [O(2)]
+    assert calls == 3
+
+    # changing the default should trigger the default (i.e. kwargs) key function to invalidate the cache
+    hh.x = 3
+    assert list(fun(456)) == [O(3)]
+    assert calls == 4
+
+    # you don't have to pass the default parameter explicitly
+    fun = cachew(tmp_path, hashf=lambda a: a)(orig)
+    assert list(fun(456)) == [O(3)]
+    assert calls == 5
+
+    # but watch out if you forget to handle it!
+    hh.x = 4
+    assert list(fun(456)) == [O(3)]
+    assert calls == 5
 
 
 class U(NamedTuple):

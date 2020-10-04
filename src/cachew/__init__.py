@@ -807,16 +807,22 @@ def cname(func: Callable) -> str:
 
 def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
     def composite_hash(*args, **kwargs) -> SourceHash:
-        sig = inspect.signature(func)
+        fsig = inspect.signature(func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
             k: v.default
-            for k, v in sig.parameters.items()
+            for k, v in fsig.parameters.items()
             if v.default is not inspect.Parameter.empty
         }
+        # but only pass default if the user wants it in the hash function?
+        hsig = inspect.signature(hashf)
+        defaults = {
+            k: v
+            for k, v in defaults.items()
+            if k in hsig.parameters or 'kwargs' in hsig.parameters
+        }
         kwargs = {**defaults, **kwargs}
-        # TODO not sure if passing them makes sense??
-        # TODO FIXME use inspect.signature to inspect return type annotations at least?
+        # TODO use inspect.signature to inspect return type annotations at least?
         return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
 
     def cached_wrapper(*args, **kwargs):
