@@ -1,4 +1,4 @@
-# TODO Ideally, needs doublewraps as well? also typing helpers
+# todo Ideally, needs doublewraps as well? also typing helpers
 def mcachew(*args, **kwargs):
     """
     Stands for 'Maybe cachew'.
@@ -13,3 +13,14 @@ def mcachew(*args, **kwargs):
     else:
         return cachew.cachew(*args, **kwargs)
 
+
+from contextlib import contextmanager
+@contextmanager
+def disabled_cachew():
+    from . import settings
+    orig = settings.ENABLE
+    try:
+        settings.ENABLE = False
+        yield
+    finally:
+        settings.ENABLE = orig

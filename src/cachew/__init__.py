@@ -51,6 +51,11 @@ PathIsh = Union[Path, str]
 Global settings, you can override them after importing cachew
 '''
 class settings:
+    '''
+    Toggle to disable caching
+    '''
+    ENABLE: bool = True
+
     # switch to appdirs and using user cache dir?
     DEFAULT_CACHEW_DIR: PathIsh = Path(tempfile.gettempdir()) / 'cachew'
 
@@ -749,10 +754,6 @@ def cachew(
     >>> print(f"call took {int(res)} seconds")
     call took 5 seconds
     """
-
-    # func is optional just to make pylint happy https://github.com/PyCQA/pylint/issues/259
-    # kassert(func is not None)
-
     if logger is None:
         logger = get_logger()
 
@@ -762,7 +763,8 @@ def cachew(
         depends_on = hashf
 
     cn = cname(func)
-    if cache_path is None:
+    # todo not very nice that ENABLE check is scattered across two places
+    if not settings.ENABLE or cache_path is None:
         logger.info('[%s]: cache disabled', cn)
         return func
 
@@ -865,11 +867,16 @@ def cachew_wrapper(
     logger     = C.logger
     chunk_by   = C.chunk_by
 
+    cn = cname(func)
+    if not settings.ENABLE:
+        logger.info('[%s]: cache disabled', cn)
+        yield from func(*args, **kwargs)
+        return
+
     # WARNING: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
     # see test_recursive and test_deep_recursive
     try:
-        cn = cname(func)
         dbp: Path
         if callable(cache_path):
             dbp = Path(cache_path(*args, **kwargs))  # type: ignore

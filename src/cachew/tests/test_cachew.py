@@ -768,7 +768,7 @@ def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
 
 def test_mcachew(tmp_path: Path):
     # TODO how to test for defensive behaviour?
-    from cachew.misc import mcachew
+    from cachew.extra import mcachew
 
     # TODO check throw on error
     @mcachew(cache_path=tmp_path / 'cache')
@@ -1013,3 +1013,24 @@ COMMIT;
     # this tests that it doesn't crash
     # for actual version upgrade test see test_version_change
     assert [1, 2, 3] == list(fun())
+
+
+def test_disabled(tmp_path: Path):
+    calls = 0
+    @cachew(tmp_path)
+    def fun() -> Iterator[int]:
+        yield 1
+        yield 2
+        nonlocal calls
+        calls += 1
+
+    assert list(fun()) == [1, 2]
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+
+    from cachew.extra import disabled_cachew
+    with disabled_cachew():
+        assert list(fun()) == [1, 2]
+        assert calls == 2
+        assert list(fun()) == [1, 2]
+        assert calls == 3
