@@ -60,12 +60,43 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
     def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[str]:
         if value is None:
             return None
-        return value.isoformat()
+        # ok, it's a bit hacky... attempt to preserve pytz infromation
+        iso = value.isoformat()
+        tz = getattr(value, 'tzinfo', None)
+        if tz is None:
+            return iso
+        try:
+            import pytz # type: ignore
+        except ImportError:
+            self.warn_pytz()
+            return iso
+        else:
+            if isinstance(tz, pytz.BaseTzInfo):
+                return iso + ' ' + tz.zone
+            else:
+                return iso
 
     def process_result_value(self, value: Optional[str], dialect) -> Optional[datetime]:
         if value is None:
             return None
-        return fromisoformat(value)
+        spl = value.split(' ')
+        dt = fromisoformat(spl[0])
+        if len(spl) <= 1:
+            return dt
+        zone = spl[1]
+        # else attempt to decypher pytz tzinfo
+        try:
+            import pytz # type: ignore
+        except ImportError:
+            self.warn_pytz()
+            return dt
+        else:
+            tz = pytz.timezone(zone)
+            return dt.astimezone(tz)
+
+    def warn_pytz(self) -> None:
+        import warnings
+        warnings.warn('install pytz for better timezone support while serializing with cachew')
 
 
 # a bit hacky, but works...
