@@ -104,14 +104,41 @@ class Json(sqlalchemy.TypeDecorator):
         return json.loads(value)
 
 
+class ExceptionAdapter(sqlalchemy.TypeDecorator):
+    '''
+    Enables support for caching Exceptions. Exception is treated as JSON and serialized.
+
+    It's useful for defensive error handling, in case of cachew in particular for preserving error state.
+
+    I elaborate on it here: [mypy-driven error handling](https://beepb00p.xyz/mypy-error-handling.html#kiss).
+    '''
+    impl = Json
+
+    @property
+    def python_type(self): return Exception
+
+    def process_literal_param(self, value, dialect): raise NotImplementedError()  # make pylint happy
+
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[Tuple[Any, ...]]:
+        if value is None:
+            return None
+        return value.args
+
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[Exception]:
+        if value is None:
+            return None
+        return Exception(*value)
+
+
 PRIMITIVES = {
-    str     : sqlalchemy.String,
-    int     : sqlalchemy.Integer,
-    float   : sqlalchemy.Float,
-    bool    : sqlalchemy.Boolean,
-    datetime: IsoDateTime,
-    date    : IsoDate,
-    dict    : Json,
+    str      : sqlalchemy.String,
+    int      : sqlalchemy.Integer,
+    float    : sqlalchemy.Float,
+    bool     : sqlalchemy.Boolean,
+    datetime : IsoDateTime,
+    date     : IsoDate,
+    dict     : Json,
+    Exception: ExceptionAdapter,
 }
 
 

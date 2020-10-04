@@ -444,7 +444,7 @@ def test_dataclass(tdir):
 
 
 def test_types(tdir):
-    from dataclasses import dataclass
+    from dataclasses import dataclass, asdict
     @dataclass
     class Test:
         an_int : int
@@ -454,9 +454,8 @@ def test_types(tdir):
         a_dt   : datetime
         a_date : date
         a_json : Dict[str, Any]
+        an_exc : Exception
 
-        # temporary commented: experimental feature
-        # a_exc  : Optional[Exception] # TODO ugh. exceptions can't be compared really...
     # pylint: disable=no-member
     assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
 
@@ -469,14 +468,23 @@ def test_types(tdir):
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
         a_json ={'a': True, 'x': {'whatever': 3.14}},
+        an_exc =RuntimeError('error!', 123),
     )
 
     @cachew(tdir)
     def get() -> Iterator[Test]:
         yield obj
 
-    assert list(get()) == [obj]
-    assert list(get()) == [obj]
+    def H(t: Test):
+        # Exceptions can't be directly compared.. so this kinda helps
+        d = asdict(t)
+        d['an_exc'] = d['an_exc'].args
+        return d
+
+    from more_itertools import one
+
+    assert H(one(get())) == H(obj)
+    assert H(one(get())) == H(obj)
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
@@ -711,29 +719,21 @@ def test_recursive_error(tmp_path: Path):
     assert len(list(rec(100))) == 101
 
 
-@pytest.fixture
-def with_exceptions():
-    from cachew.experimental import enable_exceptions, disable_exceptions
-    enable_exceptions()
-    try:
-        yield
-    finally:
-        disable_exceptions()
-
-
-def test_exceptions(tmp_path: Path, with_exceptions):
+def test_exceptions(tmp_path: Path):
     @cachew(tmp_path)
     def fun() -> Iterator[Exception]:
+        # TODO include datetime??
         yield RuntimeError('whatever', 123)
 
     list(fun())
     [e] = fun()
-    assert type(e) == Exception  # sadly we lose type information at the moment..
-    assert e.args == ("('whatever', 123)", )
+    # not sure if there is anything that can be done to preserve type information?
+    assert type(e) == Exception
+    assert e.args == ('whatever', 123)
 
 
 # see https://beepb00p.xyz/mypy-error-handling.html#kiss
-def test_result(tmp_path: Path, with_exceptions):
+def test_result(tmp_path: Path):
     @cachew(tmp_path)
     def fun() -> Iterator[Union[Exception, int]]:
         yield 1
@@ -743,9 +743,7 @@ def test_result(tmp_path: Path, with_exceptions):
     [v1, ve, v123] = fun()
     assert v1 == 1
     assert v123 == 123
-    assert ve.args == ("('sad!',)",)
-    # looks bit sad indeed, but whatever...
-    # TODO need to warn perhaps
+    assert ve.args == ('sad!',)
 
 
 def test_version_change(tmp_path: Path):
