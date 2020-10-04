@@ -46,6 +46,8 @@ def main():
                 'pylint',
                 'mypy',
                 'bandit',
+
+                'more-itertools',
             ],
         },
 
