@@ -11,12 +11,12 @@ install_requires = [
 ]
 
 
-from setuptools import setup, find_packages # type: ignore
+from setuptools import setup, find_namespace_packages # type: ignore
 
 
 def main():
-    pkgs = find_packages('src', exclude=['*.tests'])
-    [pkg] = pkgs
+    pkgs = find_namespace_packages('src', exclude=['*.tests'])
+    pkg = min(pkgs)
     setup(
         name=pkg,
         use_scm_version={

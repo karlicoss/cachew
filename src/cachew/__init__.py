@@ -20,13 +20,16 @@ import logging
 from itertools import chain, islice
 import inspect
 from datetime import datetime, date
+import stat
 import tempfile
 from pathlib import Path
 import sys
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, cast)
 import dataclasses
+import warnings
+
 
 import sqlalchemy # type: ignore
 from sqlalchemy import Column, Table, event
@@ -40,6 +43,22 @@ else:
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = __version__
+
+
+PathIsh = Union[Path, str]
+
+'''
+Global settings, you can override them after importing cachew
+'''
+class settings:
+    # switch to appdirs and using user cache dir?
+    DEFAULT_CACHEW_DIR: PathIsh = Path(tempfile.gettempdir()) / 'cachew'
+
+    '''
+    Set to true if you want to fail early. Otherwise falls back to non-cached version
+    '''
+    THROW_ON_ERROR: bool = False
+
 
 
 def get_logger() -> logging.Logger:
@@ -95,7 +114,6 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return dt.astimezone(tz)
 
     def warn_pytz(self) -> None:
-        import warnings
         warnings.warn('install pytz for better timezone support while serializing with cachew')
 
 
@@ -659,18 +677,29 @@ def doublewrap(f):
     return new_dec
 
 
-PathIsh = Union[Path, str]
 PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 
+
+def cachew_error(e: Exception) -> None:
+    if settings.THROW_ON_ERROR:
+        raise e
+    else:
+        logger = get_logger()
+        # todo add func name?
+        logger.error("Error while setting up cache, falling back to non-cached version")
+        logger.exception(e)
+
+
+use_default_path = cast(Path, object())
 
 @doublewrap
 # pylint: disable=too-many-arguments
 def cachew(
         func=None,
-        cache_path: Optional[PathProvider]=None,
+        cache_path: Optional[PathProvider]=use_default_path,
+        force_file: bool=False,
         cls=None,
-        # TODO name 'dependencies'? or 'depends_on'?
-        hashf: HashFunction=default_hash,
+        depends_on: HashFunction=default_hash,
         logger=None,
         chunk_by=100,
         # NOTE: allowed values for chunk_by depend on the system.
@@ -679,14 +708,16 @@ def cachew(
         # you can use 'test_many' to experiment
         # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
         # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
+        **kwargs,
 ):
     r"""
     Database-backed cache decorator. TODO more description?
     # TODO use this doc in readme?
 
-    :param cache_path: if not set, it will be generated in `/tmp` based on function name. It is recommended to always set this parameter.
+    :param cache_path: if not set, `cachew.settings.DEFAULT_CACHEW_DIR` will be used.
+    :param force_file: if set to True, assume `cache_path` is a regular file (instead of a directory)
     :param cls: if not set, cachew will attempt to infer it from return type annotation. See :func:`infer_type` and :func:`cachew.tests.test_cachew.test_return_type_inference`.
-    :param hashf: hash function to determine whether the. Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
+    :param depends_on: hash function to determine whether the underlying . Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
     :param logger: custom logger, if not specified will use logger named `cachew`. See :func:`get_logger`.
     :return: iterator over original or cached items
 
@@ -725,42 +756,56 @@ def cachew(
     if logger is None:
         logger = get_logger()
 
+    hashf = kwargs.get('hashf', None)
+    if hashf is not None:
+        warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead")
+        depends_on = hashf
+
+    cn = cname(func)
     if cache_path is None:
-        td = Path(tempfile.gettempdir()) / 'cachew'
-        td.mkdir(parents=True, exist_ok=True)
-        cache_path = td
-        logger.info('No db_path specified, using %s as implicit cache', cache_path)
+        logger.info('[%s]: cache disabled', cn)
+        return func
 
-    if not callable(cache_path):
-        cache_path = Path(cache_path)
-        if cache_path.exists() and cache_path.is_dir():
-            cache_path = cache_path / str(func.__qualname__)
+    if cache_path is use_default_path:
+        cache_path = settings.DEFAULT_CACHEW_DIR
+        logger.info('[%s]: no cache_path specified, using the default %s', cn, cache_path)
 
+    # TODO fuzz infer_type, should never crash?
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
         msg = f"failed to infer cache type: {inferred}"
         if cls is None:
-            raise CachewException(msg)
+            ex = CachewException(msg)
+            cachew_error(ex)
+            return func
         else:
             # it's ok, assuming user knows better
             logger.debug(msg)
     else:
         if cls is None:
-            logger.debug("using inferred type %s", inferred)
+            logger.debug('[%s] using inferred type %s', cn, inferred)
             cls = inferred
         else:
             if cls != inferred:
                 logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
                 # TODO not sure if should be more serious error...
 
-    return cachew_impl(
-        func=func,
+    ctx = Context(
+        func      =func,
         cache_path=cache_path,
-        cls=cls,
-        hashf=hashf,
-        logger=logger,
-        chunk_by=chunk_by,
+        force_file=force_file,
+        cls       =cls,
+        depends_on=depends_on,
+        logger    =logger,
+        chunk_by  =chunk_by,
     )
+
+    # hack to avoid extra stack frame (see test_recursive, test_deep-recursive)
+    @functools.wraps(func)
+    def binder(*args, **kwargs):
+        kwargs['_cachew_context'] = ctx
+        return cachew_wrapper(*args, **kwargs)
+    return binder
 
 
 def get_schema(cls: Type) -> Dict[str, Any]:
@@ -771,34 +816,87 @@ def get_schema(cls: Type) -> Dict[str, Any]:
     return cls.__annotations__
 
 
-def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: HashFunction, logger: logging.Logger, chunk_by: int):
-    def composite_hash(*args, **kwargs) -> SourceHash:
-        sig = inspect.signature(func)
+def cname(func: Callable) -> str:
+    # some functions don't have __module__
+    mod = getattr(func, '__module__', None) or ''
+    return f'{mod}:{func.__qualname__}'
+
+
+class Context(NamedTuple):
+    func      : Callable
+    cache_path: PathProvider
+    force_file: bool
+    cls       : Type
+    depends_on: HashFunction
+    logger    : logging.Logger
+    chunk_by  : int
+
+    def composite_hash(self, *args, **kwargs) -> SourceHash:
+        fsig = inspect.signature(self.func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
             k: v.default
-            for k, v in sig.parameters.items()
+            for k, v in fsig.parameters.items()
             if v.default is not inspect.Parameter.empty
         }
+        # but only pass default if the user wants it in the hash function?
+        hsig = inspect.signature(self.depends_on)
+        defaults = {
+            k: v
+            for k, v in defaults.items()
+            if k in hsig.parameters or 'kwargs' in hsig.parameters
+        }
         kwargs = {**defaults, **kwargs}
-        # TODO not sure if passing them makes sense??
-        # TODO FIXME use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(cls)}, hash: {hashf(*args, **kwargs)}'
+        # TODO use inspect.signature to inspect return type annotations at least?
+        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(self.cls)}, dependencies: {self.depends_on(*args, **kwargs)}'
 
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+
+def cachew_wrapper(
+        *args,
+        _cachew_context: Context,
+        **kwargs,
+):
+    C = _cachew_context
+    func       = C.func
+    cache_path = C.cache_path
+    force_file = C.force_file
+    cls        = C.cls
+    depend_on  = C.depends_on
+    logger     = C.logger
+    chunk_by   = C.chunk_by
+
+    # WARNING: annoyingly huge try/catch ahead...
+    # but it lets us save a function call, hence a stack frame
+    # see test_recursive and test_deep_recursive
+    try:
+        cn = cname(func)
         dbp: Path
         if callable(cache_path):
             dbp = Path(cache_path(*args, **kwargs))  # type: ignore
         else:
             dbp = Path(cache_path)
 
+        dbp.parent.mkdir(parents=True, exist_ok=True)
+
+        # need to be atomic here
+        try:
+            # note: stat follows symlinks (which is what we want)
+            st = dbp.stat()
+        except FileNotFoundError:
+            # doesn't exist. then it's controlled by force_file
+            if force_file:
+                dbp = dbp
+            else:
+                dbp.mkdir(parents=True, exist_ok=True)
+                dbp = dbp / cn
+        else:
+            # already exists, so just use cname if it's a dir
+            if stat.S_ISDIR(st.st_mode):
+                dbp = dbp / cn
+
         logger.debug('using %s for db cache', dbp)
 
-        if not dbp.parent.exists():
-            raise CachewException(f"{dbp.parent} doesn't exist") # otherwise, sqlite error is quite cryptic
-
-        h = composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
+        h = C.composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
         logger.debug('new hash: %s', h)
 
         with DbHelper(dbp, cls) as db, \
@@ -887,8 +985,11 @@ def cachew_impl(*, func: Callable, cache_path: PathProvider, cls: Type, hashf: H
             conn.execute(db.table_hash.delete())
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': h}]))
-    return wrapper
+    except Exception as e:
+        # todo hmm, kinda annoying that it tries calling the function twice?
+        # but gonna require some sophisticated cooperation with the cached wrapper otherwise
+        cachew_error(e)
+        yield from func(*args, **kwargs)
 
 
 __all__ = ['cachew', 'CachewException', 'SourceHash', 'HashFunction', 'get_logger', 'NTBinder']
-# TODO add test for migration? actually commit a db in the repository?

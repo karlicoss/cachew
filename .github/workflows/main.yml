@@ -28,7 +28,7 @@ jobs:
     # uncomment for SSH debugging
     # - uses: mxschmitt/action-tmate@v2
 
-    - run: scripts/ci/run
+    - run: .ci/run
 
   pypi:
     runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
       if: github.event.ref == 'refs/heads/master'
       env:
         TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD_TEST }}
-      run: pip3 install --user wheel twine && scripts/release --test
+      run: pip3 install --user wheel twine && .ci/release --test
 
     - name: 'release to pypi'
       # always deploy tags to release pypi
@@ -58,6 +58,6 @@ jobs:
       if: startsWith(github.event.ref, 'refs/tags')
       env:
         TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      run: pip3 install --user wheel twine && scripts/release
+      run: pip3 install --user wheel twine && .ci/release
 
 # todo generate mypy coverage artifacts?

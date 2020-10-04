@@ -1,4 +1,5 @@
 from datetime import datetime, date, timezone
+import inspect
 import logging
 from pathlib import Path
 from random import Random
@@ -14,10 +15,26 @@ from more_itertools import one
 import pytz
 import pytest  # type: ignore
 
-from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values
+from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values, settings
 
 
 logger = get_logger()
+
+@pytest.fixture(autouse=True)
+def throw_on_errors():
+    # a more reasonable default for tests
+    settings.THROW_ON_ERROR = True
+    yield
+
+
+@pytest.fixture
+def restore_settings():
+    orig = {k: v for k, v in settings.__dict__.items() if not k.startswith('__')}
+    try:
+        yield
+    finally:
+        for k, v in orig.items():
+            setattr(settings, k, v)
 
 
 @pytest.fixture
@@ -86,7 +103,7 @@ def test_custom_hash(tdir):
 
     @cachew(
         cache_path=tdir,
-        hashf=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
+        depends_on=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
     )
     def data(path: Path) -> Iterable[UUU]:
         nonlocal calls
@@ -140,6 +157,56 @@ def inner(_it, _timer{init}):
     t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
     assert cnt == 5
     assert t < 2.0, 'should be pretty much instantaneous'
+
+
+def test_cache_path(tdir):
+    calls = 0
+    def orig() -> Iterable[int]:
+        nonlocal calls
+        yield 1
+        yield 2
+        calls += 1
+
+    fun = cachew(tdir / 'non_existent_dir' / 'cache_dir')(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+
+    # dir by default
+    cdir = tdir / 'non_existent_dir' / 'cache_dir'
+    assert cdir.is_dir()
+    cfile = one(cdir.glob('*'))
+    assert cfile.name.startswith('cachew.tests.test_cachew:test_cache_path.')
+
+    # treat None as "don't cache"
+    fun = cachew(cache_path=None)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 2
+    assert list(fun()) == [1, 2]
+    assert calls == 3
+
+    f = tdir / 'a_file'
+    f.touch()
+    fun = cachew(cache_path=f)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 4
+    assert list(fun()) == [1, 2]
+    assert calls == 4
+
+    fun = cachew(tdir / 'name', force_file=True)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 5
+    assert list(fun()) == [1, 2]
+    assert calls == 5
+
+    # if passed force_file, also treat as file
+    assert (tdir / 'name').is_file()
+
+    # TODO this won't work at the moment
+    # f.write_text('garbage')
+    # not sure... on the one hand could just delete the garbage file and overwrite with db
+    # on the other hand, wouldn't want to delete some user file by accident
 
 
 class TE2(NamedTuple):
@@ -332,7 +399,6 @@ def test_transaction(tdir):
     assert list(get_data(1)) == exp
 
     # TODO test that hash is unchanged?
-    import pytest # type: ignore
     with pytest.raises(TestError):
         list(get_data(2))
 
@@ -543,7 +609,7 @@ def test_primitive(tmp_path: Path):
 class O(NamedTuple):
     x: int
 
-def test_default(tmp_path: Path):
+def test_default_arguments(tmp_path: Path):
     class HackHash:
         def __init__(self, x: int) -> None:
             self.x = x
@@ -553,19 +619,48 @@ def test_default(tmp_path: Path):
 
     hh = HackHash(1)
 
-    @cachew(tmp_path, hashf=lambda param: param.x)
-    def fun(param=hh) -> Iterator[O]:
+    calls = 0
+    def orig(a: int, param=hh) -> Iterator[O]:
         yield O(hh.x)
+        nonlocal calls
+        calls += 1
 
-    list(fun())
-    assert list(fun()) == [O(1)]
+    fun = cachew(tmp_path, depends_on=lambda a, param: (a, param.x))(orig)
+
+    list(fun(123))
+    assert list(fun(123)) == [O(1)]
+    assert calls == 1
 
     # now, change hash. That should cause the composite hash to invalidate and recompute
     hh.x = 2
-    assert list(fun()) == [O(2)]
+    assert list(fun(123)) == [O(2)]
+    assert calls == 2
 
     # should be ok with explicitly passing
-    assert list(fun(param=HackHash(2))) == [O(2)]
+    assert list(fun(123, param=HackHash(2))) == [O(2)]
+    assert calls == 2
+
+    # we don't have to handle the default param in the default hash key
+    fun = cachew(tmp_path)(fun)
+    assert list(fun(456)) == [O(2)]
+    assert calls == 3
+    assert list(fun(456)) == [O(2)]
+    assert calls == 3
+
+    # changing the default should trigger the default (i.e. kwargs) key function to invalidate the cache
+    hh.x = 3
+    assert list(fun(456)) == [O(3)]
+    assert calls == 4
+
+    # you don't have to pass the default parameter explicitly
+    fun = cachew(tmp_path, depends_on=lambda a: a)(orig)
+    assert list(fun(456)) == [O(3)]
+    assert calls == 5
+
+    # but watch out if you forget to handle it!
+    hh.x = 4
+    assert list(fun(456)) == [O(3)]
+    assert calls == 5
 
 
 class U(NamedTuple):
@@ -599,7 +694,7 @@ def fuzz_cachew_impl():
     Insert random sleeps in cachew_impl to increase likelihood of concurrency issues
     """
     import patchy  # type: ignore[import]
-    from .. import cachew_impl
+    from .. import cachew_wrapper
     patch = '''\
 @@ -740,6 +740,11 @@
 
@@ -614,9 +709,9 @@ def fuzz_cachew_impl():
                  logger.debug('hash matched: loading from cache')
                  rows = conn.execute(values_table.select())
 '''
-    patchy.patch(cachew_impl, patch)
+    patchy.patch(cachew_wrapper, patch)
     yield
-    patchy.unpatch(cachew_impl, patch)
+    patchy.unpatch(cachew_wrapper, patch)
 
 
 # TODO fuzz when they start so they enter transaction at different times?
@@ -675,6 +770,7 @@ def test_mcachew(tmp_path: Path):
     # TODO how to test for defensive behaviour?
     from cachew.misc import mcachew
 
+    # TODO check throw on error
     @mcachew(cache_path=tmp_path / 'cache')
     def func() -> Iterator[str]:
         yield 'one'
@@ -684,12 +780,59 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
+def test_defensive(restore_settings):
+    '''
+    Make sure that cachew doesn't crash on misconfiguration
+    '''
+    def orig() -> Iterator[int]:
+        yield 123
+
+    def orig2():
+        yield "x"
+        yield 123
+
+    fun = cachew(bad_arg=123)(orig)
+    assert list(fun()) == [123]
+    assert list(fun()) == [123]
+
+    from cachew.compat import nullcontext
+    for throw in [True, False]:
+        ctx = pytest.raises(Exception) if throw else nullcontext()
+        settings.THROW_ON_ERROR = throw
+
+        with ctx: # type: ignore
+            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig) # type: ignore
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
+
+            fun = cachew(cache_path=lambda p: '/tmp/' + str(p))(orig)
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
+
+            fun = cachew(orig2)
+            assert list(fun()) == ['x', 123]
+            assert list(fun()) == ['x', 123]
+
+            settings.DEFAULT_CACHEW_DIR = '/dev/nonexistent'
+            fun = cachew(orig)
+            assert list(fun()) == [123]
+            assert list(fun()) == [123]
+
+
 def test_recursive(tmp_path: Path):
+    d0 = 0
+    d1 = 1000
     calls = 0
     @cachew(tmp_path)
     def factorials(n: int) -> Iterable[int]:
-        nonlocal calls
+        nonlocal calls, d0, d1
         calls += 1
+
+        if n == 0:
+            d0 = len(inspect.stack(0))
+        if n == 1:
+            d1 = len(inspect.stack(0))
+
         if n == 0:
             yield 1
             return
@@ -703,6 +846,12 @@ def test_recursive(tmp_path: Path):
 
     assert calls == 0
     assert list(factorials(3)) == [1, 1, 2, 6]
+
+    # make sure the recursion isn't eating too much stack
+    # ideally would have 1? not sure if possible without some insane hacking?
+    # todo maybe check stack frame size as well?
+    assert abs(d0 - d1) <= 2
+
     assert calls == 4
     assert list(factorials(3)) == [1, 1, 2, 6]
     assert calls == 4
