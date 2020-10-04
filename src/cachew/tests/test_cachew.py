@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import logging
 from pathlib import Path
 from random import Random
@@ -8,6 +8,8 @@ import sys
 import time
 import timeit
 from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union
+
+from more_itertools import one
 
 import pytz
 import pytest  # type: ignore
@@ -443,6 +445,46 @@ def test_dataclass(tdir):
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
 
 
+def test_dates(tmp_path):
+    from dataclasses import dataclass
+    @dataclass
+    class X:
+        d1: datetime
+        d2: datetime
+        d3: datetime
+        d4: datetime
+        d5: datetime
+
+    tz = pytz.timezone('Europe/London')
+    dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
+    dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
+
+    x = X(
+        d1=tz.localize(dwinter),
+        d2=tz.localize(dsummer),
+        d3=dwinter,
+        d4=dsummer,
+        d5=dsummer.replace(tzinfo=timezone.utc),
+    )
+
+    @cachew(tmp_path)
+    def fun() -> Iterable[X]:
+        yield x
+
+    assert one(fun()) == x
+    assert one(fun()) == x
+
+    # make sure the actuall tzinfo is preserved... otherwise we might end up with raw offsets and lose some info
+    r = one(fun())
+    # attempting to preserve pytz zone names is a bit arbitrary
+    # but on the other hand, they will be in python 3.9, so I guess it's ok
+    assert r.d1.tzinfo.zone == x.d1.tzinfo.zone # type: ignore
+    assert r.d2.tzinfo.zone == x.d2.tzinfo.zone # type: ignore
+    assert r.d3.tzname() is None
+    assert r.d4.tzname() is None
+    assert r.d5.tzinfo is timezone.utc
+
+
 def test_types(tdir):
     from dataclasses import dataclass, asdict
     @dataclass
@@ -480,8 +522,6 @@ def test_types(tdir):
         d = asdict(t)
         d['an_exc'] = d['an_exc'].args
         return d
-
-    from more_itertools import one
 
     assert H(one(get())) == H(obj)
     assert H(one(get())) == H(obj)
