@@ -684,6 +684,19 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
+# todo control it via a variable maybe?
+def test_defensive():
+    '''
+    Make sure that cachew doesn't crash on misconfiguration
+    '''
+    def orig() -> Iterator[int]:
+        yield 123
+
+    fun = cachew(bad_arg=123)(orig)
+    assert list(fun()) == [123]
+    assert list(fun()) == [123]
+
+
 def test_recursive(tmp_path: Path):
     calls = 0
     @cachew(tmp_path)

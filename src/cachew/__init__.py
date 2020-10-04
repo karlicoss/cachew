@@ -42,6 +42,20 @@ else:
 CACHEW_VERSION: str = __version__
 
 
+'''
+Global settings, you can override them after importing cachew
+'''
+class settings:
+    # switch to appdirs and using user cache dir?
+    DEFAULT_CACHEW_DIR: Path = Path(tempfile.gettempdir()) / 'cachew'
+
+    '''
+    Set to true if you want to fail early. Otherwise falls back to non-cached version
+    '''
+    THROW_ON_ERROR: bool = False
+
+
+
 def get_logger() -> logging.Logger:
     return logging.getLogger('cachew')
 
@@ -667,6 +681,7 @@ PathProvider = Union[PathIsh, Callable[..., PathIsh]]
 # pylint: disable=too-many-arguments
 def cachew(
         func=None,
+        # todo hmm. maybe allow it to return None, then cache is disabled? not sure..
         cache_path: Optional[PathProvider]=None,
         cls=None,
         # TODO name 'dependencies'? or 'depends_on'?
@@ -679,6 +694,7 @@ def cachew(
         # you can use 'test_many' to experiment
         # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
         # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
+        **kwargs,
 ):
     r"""
     Database-backed cache decorator. TODO more description?
@@ -726,11 +742,13 @@ def cachew(
         logger = get_logger()
 
     if cache_path is None:
-        td = Path(tempfile.gettempdir()) / 'cachew'
+        td = settings.DEFAULT_CACHEW_DIR
         td.mkdir(parents=True, exist_ok=True)
         cache_path = td
         logger.info('No db_path specified, using %s as implicit cache', cache_path)
+    # TODO always make cache path??
 
+    # TODO if cache provider returns a dir, still infer in cachew_impl!!
     if not callable(cache_path):
         cache_path = Path(cache_path)
         if cache_path.exists() and cache_path.is_dir():
