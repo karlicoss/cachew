@@ -41,6 +41,14 @@ else:
     fromisoformat = datetime.fromisoformat
 
 
+from .compat import fix_sqlalchemy_StatementError_str
+try:
+    fix_sqlalchemy_StatementError_str()
+except Exception as e:
+    # todo warn or something??
+    pass
+
+
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = __version__
 
@@ -873,6 +881,8 @@ def cachew_wrapper(
         yield from func(*args, **kwargs)
         return
 
+    early_exit = False
+
     # WARNING: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
     # see test_recursive and test_deep_recursive
@@ -980,7 +990,12 @@ def cachew_wrapper(
                     chunk = []
 
             for d in datas:
-                yield d
+                try:
+                    yield d
+                except GeneratorExit:
+                    early_exit = True
+                    return
+                  
                 chunk.append(binder.to_row(d))
                 if len(chunk) >= chunk_by:
                     flush()
@@ -993,6 +1008,10 @@ def cachew_wrapper(
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': h}]))
     except Exception as e:
+        # sigh... see test_early_exit_shutdown...
+        if early_exit and 'Cannot operate on a closed database' in str(e):
+            return
+
         # todo hmm, kinda annoying that it tries calling the function twice?
         # but gonna require some sophisticated cooperation with the cached wrapper otherwise
         cachew_error(e)

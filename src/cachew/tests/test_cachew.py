@@ -1,9 +1,10 @@
 from datetime import datetime, date, timezone
 import inspect
+from itertools import islice
 import logging
 from pathlib import Path
 from random import Random
-from subprocess import check_call
+from subprocess import check_call, run, PIPE
 import string
 import sys
 import time
@@ -1034,3 +1035,64 @@ def test_disabled(tmp_path: Path):
         assert calls == 2
         assert list(fun()) == [1, 2]
         assert calls == 3
+
+
+def test_early_exit(tmp_path: Path):
+    cf = 0
+    @cachew(tmp_path) #  / 'fun', force_file=True)
+    def f() -> Iterator[int]:
+        yield from range(20)
+        nonlocal cf
+        cf += 1
+
+    cg = 0
+    @cachew(tmp_path) # / 'fun', force_file=True)
+    def g() -> Iterator[int]:
+        yield from f()
+        nonlocal cg
+        cg += 1
+
+    assert len(list(islice(g(), 0, 10))) == 10
+    assert cf == 0 # hasn't finished
+    assert cg == 0 # hasn't finished
+
+    # todo not sure if need to check that db is empty?
+   
+    assert len(list(g())) == 20
+    assert cf == 1
+    assert cg == 1
+
+    # should be cached now
+    assert len(list(g())) == 20
+    assert cf == 1
+    assert cg == 1
+
+
+# see https://github.com/sqlalchemy/sqlalchemy/issues/5522#issuecomment-705156746
+def test_early_exit_shutdown(tmp_path: Path):
+    # don't ask... otherwise the exception doesn't appear :shrug:
+    import_hack = '''
+from sqlalchemy import Column
+
+import re
+re.hack = lambda: None
+    '''
+    Path(tmp_path / 'import_hack.py').write_text(import_hack)
+
+    prog = f'''
+import import_hack
+
+import cachew
+cachew.settings.THROW_ON_ERROR = True # todo check with both?
+@cachew.cachew('{tmp_path}', cls=int)
+def fun():
+    yield 0
+
+g = fun()
+e = next(g)
+
+print("FINISHED")
+    '''
+    r = run(['python3', '-c', prog], cwd=tmp_path, stderr=PIPE, stdout=PIPE, check=True)
+    assert r.stdout.strip() == b'FINISHED'
+    assert b'Traceback' not in r.stderr
