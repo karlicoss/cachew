@@ -563,6 +563,7 @@ def test_types(tdir):
         a_dt   : datetime
         a_date : date
         a_json : Dict[str, Any]
+        a_list : List[Any]
         an_exc : Exception
 
     # pylint: disable=no-member
@@ -577,6 +578,7 @@ def test_types(tdir):
         a_dt   =datetime.now(tz=tz),
         a_date =datetime.now().replace(year=2000).date(),
         a_json ={'a': True, 'x': {'whatever': 3.14}},
+        a_list =['aba', 123, None],
         an_exc =RuntimeError('error!', 123),
     )
 

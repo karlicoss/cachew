@@ -210,6 +210,7 @@ PRIMITIVES = {
     datetime : IsoDateTime,
     date     : IsoDate,
     dict     : Json,
+    list     : Json,
     Exception: ExceptionAdapter,
 }
 
@@ -222,6 +223,7 @@ Types = Union[
     Type[datetime],
     Type[date],
     Type[dict],
+    Type[list],
     Type[Exception],
     Type[NamedTuple],
 ]
@@ -234,6 +236,7 @@ Values = Union[
     datetime,
     date,
     dict,
+    list,
     Exception,
     NamedTuple,
 ]
