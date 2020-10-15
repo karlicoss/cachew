@@ -821,14 +821,6 @@ def cachew(
     return binder
 
 
-def get_schema(cls: Type) -> Dict[str, Any]:
-    if is_primitive(cls):
-        return {'_': cls} # TODO meh
-    if is_union(cls):
-        return {'_': cls} # TODO meh
-    return cls.__annotations__
-
-
 def cname(func: Callable) -> str:
     # some functions don't have __module__
     mod = getattr(func, '__module__', None) or ''
@@ -860,8 +852,9 @@ class Context(NamedTuple):
             if k in hsig.parameters or 'kwargs' in hsig.parameters
         }
         kwargs = {**defaults, **kwargs}
-        # TODO use inspect.signature to inspect return type annotations at least?
-        return f'cachew: {CACHEW_VERSION}, schema: {get_schema(self.cls)}, dependencies: {self.depends_on(*args, **kwargs)}'
+        binder = NTBinder.make(tp=self.cls)
+        schema = str(binder.columns) # TODO not super nice, but works fine for now
+        return f'cachew: {CACHEW_VERSION}, schema: {schema}, dependencies: {self.depends_on(*args, **kwargs)}'
 
 
 def cachew_wrapper(
