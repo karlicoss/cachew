@@ -44,7 +44,7 @@ def main():
             'testing': [
                 'pytest', 'pytz', 'patchy',
                 'pylint',
-                'mypy',
+                'mypy', 'lxml',
                 'bandit',
 
                 'more-itertools',
