@@ -204,6 +204,12 @@ def test_cache_path(tdir):
     # if passed force_file, also treat as file
     assert (tdir / 'name').is_file()
 
+    # treat None as "don't cache" ('factory')
+    fun = cachew(cache_path=lambda *args: None)(orig)
+    assert list(fun()) == [1, 2]
+    assert calls == 6
+    assert list(fun()) == [1, 2]
+    assert calls == 7
     # TODO this won't work at the moment
     # f.write_text('garbage')
     # not sure... on the one hand could just delete the garbage file and overwrite with db

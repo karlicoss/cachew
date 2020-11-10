@@ -116,10 +116,10 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 
 
 # How it works
-Basically, your data objects get [flattened out](src/cachew/__init__.py#L444)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L514).
+Basically, your data objects get [flattened out](src/cachew/__init__.py#L447)
+and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L517).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L844)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L839)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -131,18 +131,18 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L275), [2](src/cachew/tests/test_cachew.py#L289)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L281), [2](src/cachew/tests/test_cachew.py#L295)
 * supported types:    
 
-    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`, `Exception`
+    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`, `list`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L555), [tests.test_primitive](src/cachew/tests/test_cachew.py#L600), [tests.test_dates](src/cachew/tests/test_cachew.py#L515)
-    * [Optional](src/cachew/tests/test_cachew.py#L414) types
-    * [Union](src/cachew/tests/test_cachew.py#L670) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L331)
-    * [Exceptions](src/cachew/tests/test_cachew.py#L912)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L561), [tests.test_primitive](src/cachew/tests/test_cachew.py#L608), [tests.test_dates](src/cachew/tests/test_cachew.py#L521)
+    * [Optional](src/cachew/tests/test_cachew.py#L420) types
+    * [Union](src/cachew/tests/test_cachew.py#L678) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L337)
+    * [Exceptions](src/cachew/tests/test_cachew.py#L920)
     
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L361) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L367) and discards old data automatically
 
 
 # Performance
@@ -153,17 +153,17 @@ During reading cache all that happens is reading rows from sqlite and mapping th
 I haven't set up proper benchmarks/performance regressions yet, so don't want to make specific claims, however that would almost certainly make your programm faster if computations take more than several seconds.
 
 
-If you want to experiment for youself, check out [tests.test_many](src/cachew/tests/test_cachew.py#L220)
+If you want to experiment for youself, check out [tests.test_many](src/cachew/tests/test_cachew.py#L226)
 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L708) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L711) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
     
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L311) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L317) and depends on function's arguments.
     
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
     

@@ -885,7 +885,13 @@ def cachew_wrapper(
     try:
         dbp: Path
         if callable(cache_path):
-            dbp = Path(cache_path(*args, **kwargs))  # type: ignore
+            pp = cache_path(*args, **kwargs) # type: ignore
+            if pp is None:
+                logger.info('[%s]: cache disabled', cn)
+                yield from func(*args, **kwargs)
+                return
+            else:
+                dbp = Path(pp)
         else:
             dbp = Path(cache_path)
 
