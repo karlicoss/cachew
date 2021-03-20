@@ -23,7 +23,8 @@ logger = get_logger()
 
 @pytest.fixture(autouse=True)
 def throw_on_errors():
-    # a more reasonable default for tests
+    # NOTE: in tests we always throw on errors, it's a more reasonable default for testing.
+    # we still check defensive behaviour in test_defensive
     settings.THROW_ON_ERROR = True
     yield
 
@@ -40,7 +41,7 @@ def restore_settings():
 
 @pytest.fixture
 def tdir(tmp_path):
-    # TODO just use tmp_path instead?
+    # todo just use tmp_path instead?
     yield Path(tmp_path)
 
 
@@ -191,7 +192,12 @@ def test_error(tmp_path: Path) -> None:
     assert list(fun()) == ['string1', 'string2']
 
 
-def test_cache_path(tdir):
+def test_cache_path(tmp_path: Path) -> None:
+    '''
+    Tests various ways of specifying cache path
+    '''
+    tdir = tmp_path
+
     calls = 0
     def orig() -> Iterable[int]:
         nonlocal calls
@@ -245,6 +251,29 @@ def test_cache_path(tdir):
     # f.write_text('garbage')
     # not sure... on the one hand could just delete the garbage file and overwrite with db
     # on the other hand, wouldn't want to delete some user file by accident
+
+
+class UGood(NamedTuple):
+    x: int
+class UBad:
+    pass
+
+def test_unsupported_class(tmp_path: Path) -> None:
+    with pytest.raises(CachewException, match='.*failed to infer cache type.*'):
+        @cachew(cache_path=tmp_path)
+        def fun() -> List[UBad]:
+            return [UBad()]
+
+    # now something a bit nastier
+    # TODO hmm, should really throw at the definition time... but can fix later I suppose
+    @cachew(cache_path=tmp_path)
+    def fun2() -> Iterable[Union[UGood, UBad]]:
+        yield UGood(x=1)
+        yield UBad()
+        yield UGood(x=2)
+
+    with pytest.raises(CachewException, match=".*doesn't look like a supported type.*"):
+        list(fun2())
 
 
 class TE2(NamedTuple):
@@ -535,13 +564,13 @@ def test_stats(tdir):
     print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
 
-def test_dataclass(tdir):
+def test_dataclass(tmp_path: Path) -> None:
     from dataclasses import dataclass
     @dataclass
     class Test:
         field: int
 
-    @cachew(tdir)
+    @cachew(tmp_path)
     def get_dataclasses() -> Iterator[Test]:
         yield from [Test(field=i) for i in range(5)]
 
@@ -706,7 +735,7 @@ def test_default_arguments(tmp_path: Path):
 class U(NamedTuple):
     x: Union[str, O]
 
-def test_union(tmp_path: Path):
+def test_union(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun() -> Iterator[U]:
         yield U('hi')
@@ -714,6 +743,21 @@ def test_union(tmp_path: Path):
 
     list(fun())
     assert list(fun()) == [U('hi'), U(O(123))]
+
+
+def test_union_with_dataclass(tmp_path: Path) -> None:
+    from dataclasses import dataclass
+    # NOTE: empty dataclass doesn't have __annotations__ ??? not sure if need to handle it...
+    @dataclass
+    class DD:
+        x: int
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[Union[int, DD]]:
+        yield 123
+        yield DD(456)
+
+    assert list(fun()) == [123, DD(456)]
 
 
 def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
