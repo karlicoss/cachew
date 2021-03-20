@@ -560,8 +560,7 @@ class DbHelper:
         import sqlite3
         import time
 
-        from sqlalchemy.engine import Engine # type: ignore
-        @event.listens_for(Engine, 'connect')
+        @event.listens_for(self.engine, 'connect')
         def set_sqlite_pragma(dbapi_connection, connection_record):
             # without wal, concurrent reading/writing is not gonna work
 
@@ -572,7 +571,8 @@ class DbHelper:
                     break
                 except sqlite3.OperationalError as oe:
                     if 'database is locked' not in str(oe):
-                        raise oe
+                        # ugh, pretty annoying that exception doesn't include database path for some reason
+                        raise CachewException(f'Error while setting WAL on {db_path}') from oe
                 time.sleep(0.1)
 
 
