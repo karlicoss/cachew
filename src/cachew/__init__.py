@@ -1,4 +1,3 @@
-import typing
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -23,6 +22,8 @@ from datetime import datetime, date
 import stat
 import tempfile
 from pathlib import Path
+import time
+import sqlite3
 import sys
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
@@ -427,7 +428,10 @@ class NTBinder(NamedTuple):
                 fields = ()
                 span = 1
             else:
-                fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in tp.__annotations__.items())
+                annotations = getattr(tp, '__annotations__', None)
+                if annotations is None:
+                    raise CachewException(f"{tp}: doesn't look like a supported type to cache. See https://github.com/karlicoss/cachew#features for the list of supported types.")
+                fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in annotations.items())
                 span = sum(f.span for f in fields) + (1 if optional else 0)
         return NTBinder(
             name=name,
@@ -557,9 +561,6 @@ class DbHelper:
         # NOTE: timeout is necessary so we don't lose time waiting during recursive calls
         # by default, it's several seconds? you'd see 'test_recursive' test performance degrade
 
-        import sqlite3
-        import time
-
         @event.listens_for(self.engine, 'connect')
         def set_sqlite_pragma(dbapi_connection, connection_record):
             # without wal, concurrent reading/writing is not gonna work
@@ -676,7 +677,7 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     if is_union(arg):
         return arg # meh?
     if not is_dataclassish(arg):
-        return bail(f"{arg} is not NamedTuple")
+        return bail(f"{arg} is not NamedTuple/dataclass")
     return arg
 
 
@@ -702,7 +703,7 @@ def cachew_error(e: Exception) -> None:
     else:
         logger = get_logger()
         # todo add func name?
-        logger.error("Error while setting up cache, falling back to non-cached version")
+        logger.error("cachew: error while setting up cache, falling back to non-cached version")
         logger.exception(e)
 
 
@@ -776,7 +777,7 @@ def cachew(
     cn = cname(func)
     # todo not very nice that ENABLE check is scattered across two places
     if not settings.ENABLE or cache_path is None:
-        logger.info('[%s]: cache disabled', cn)
+        logger.info('[%s]: cache explicitly disabled (settings.ENABLE is False or cache_path is None)', cn)
         return func
 
     if cache_path is use_default_path:
@@ -786,7 +787,7 @@ def cachew(
     # TODO fuzz infer_type, should never crash?
     inferred = infer_type(func)
     if isinstance(inferred, Failure):
-        msg = f"failed to infer cache type: {inferred}"
+        msg = f"failed to infer cache type: {inferred}. See https://github.com/karlicoss/cachew#features for the list of supported types."
         if cls is None:
             ex = CachewException(msg)
             cachew_error(ex)
@@ -873,7 +874,7 @@ def cachew_wrapper(
 
     cn = cname(func)
     if not settings.ENABLE:
-        logger.info('[%s]: cache disabled', cn)
+        logger.info('[%s]: cache explicitly disabled (settings.ENABLE is False)', cn)
         yield from func(*args, **kwargs)
         return
 
@@ -887,7 +888,7 @@ def cachew_wrapper(
         if callable(cache_path):
             pp = cache_path(*args, **kwargs) # type: ignore
             if pp is None:
-                logger.info('[%s]: cache disabled', cn)
+                logger.info('[%s]: cache explicitly disabled (cache_path is None)', cn)
                 yield from func(*args, **kwargs)
                 return
             else:
