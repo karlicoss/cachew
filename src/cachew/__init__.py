@@ -32,7 +32,9 @@ import dataclasses
 import warnings
 
 
-import sqlalchemy # type: ignore
+import appdirs  # type: ignore[import]
+
+import sqlalchemy  # type: ignore[import]
 from sqlalchemy import Column, Table, event
 
 
@@ -65,8 +67,7 @@ class settings:
     '''
     ENABLE: bool = True
 
-    # switch to appdirs and using user cache dir?
-    DEFAULT_CACHEW_DIR: PathIsh = Path(tempfile.gettempdir()) / 'cachew'
+    DEFAULT_CACHEW_DIR: PathIsh = Path(appdirs.user_cache_dir('cachew'))
 
     '''
     Set to true if you want to fail early. Otherwise falls back to non-cached version

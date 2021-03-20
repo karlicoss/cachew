@@ -7,7 +7,8 @@ author_email = 'karlicoss@gmail.com'
 description = 'Easy sqlite-backed persistent cache for dataclasses'
 
 install_requires = [
-    'sqlalchemy',
+    'appdirs'   ,  # default cache dir
+    'sqlalchemy',  # cache DB interaction
 ]
 
 
