@@ -160,6 +160,37 @@ def inner(_it, _timer{init}):
     assert t < 2.0, 'should be pretty much instantaneous'
 
 
+def test_error(tmp_path: Path) -> None:
+    '''
+    Test behaviour when the first time cache is initialized it ends up with an error
+    '''
+    cache_file = tmp_path / 'cache'
+    assert not cache_file.exists(), cache_file  # just precondition
+
+    should_raise = True
+
+    @cachew(cache_file, force_file=True)
+    def fun() -> Iterator[str]:
+        yield 'string1'
+        if should_raise:
+            raise RuntimeError('oops')
+        yield 'string2'
+
+    with pytest.raises(RuntimeError, match='oops'):
+        list(fun())
+
+    # vvv this would be nice but might be tricky because of the way sqlite works (i.e. wal mode creates a file)
+    # assert not cache_file.exists(), cache_file
+
+    # perhaps doesn't hurt either way as long this vvv works properly
+    # shouldn't cache anything and crach again
+    with pytest.raises(RuntimeError, match='oops'):
+        list(fun())
+
+    should_raise = False
+    assert list(fun()) == ['string1', 'string2']
+
+
 def test_cache_path(tdir):
     calls = 0
     def orig() -> Iterable[int]:
