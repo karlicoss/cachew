@@ -9,16 +9,24 @@
 # Valid levels: HIGH, INFERENCE, INFERENCE_FAILURE, UNDEFINED.
 confidence=
 
-disable= too-few-public-methods,
-         missing-docstring,
-         invalid-name,
-         bad-whitespace,
-         line-too-long,
-         multiple-statements,
-         no-else-return,
-         no-else-raise,
-         len-as-condition,
-         wrong-import-order,
-         wrong-import-position,
-         fixme
-
+#
+# C: picky shit like too many lines/import-outside-toplevel etc
+# R: just random picky shit
+# W: unused-argument, unused-import, unused-variable might be interesting
+# although most of unused-variable seem either false positive or pytest fixtures (so actually used!)
+disable=C,R,W,
+        too-few-public-methods,
+        too-many-return-statements, # too picky
+        too-many-argument, # too picky
+        missing-docstring,
+        invalid-name,
+        bad-whitespace,
+        line-too-long,
+        multiple-statements,
+        no-else-return,
+        no-else-raise,
+        len-as-condition,
+        wrong-import-order,
+        wrong-import-position,
+        fixme,
+        not-callable # ugh, sometimes gives false positives in tests?
