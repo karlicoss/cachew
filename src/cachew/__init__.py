@@ -632,7 +632,6 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
 Failure = str
 
 
-# pylint: disable=too-many-return-statements
 def infer_type(func) -> Union[Failure, Type[Any]]:
     """
     >>> from typing import Collection, NamedTuple
@@ -714,7 +713,6 @@ def cachew_error(e: Exception) -> None:
 use_default_path = cast(Path, object())
 
 @doublewrap
-# pylint: disable=too-many-arguments
 def cachew(
         func=None,
         cache_path: Optional[PathProvider]=use_default_path,
