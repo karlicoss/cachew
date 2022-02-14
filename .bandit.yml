@@ -1,2 +1,6 @@
 exclude_dirs:
   - src/cachew/tests
+
+skips: [
+  B101,  # complains about assert -- completely useless
+]

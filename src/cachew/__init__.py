@@ -42,8 +42,7 @@ from .compat import fix_sqlalchemy_StatementError_str
 try:
     fix_sqlalchemy_StatementError_str()
 except Exception as e:
-    # todo warn or something??
-    pass
+    logging.exception(e)
 
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
@@ -337,12 +336,6 @@ def strip_generic(tp):
     return tp
 
 
-# release mode friendly assert
-def kassert(x: bool) -> None:
-    if x is False:
-        raise AssertionError
-
-
 NT = TypeVar('NT')
 # sadly, bound=NamedTuple is not working yet in mypy
 # https://github.com/python/mypy/issues/685
@@ -472,7 +465,7 @@ class NTBinder(NamedTuple):
                 is_none = obj is None
                 yield is_none
             else:
-                is_none = False; kassert(obj is not None)  # TODO hmm, that last assert is not very symmetric...
+                is_none = False; assert obj is not None  # TODO hmm, that last assert is not very symmetric...
 
             if is_none:
                 for _ in range(self.span - 1):
@@ -494,7 +487,8 @@ class NTBinder(NamedTuple):
                 r
                 for r in uf._from_row(row_iter) if r is not None
             ]
-            kassert(len(union_params) == 1); return union_params[0]
+            assert len(union_params) == 1, union_params
+            return union_params[0]
         else:
             if self.optional:
                 is_none = next(row_iter)
@@ -503,7 +497,8 @@ class NTBinder(NamedTuple):
 
             if is_none:
                 for _ in range(self.span - 1):
-                    x = next(row_iter); kassert(x is None)  # huh. assert is kinda opposite of producing value
+                    x = next(row_iter)
+                    assert x is None, x  # huh. assert is kinda opposite of producing value
                 return None
             else:
                 return self.type_(*(
@@ -908,7 +903,7 @@ def cachew_wrapper(
 
         logger.debug('using %s for db cache', dbp)
 
-        h = C.composite_hash(*args, **kwargs); kassert(h is not None)  # just in case
+        h = C.composite_hash(*args, **kwargs); assert h is not None  # just in case
         logger.debug('new hash: %s', h)
 
         with DbHelper(dbp, cls) as db, \
@@ -929,7 +924,7 @@ def cachew_wrapper(
                 else:
                     raise e
 
-            kassert(len(prev_hashes) <= 1)  # shouldn't happen
+            assert len(prev_hashes) <= 1, prev_hashes  # shouldn't happen
             prev_hash: Optional[SourceHash]
             if len(prev_hashes) == 0:
                 prev_hash = None
