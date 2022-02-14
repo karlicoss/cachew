@@ -879,7 +879,7 @@ def test_defensive(restore_settings):
     assert list(fun()) == [123]
     assert list(fun()) == [123]
 
-    from cachew.compat import nullcontext
+    from contextlib import nullcontext
     for throw in [True, False]:
         ctx = pytest.raises(Exception) if throw else nullcontext()
         settings.THROW_ON_ERROR = throw

@@ -38,12 +38,6 @@ import sqlalchemy  # type: ignore[import]
 from sqlalchemy import Column, Table, event
 
 
-if sys.version_info[1] < 7:
-    from .compat import fromisoformat
-else:
-    fromisoformat = datetime.fromisoformat
-
-
 from .compat import fix_sqlalchemy_StatementError_str
 try:
     fix_sqlalchemy_StatementError_str()
@@ -117,7 +111,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         if value is None:
             return None
         spl = value.split(' ')
-        dt = fromisoformat(spl[0])
+        dt = datetime.fromisoformat(spl[0])
         if len(spl) <= 1:
             return dt
         zone = spl[1]
@@ -337,14 +331,9 @@ def strip_generic(tp):
     >>> strip_generic(str)
     <class 'str'>
     """
-    if sys.version_info[1] < 7:
-        # pylint: disable=no-member
-        if isinstance(tp, typing.GenericMeta):
-            return tp.__extra__ # type: ignore
-    else:
-        GA = getattr(typing, '_GenericAlias') # ugh, can't make both mypy and pylint happy here?
-        if isinstance(tp, GA):
-            return tp.__origin__
+    GA = getattr(typing, '_GenericAlias') # ugh, can't make both mypy and pylint happy here?
+    if isinstance(tp, GA):
+        return tp.__origin__
     return tp
 
 
