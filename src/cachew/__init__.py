@@ -106,7 +106,10 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return iso
         else:
             if isinstance(tz, pytz.BaseTzInfo):
-                return iso + ' ' + tz.zone
+                zone = tz.zone
+                # should be present: https://github.com/python/typeshed/blame/968fd6d01d23470e0c8368e7ee7c43f54aaedc0e/stubs/pytz/pytz/tzinfo.pyi#L6
+                assert zone is not None, tz
+                return iso + ' ' + zone
             else:
                 return iso
 

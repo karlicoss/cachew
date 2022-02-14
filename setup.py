@@ -15,7 +15,7 @@ install_requires = [
 from setuptools import setup, find_namespace_packages # type: ignore
 
 
-def main():
+def main() -> None:
     pkgs = find_namespace_packages('src', exclude=['*.tests'])
     pkg = min(pkgs)
     setup(
@@ -35,13 +35,10 @@ def main():
         package_dir={'': 'src'},
         package_data={pkg: ['py.typed']},
 
-        # need at least NamedTuples
-        python_requires='>=3.6',
+        python_requires='>=3.7',
 
         install_requires=install_requires,
         extras_require={
-            # can't specify this in setup.cfg!
-            ':python_version<"3.7"': ['dataclasses'],
             'testing': [
                 'pytest', 'pytz', 'patchy',
                 'pylint',
