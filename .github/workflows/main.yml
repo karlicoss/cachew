@@ -5,21 +5,22 @@ on:
   push:
     branches: '*'
     tags: 'v[0-9]+.*' # only trigger on 'release' tags for PyPi
-  # Note that people who fork it need to go to "Actions" tab on their fork and click "I understand my workflows, go ahead and enable them".
+    # Ideally I would put this in the pypi job... but github syntax doesn't allow for regexes there :shrug:
+    # P.S. fuck made up yaml DSLs.
   pull_request: # needed to trigger on others' PRs
+  # Note that people who fork it need to go to "Actions" tab on their fork and click "I understand my workflows, go ahead and enable them".
   workflow_dispatch: # needed to trigger workflows manually
   # todo cron?
 
-env:
-  # useful for scripts & sometimes tests to know
-  CI: true
 
 jobs:
   build:
     strategy:
       matrix:
         platform: [ubuntu-latest, macos-latest] # TODO windows-latest??
-        python-version: [3.6, 3.7, 3.8]
+        python-version: ['3.7', '3.8', '3.9', '3.10']
+        # vvv just an example of excluding stuff from matrix
+        # exclude: [{platform: macos-latest, python-version: '3.6'}]
 
     runs-on: ${{ matrix.platform }}
 
@@ -27,7 +28,7 @@ jobs:
     # ugh https://github.com/actions/toolkit/blob/main/docs/commands.md#path-manipulation
     - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -49,15 +50,15 @@ jobs:
 
   pypi:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build] # add all other jobs here
 
     steps:
     # ugh https://github.com/actions/toolkit/blob/main/docs/commands.md#path-manipulation
     - run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    - uses: actions/setup-python@v1
+    - uses: actions/setup-python@v2
       with:
-        python-version: 3.7
+        python-version: '3.7'
 
     - uses: actions/checkout@v2
       with:
