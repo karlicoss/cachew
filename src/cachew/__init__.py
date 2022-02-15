@@ -589,9 +589,9 @@ class DbHelper:
 
         self.binder = NTBinder.make(tp=cls)
         # actual cache
-        self.table_cache     = Table('table'    , self.meta, *self.binder.columns)
+        self.table_cache     = Table('cache'    , self.meta, *self.binder.columns)
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
-        self.table_cache_tmp = Table('table_tmp', self.meta, *self.binder.columns)
+        self.table_cache_tmp = Table('cache_tmp', self.meta, *self.binder.columns)
 
     def __enter__(self):
         return self
@@ -954,8 +954,12 @@ def cachew_wrapper(
                 # first 'write' statement will upgrade transaction to write transaction which might fail due to concurrency
                 # see https://www.sqlite.org/lang_transaction.html
                 # NOTE: because of 'checkfirst=True', only the last .create will guarantee the transaction upgrade to write transaction
-
                 db.table_hash.create(conn, checkfirst=True)
+
+                # 'table' used to be old 'cache' table name, so we just delete it regardless
+                # otherwise it might overinfalte the cache db with stale values
+                conn.execute(f'DROP TABLE IF EXISTS `table`')
+
                 # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
                 # since it's possible to have schema changes inbetween calls
                 # checkfirst=True because it might be the first time we're using cache
