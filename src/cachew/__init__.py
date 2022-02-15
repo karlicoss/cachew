@@ -588,9 +588,10 @@ class DbHelper:
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
 
         self.binder = NTBinder.make(tp=cls)
-        self.table_data = Table('table', self.meta, *self.binder.columns)
-
-        # TODO FIXME database/tables need to be created atomically?
+        # actual cache
+        self.table_cache     = Table('table'    , self.meta, *self.binder.columns)
+        # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
+        self.table_cache_tmp = Table('table_tmp', self.meta, *self.binder.columns)
 
     def __enter__(self):
         return self
@@ -908,10 +909,11 @@ def cachew_wrapper(
 
         with DbHelper(dbp, cls) as db, \
              db.connection.begin():
-            # NOTE: defferred transaction
+            # NOTE: deferred transaction
             conn = db.connection
             binder = db.binder
-            values_table = db.table_data
+            table_cache     = db.table_cache
+            table_cache_tmp = db.table_cache_tmp
 
             # first, try to do as much as possible read-only, benefiting from deferred transaction
             try:
@@ -935,7 +937,7 @@ def cachew_wrapper(
 
             if h == prev_hash:
                 logger.debug('hash matched: loading from cache')
-                rows = conn.execute(values_table.select())
+                rows = conn.execute(table_cache.select())
                 for row in rows:
                     yield binder.from_row(row)
                 return
@@ -949,16 +951,19 @@ def cachew_wrapper(
             # the cached 'bottom' level is read only and will be yielded withotu a write transaction
 
             try:
-                # first write statement will upgrade transaction to write transaction which might fail due to concurrency
+                # first 'write' statement will upgrade transaction to write transaction which might fail due to concurrency
                 # see https://www.sqlite.org/lang_transaction.html
-                # note I guess, because of 'checkfirst', only the last create is actually guaranteed to upgrade the transaction to write one
-                # drop and create to incorporate schema changes
+                # NOTE: because of 'checkfirst=True', only the last .create will guarantee the transaction upgrade to write transaction
+
                 db.table_hash.create(conn, checkfirst=True)
-                values_table.drop(conn, checkfirst=True)
-                values_table.create(conn)
+                # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
+                # since it's possible to have schema changes inbetween calls
+                # checkfirst=True because it might be the first time we're using cache
+                table_cache_tmp.drop(conn, checkfirst=True)
+                table_cache_tmp.create(conn)
             except sqlalchemy.exc.OperationalError as e:
-                if e.code == 'e3q8':
-                    # database is locked; someone else must be have won the write lock
+                if e.code == 'e3q8' and 'database is locked' in str(e):
+                    # someone else must be have won the write lock
                     # not much we can do here
                     # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
                     # see test_deep_recursive
@@ -972,11 +977,11 @@ def cachew_wrapper(
             datas = func(*args, **kwargs)
 
             chunk: List[Any] = []
-            def flush():
+            def flush() -> None:
                 nonlocal chunk
                 if len(chunk) > 0:
                     # pylint: disable=no-value-for-parameter
-                    conn.execute(values_table.insert().values(chunk))
+                    conn.execute(table_cache_tmp.insert().values(chunk))
                     chunk = []
 
             for d in datas:
@@ -991,10 +996,18 @@ def cachew_wrapper(
                     flush()
             flush()
 
-            # TODO insert and replace instead?
-
+            # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.delete())
+
+            # checkfirst is necessary since it might not have existed in the first place
+            # e.g. first time we use cache
+            table_cache.drop(conn, checkfirst=True)
+
+            # meh https://docs.sqlalchemy.org/en/14/faq/metadata_schema.html#does-sqlalchemy-support-alter-table-create-view-create-trigger-schema-upgrade-functionality
+            # also seems like sqlalchemy doesn't have any primitives to escape table names.. sigh
+            conn.execute(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`")
+
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': h}]))
     except Exception as e:

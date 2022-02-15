@@ -678,7 +678,7 @@ def test_primitive(tmp_path: Path):
 class O(NamedTuple):
     x: int
 
-def test_default_arguments(tmp_path: Path):
+def test_default_arguments(tmp_path: Path) -> None:
     class HackHash:
         def __init__(self, x: int) -> None:
             self.x = x
@@ -1120,39 +1120,41 @@ def test_disabled(tmp_path: Path):
         assert calls == 3
 
 
-def test_early_exit(tmp_path: Path):
-    cf = 0
+def test_early_exit(tmp_path: Path) -> None:
+    # cachew works on iterators and we'd prefer not to cache if the iterator hasn't been exhausted
+    calls_f = 0
     @cachew(tmp_path) #  / 'fun', force_file=True)
     def f() -> Iterator[int]:
         yield from range(20)
-        nonlocal cf
-        cf += 1
+        nonlocal calls_f
+        calls_f += 1
 
-    cg = 0
+    calls_g = 0
     @cachew(tmp_path) # / 'fun', force_file=True)
     def g() -> Iterator[int]:
         yield from f()
-        nonlocal cg
-        cg += 1
+        nonlocal calls_g
+        calls_g += 1
 
+    # only consume 10/20 items
     assert len(list(islice(g(), 0, 10))) == 10
-    assert cf == 0 # hasn't finished
-    assert cg == 0 # hasn't finished
+    # precondition
+    assert calls_f == 0  # f hasn't been fully exhausted
+    assert calls_g == 0  # g hasn't been fully exhausted
 
     # todo not sure if need to check that db is empty?
-   
     assert len(list(g())) == 20
-    assert cf == 1
-    assert cg == 1
+    assert calls_f == 1
+    assert calls_g == 1
 
     # should be cached now
     assert len(list(g())) == 20
-    assert cf == 1
-    assert cg == 1
+    assert calls_f == 1
+    assert calls_g == 1
 
 
 # see https://github.com/sqlalchemy/sqlalchemy/issues/5522#issuecomment-705156746
-def test_early_exit_shutdown(tmp_path: Path):
+def test_early_exit_shutdown(tmp_path: Path) -> None:
     # don't ask... otherwise the exception doesn't appear :shrug:
     import_hack = '''
 from sqlalchemy import Column
