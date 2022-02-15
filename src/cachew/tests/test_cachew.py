@@ -782,14 +782,14 @@ def fuzz_cachew_impl():
     patch = '''\
 @@ -740,6 +740,11 @@
 
-             logger.debug('old hash: %s', prev_hash)
+             logger.debug('old hash: %s', old_hash)
 
 +            from random import random
 +            rs = random() * 2
 +            print("sleeping for: ", rs)
 +            from time import sleep; sleep(rs)
 +
-             if h == prev_hash:
+             if new_hash == old_hash:
                  logger.debug('hash matched: loading from cache')
                  rows = conn.execute(values_table.select())
 '''
