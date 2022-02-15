@@ -842,8 +842,13 @@ class Context(NamedTuple):
         }
         kwargs = {**defaults, **kwargs}
         binder = NTBinder.make(tp=self.cls)
-        schema = str(binder.columns) # TODO not super nice, but works fine for now
-        return f'cachew: {CACHEW_VERSION}, schema: {schema}, dependencies: {self.depends_on(*args, **kwargs)}'
+        schema = str(binder.columns) # todo not super nice, but works fine for now
+        hash_parts = {
+            'cachew'      : CACHEW_VERSION,
+            'schema'      : schema,
+            'dependencies': str(self.depends_on(*args, **kwargs)),
+        }
+        return json.dumps(hash_parts)
 
 
 def cachew_wrapper(
@@ -904,8 +909,8 @@ def cachew_wrapper(
 
         logger.debug('using %s for db cache', dbp)
 
-        h = C.composite_hash(*args, **kwargs); assert h is not None  # just in case
-        logger.debug('new hash: %s', h)
+        new_hash = C.composite_hash(*args, **kwargs); assert new_hash is not None  # just in case
+        logger.debug('new hash: %s', new_hash)
 
         with DbHelper(dbp, cls) as db, \
              db.connection.begin():
@@ -918,24 +923,24 @@ def cachew_wrapper(
             # first, try to do as much as possible read-only, benefiting from deferred transaction
             try:
                 # not sure if there is a better way...
-                prev_hashes = conn.execute(db.table_hash.select()).fetchall()
+                old_hashes = conn.execute(db.table_hash.select()).fetchall()
             except sqlalchemy.exc.OperationalError as e:
                 # meh. not sure if this is a good way to handle this..
                 if 'no such table: hash' in str(e):
-                    prev_hashes = []
+                    old_hashes = []
                 else:
                     raise e
 
-            assert len(prev_hashes) <= 1, prev_hashes  # shouldn't happen
-            prev_hash: Optional[SourceHash]
-            if len(prev_hashes) == 0:
-                prev_hash = None
+            assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
+            old_hash: Optional[SourceHash]
+            if len(old_hashes) == 0:
+                old_hash = None
             else:
-                prev_hash = prev_hashes[0][0]  # returns a tuple...
+                old_hash = old_hashes[0][0]  # returns a tuple...
 
-            logger.debug('old hash: %s', prev_hash)
+            logger.debug('old hash: %s', old_hash)
 
-            if h == prev_hash:
+            if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
                 rows = conn.execute(table_cache.select())
                 for row in rows:
@@ -971,6 +976,7 @@ def cachew_wrapper(
                     # not much we can do here
                     # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
                     # see test_deep_recursive
+                    # (normally connection is closed in DbHelper.__exit__)
                     conn.close()
                     yield from func(*args, **kwargs)
                     return
@@ -1013,7 +1019,7 @@ def cachew_wrapper(
             conn.execute(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`")
 
             # pylint: disable=no-value-for-parameter
-            conn.execute(db.table_hash.insert().values([{'value': h}]))
+            conn.execute(db.table_hash.insert().values([{'value': new_hash}]))
     except Exception as e:
         # sigh... see test_early_exit_shutdown...
         if early_exit and 'Cannot operate on a closed database' in str(e):
