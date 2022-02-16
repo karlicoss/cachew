@@ -1,6 +1,6 @@
 from datetime import datetime, date, timezone
 import inspect
-from itertools import islice
+from itertools import islice, chain
 import logging
 import os
 from pathlib import Path
@@ -10,9 +10,9 @@ import string
 import sys
 import time
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union
+from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union, Sequence
 
-from more_itertools import one, ilen, last
+from more_itertools import one, ilen, last, unique_everseen
 
 import pytz
 import pytest  # type: ignore
@@ -1183,3 +1183,95 @@ print("FINISHED")
     r = run(['python3', '-c', prog], cwd=tmp_path, stderr=PIPE, stdout=PIPE, check=True)
     assert r.stdout.strip() == b'FINISHED'
     assert b'Traceback' not in r.stderr
+
+
+# tests both modes side by side to demonstrate the difference
+@pytest.mark.parametrize('use_synthetic', ['False', 'True'])
+def test_synthetic_keyset(tmp_path: Path, use_synthetic: bool) -> None:
+    # just to keep track of which data we had to compute from scratch
+    _recomputed: List[str] = []
+
+    # assume key i is responsible for numbers i and i-1
+    # in reality this could be some slow function we'd like to avoid calling if its results is already cached
+    # e.g. the key would typically be a filename (e.g. isoformat timestamp)
+    # and the returned values could be the results of an export over the month prior to the timestamp, or something like that
+    # see https://beepb00p.xyz/exports.html#synthetic for more on the motivation
+    def compute(key: str) -> Iterator[str]:
+        _recomputed.append(key)
+        n = int(key)
+        yield str(n - 1)
+        yield str(n)
+
+
+    # should result in 01 + 12 + 45                     == 01245
+    keys125         = ['1', '2', '5'                    ]
+    # should result in 01 + 12 + 45 + 56 + 67           == 0124567
+    keys12567       = ['1', '2', '5', '6', '7'          ]
+    # should result in 01 + 12 + 45 + 56      + 78 + 89 == 012456789
+    keys125689      = ['1', '2', '5', '6',      '8', '9']
+    # should result in           45 + 56      + 78 + 89 ==    456789
+    keys5689        = [          '5', '6',      '8', '9']
+
+
+    def recomputed() -> List[str]:
+        r = list(_recomputed)
+        _recomputed.clear()
+        return r
+
+
+    ## 'cachew_cached' will just be [] if synthetic key is not used, so no impact on data
+    @cachew(tmp_path, synthetic_key=('keys' if use_synthetic else None))
+    def fun_aux(keys: Sequence[str], *, cachew_cached: Iterable[str] = []) -> Iterator[str]:
+        yield from unique_everseen(chain(
+            cachew_cached,
+            *(compute(key) for key in keys),
+        ))
+
+    def fun(keys: Sequence[str]) -> Set[str]:
+        return set(fun_aux(keys=keys))
+    ##
+
+    assert fun(keys125) == set('01' '12' '45')
+    assert recomputed() == keys125
+    assert fun(keys125) == set('01' '12' '45')
+    assert recomputed() == []  # should be cached
+
+    assert fun(keys12567) == set('01' '12' '45' '56' '67')
+    if use_synthetic:
+        # 1, 2 and 5 should be already cached from the previous call
+        assert recomputed() == ['6', '7']
+    else:
+        # but without synthetic key this would cause everything to recompute
+        assert recomputed() == keys12567
+    assert fun(keys12567) == set('01' '12' '45' '56' '67')
+    assert recomputed() == []  # should be cached
+
+    assert fun(keys125689) == set('01' '12' '45' '56' '78' '89')
+    if use_synthetic:
+        # similarly, 1 2 5 6 7 are cached from the previous cacll
+        assert recomputed() == ['8', '9']
+    else:
+        # and we need to call against all keys otherwise
+        assert recomputed() == keys125689
+    assert fun(keys125689) == set('01' '12' '45' '56' '78' '89')
+    assert recomputed() == []  # should be cached
+
+    assert fun(keys5689) == set('45' '56' '78' '89')
+    # now the prefix has changed, so if we returned cached items it might return too much
+    # so have to recompute everything
+    assert recomputed() == keys5689
+    assert fun(keys5689) == set('45' '56' '78' '89')
+    assert recomputed() == []  # should be cached
+
+    # TODO maybe call combined function? so it could return total result and last cached?
+    # TODO another option is:
+    # the function yields all cached stuff first
+    # then the user yields stuff from new
+    # and then external function does merging
+    # TODO test with kwargs hash?...
+    # TODO try without and with simultaneously?
+    # TODO check what happens when errors happen?
+    # FIXME check what happens if we switch between modes? (synthetic/non-synthetic)
+    # FIXME make sure this thing works if len(keys) > chunk size?
+    # TODO check what happens when we forget to set 'cachew_cached' argument
+    # TODO check what happens when keys are not str but e.g. Path

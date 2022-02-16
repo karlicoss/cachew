@@ -713,6 +713,7 @@ def cachew(
         # you can use 'test_many' to experiment
         # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
         # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
+        synthetic_key: Optional[str]=None,
         **kwargs,
 ):
     r"""
@@ -793,13 +794,14 @@ def cachew(
                 # TODO not sure if should be more serious error...
 
     ctx = Context(
-        func      =func,
-        cache_path=cache_path,
-        force_file=force_file,
-        cls       =cls,
-        depends_on=depends_on,
-        logger    =logger,
-        chunk_by  =chunk_by,
+        func         =func,
+        cache_path   =cache_path,
+        force_file   =force_file,
+        cls          =cls,
+        depends_on   =depends_on,
+        logger       =logger,
+        chunk_by     =chunk_by,
+        synthetic_key=synthetic_key,
     )
 
     # hack to avoid extra stack frame (see test_recursive, test_deep-recursive)
@@ -816,16 +818,23 @@ def cname(func: Callable) -> str:
     return f'{mod}:{func.__qualname__}'
 
 
-class Context(NamedTuple):
-    func      : Callable
-    cache_path: PathProvider
-    force_file: bool
-    cls       : Type
-    depends_on: HashFunction
-    logger    : logging.Logger
-    chunk_by  : int
+_CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs
+_SYNTHETIC_KEY       = 'synthetic_key'
+_SYNTHETIC_KEY_VALUE = 'synthetic_key_value'
+_DEPENDENCIES        = 'dependencies'
 
-    def composite_hash(self, *args, **kwargs) -> SourceHash:
+
+class Context(NamedTuple):
+    func         : Callable
+    cache_path   : PathProvider
+    force_file   : bool
+    cls          : Type
+    depends_on   : HashFunction
+    logger       : logging.Logger
+    chunk_by     : int
+    synthetic_key: Optional[str]
+
+    def composite_hash(self, *args, **kwargs) -> Dict[str, Any]:
         fsig = inspect.signature(self.func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
@@ -846,9 +855,16 @@ class Context(NamedTuple):
         hash_parts = {
             'cachew'      : CACHEW_VERSION,
             'schema'      : schema,
-            'dependencies': str(self.depends_on(*args, **kwargs)),
+            _DEPENDENCIES : str(self.depends_on(*args, **kwargs)),
         }
-        return json.dumps(hash_parts)
+        synthetic_key = self.synthetic_key
+        if synthetic_key is not None:
+            hash_parts[_SYNTHETIC_KEY      ] = synthetic_key
+            hash_parts[_SYNTHETIC_KEY_VALUE] = kwargs[synthetic_key]
+            # FIXME assert it's in kwargs in the first place?
+            # FIXME support positional args too? maybe extract the name from signature somehow? dunno
+            # need to test it
+        return hash_parts
 
 
 def cachew_wrapper(
@@ -857,13 +873,14 @@ def cachew_wrapper(
         **kwargs,
 ):
     C = _cachew_context
-    func       = C.func
-    cache_path = C.cache_path
-    force_file = C.force_file
-    cls        = C.cls
-    depend_on  = C.depends_on
-    logger     = C.logger
-    chunk_by   = C.chunk_by
+    func          = C.func
+    cache_path    = C.cache_path
+    force_file    = C.force_file
+    cls           = C.cls
+    depends_on    = C.depends_on
+    logger        = C.logger
+    chunk_by      = C.chunk_by
+    synthetic_key = C.synthetic_key
 
     cn = cname(func)
     if not settings.ENABLE:
@@ -909,7 +926,8 @@ def cachew_wrapper(
 
         logger.debug('using %s for db cache', dbp)
 
-        new_hash = C.composite_hash(*args, **kwargs); assert new_hash is not None  # just in case
+        new_hash_d = C.composite_hash(*args, **kwargs)
+        new_hash = json.dumps(new_hash_d)
         logger.debug('new hash: %s', new_hash)
 
         with DbHelper(dbp, cls) as db, \
@@ -940,21 +958,75 @@ def cachew_wrapper(
 
             logger.debug('old hash: %s', old_hash)
 
-            if new_hash == old_hash:
-                logger.debug('hash matched: loading from cache')
+
+            def cached_items():
                 rows = conn.execute(table_cache.select())
                 for row in rows:
                     yield binder.from_row(row)
+
+            if new_hash == old_hash:
+                logger.debug('hash matched: loading from cache')
+                yield from cached_items()
                 return
 
             logger.debug('hash mismatch: computing data and writing to db')
+
+            if synthetic_key is not None:
+                # attempt to use existing cache if possible, as a 'prefix'
+
+                old_hash_d: Dict[str, Any] = {}
+                if old_hash is not None:
+                    try:
+                        old_hash_d = json.loads(old_hash)
+                    except json.JSONDecodeError:
+                        # possible if we used old cachew version (<=0.8.1), hash wasn't json
+                        pass
+
+                hash_diffs = {
+                    k: new_hash_d.get(k) == old_hash_d.get(k)
+                    for k in (*new_hash_d.keys(), *old_hash_d.keys())
+                    # the only 'allowed' differences for hash, otherwise need to recompute (e.g. if schema changed)
+                    if k not in {_SYNTHETIC_KEY_VALUE, _DEPENDENCIES}
+                }
+                cache_compatible = all(hash_diffs.values())
+                if cache_compatible:
+                    def missing_keys(cached: List[str], wanted: List[str]) -> Optional[List[str]]:
+                        # FIXME assert both cached and wanted are sorted? since we rely on it
+                        # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
+                        # although in this case passing it into the function wouldn't make sense?
+
+                        if len(cached) == 0:
+                            # no point trying to reuse anything, cache should be empty?
+                            return None
+                        if len(wanted) == 0:
+                            # similar, no way to reuse cache
+                            return None
+                        if cached[0] != wanted[0]:
+                            # there is no common prefix, so no way to reuse cache really
+                            return None
+                        last_cached = cached[-1]
+                        # ok, now actually figure out which items are missing
+                        for i, k in enumerate(wanted):
+                            if k > last_cached:
+                                # ok, rest of items are missing
+                                return wanted[i:]
+                        # otherwise too many things are cached, and we seem to wante less
+                        return None
+
+                    new_values: List[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
+                    old_values: List[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
+                    missing = missing_keys(cached=old_values, wanted=new_values)
+                    if missing is not None:
+                        # can reuse cache
+                        kwargs[_CACHEW_CACHED] = cached_items()
+                        kwargs[synthetic_key] = missing
+
 
             # NOTE on recursive calls
             # somewhat magically, they should work as expected with no extra database inserts?
             # the top level call 'wins' the write transaction and once it's gathered all data, will write it
             # the 'intermediate' level calls fail to get it and will pass data through
-            # the cached 'bottom' level is read only and will be yielded withotu a write transaction
-
+            # the cached 'bottom' level is read only and will be yielded without a write transaction
             try:
                 # first 'write' statement will upgrade transaction to write transaction which might fail due to concurrency
                 # see https://www.sqlite.org/lang_transaction.html
