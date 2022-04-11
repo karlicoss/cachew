@@ -2,6 +2,7 @@ from datetime import datetime, date, timezone
 import inspect
 from itertools import islice
 import logging
+import os
 from pathlib import Path
 from random import Random
 from subprocess import check_call, run, PIPE
@@ -11,7 +12,7 @@ import time
 import timeit
 from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union
 
-from more_itertools import one
+from more_itertools import one, ilen, last
 
 import pytz
 import pytest  # type: ignore
@@ -282,30 +283,31 @@ class TE2(NamedTuple):
     value2: int
 
 
-# TODO also profile datetimes?
-def test_many(tdir):
-    COUNT = 100000
-    logger = get_logger()
-
-    src = tdir / 'source'
+# you can run one specific test (e.g. to profile) by passing it as -k to pytest
+# e.g. -k 'test_many[500000-False]'
+@pytest.mark.parametrize('count,on_ci', [
+    (100000, True ),
+    (500000, False),
+])
+def test_many(count: int, on_ci: bool, tmp_path: Path) -> None:
+    if 'CI' in os.environ and not on_ci:
+        pytest.skip("test would be too slow on CI anyway, only meant to run manually")
+    # should be a parametrized test perhaps
+    src = tmp_path / 'source'
     src.touch()
 
-    @cachew(cache_path=lambda path: tdir / (path.name + '.cache'), cls=TE2)
-    def _iter_data(_: Path):
-        for i in range(COUNT):
+    @cachew(cache_path=lambda path: tmp_path / (path.name + '.cache'))
+    def _iter_data(_: Path) -> Iterator[TE2]:
+        for i in range(count):
+            # TODO also profile datetimes?
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
-    def iter_data():
+    def iter_data() -> Iterator[TE2]:
         return _iter_data(src)
 
-    def ilen(it):
-        ll = 0
-        for _ in it:
-            ll += 1
-        return ll
-    assert ilen(iter_data()) == COUNT
-    assert ilen(iter_data()) == COUNT
-    logger.debug('done')
+    assert ilen(iter_data()) == count  # initial
+    assert ilen(iter_data()) == count  # hitting cache
+    assert last(iter_data()) == TE2(value=count - 1, uuu=UUU(xx=count - 1, yy=count - 1), value2=count - 1)
 
     # serializing to db
     # in-memory: 16 seconds
