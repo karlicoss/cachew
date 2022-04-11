@@ -985,13 +985,20 @@ def cachew_wrapper(
             # at this point we're guaranteed to have an exclusive write transaction
 
             datas = func(*args, **kwargs)
+            column_names = [c.name for c in table_cache_tmp.columns]
+            insert_into_table_cache_tmp = table_cache_tmp.insert()
 
             chunk: List[Any] = []
             def flush() -> None:
                 nonlocal chunk
                 if len(chunk) > 0:
-                    # pylint: disable=no-value-for-parameter
-                    conn.execute(table_cache_tmp.insert().values(chunk))
+                    # TODO hmm, it really doesn't work unless you zip into a dict first
+                    # maybe should return dicts from binder instead then?
+                    chunk_dict = [
+                        dict(zip(column_names, row))
+                        for row in chunk
+                    ]
+                    conn.execute(insert_into_table_cache_tmp, chunk_dict)
                     chunk = []
 
             for d in datas:
