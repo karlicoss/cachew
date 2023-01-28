@@ -90,6 +90,15 @@ class UUU(NamedTuple):
     yy: int
 
 
+def test_simple() -> None:
+    # just make sure all the high level cachew stuff is working
+    @cachew
+    def fun() -> Iterable[UUU]:
+        yield from []
+
+    list(fun())
+
+
 def test_custom_hash(tdir):
     """
     Demo of using argument's modification time to determine if underlying data changed
