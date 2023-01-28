@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -391,7 +389,7 @@ class NTBinder(Generic[NT]):
     fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
-    def make(tp: Type[NT], name: Optional[str]=None) -> NTBinder:
+    def make(tp: Type[NT], name: Optional[str]=None) -> 'NTBinder[NT]':
         tp, optional = strip_optional(tp)
         union: Optional[Type]
         fields: Tuple[Any, ...]
@@ -418,10 +416,9 @@ class NTBinder(Generic[NT]):
                 fields = ()
                 span = 1
             else:
-                annotations = getattr(tp, '__annotations__', None)
-                # https://www.python.org/dev/peps/pep-3107/#accessing-function-annotations
-                if annotations is None or annotations == {}:
-                    raise CachewException(f"{tp}: doesn't look like a supported type to cache. See https://github.com/karlicoss/cachew#features for the list of supported types.")
+                annotations = typing.get_type_hints(tp)
+                if annotations == {}:
+                    raise CachewException(f"{tp} (field '{name}'): doesn't look like a supported type to cache. See https://github.com/karlicoss/cachew#features for the list of supported types.")
                 fields = tuple(NTBinder.make(tp=ann, name=fname) for fname, ann in annotations.items())
                 span = sum(f.span for f in fields) + (1 if optional else 0)
         return NTBinder(
