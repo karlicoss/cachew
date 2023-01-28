@@ -599,6 +599,7 @@ class DbHelper:
 
     def __exit__(self, *args) -> None:
         self.connection.close()
+        self.engine.dispose()
 
 
 HashFunction = Callable[..., SourceHash]
