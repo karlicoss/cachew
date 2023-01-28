@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:
@@ -34,8 +36,8 @@ import warnings
 
 import appdirs  # type: ignore[import]
 
-import sqlalchemy  # type: ignore[import]
-from sqlalchemy import Column, Table, event
+import sqlalchemy
+from sqlalchemy import Column, Table, event, text
 
 
 from .compat import fix_sqlalchemy_StatementError_str
@@ -180,7 +182,7 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
 
     def process_literal_param(self, value, dialect): raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:  # type: ignore[override]
         if value is None:
             return None
         sargs: List[Any] = []
@@ -339,9 +341,11 @@ def strip_generic(tp):
 NT = TypeVar('NT')
 # sadly, bound=NamedTuple is not working yet in mypy
 # https://github.com/python/mypy/issues/685
+# also needs to support dataclasses?
 
 
-class NTBinder(NamedTuple):
+@dataclasses.dataclass
+class NTBinder(Generic[NT]):
     """
     >>> class Job(NamedTuple):
     ...    company: str
@@ -387,7 +391,7 @@ class NTBinder(NamedTuple):
     fields   : Sequence[Any] # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
-    def make(tp: Type, name: Optional[str]=None) -> 'NTBinder':
+    def make(tp: Type[NT], name: Optional[str]=None) -> NTBinder:
         tp, optional = strip_optional(tp)
         union: Optional[Type]
         fields: Tuple[Any, ...]
@@ -582,9 +586,9 @@ class DbHelper:
         # pylint: disable=unused-variable
         def do_begin(conn):
             # NOTE there is also BEGIN CONCURRENT in newer versions of sqlite. could use it later?
-            conn.execute('BEGIN DEFERRED')
+            conn.execute(text('BEGIN DEFERRED'))
 
-        self.meta = sqlalchemy.MetaData(self.connection)
+        self.meta = sqlalchemy.MetaData()
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
 
         self.binder = NTBinder.make(tp=cls)
@@ -593,10 +597,10 @@ class DbHelper:
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
         self.table_cache_tmp = Table('cache_tmp', self.meta, *self.binder.columns)
 
-    def __enter__(self):
+    def __enter__(self) -> 'DbHelper':
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args) -> None:
         self.connection.close()
 
 
@@ -939,15 +943,19 @@ def cachew_wrapper(
             table_cache_tmp = db.table_cache_tmp
 
             # first, try to do as much as possible read-only, benefiting from deferred transaction
+            old_hashes: Sequence
             try:
                 # not sure if there is a better way...
-                old_hashes = conn.execute(db.table_hash.select()).fetchall()
+                cursor = conn.execute(db.table_hash.select())
             except sqlalchemy.exc.OperationalError as e:
                 # meh. not sure if this is a good way to handle this..
                 if 'no such table: hash' in str(e):
                     old_hashes = []
                 else:
                     raise e
+            else:
+                old_hashes = cursor.fetchall()
+
 
             assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
             old_hash: Optional[SourceHash]
@@ -1035,7 +1043,7 @@ def cachew_wrapper(
 
                 # 'table' used to be old 'cache' table name, so we just delete it regardless
                 # otherwise it might overinfalte the cache db with stale values
-                conn.execute(f'DROP TABLE IF EXISTS `table`')
+                conn.execute(text(f'DROP TABLE IF EXISTS `table`'))
 
                 # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
                 # since it's possible to have schema changes inbetween calls
@@ -1095,7 +1103,7 @@ def cachew_wrapper(
 
             # meh https://docs.sqlalchemy.org/en/14/faq/metadata_schema.html#does-sqlalchemy-support-alter-table-create-view-create-trigger-schema-upgrade-functionality
             # also seems like sqlalchemy doesn't have any primitives to escape table names.. sigh
-            conn.execute(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`")
+            conn.execute(text(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`"))
 
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': new_hash}]))
