@@ -18,6 +18,7 @@ import functools
 import logging
 from itertools import chain, islice
 import inspect
+import json
 from datetime import datetime, date
 import stat
 import tempfile
@@ -27,7 +28,7 @@ import sqlite3
 import sys
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, cast)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, Dict, cast)
 import dataclasses
 import warnings
 
@@ -79,6 +80,8 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
     # but practically, the difference seems to be pretty small, so perhaps fine for now
     impl = sqlalchemy.String
 
+    cache_ok = True
+
     @property
     def python_type(self): return datetime
 
@@ -93,7 +96,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         if tz is None:
             return iso
         try:
-            import pytz # type: ignore
+            import pytz
         except ImportError:
             self.warn_pytz()
             return iso
@@ -132,6 +135,8 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
 class IsoDate(IsoDateTime):
     impl = sqlalchemy.String
 
+    cache_ok = True
+
     @property
     def python_type(self): return date
 
@@ -143,26 +148,6 @@ class IsoDate(IsoDateTime):
             return None
         return res.date()
 
-import json
-from typing import Dict
-class Json(sqlalchemy.TypeDecorator):
-    impl = sqlalchemy.String
-
-    @property
-    def python_type(self): return Dict
-
-    def process_literal_param(self, value, dialect): raise NotImplementedError() # make pylint happy
-
-    def process_bind_param(self, value: Optional[Dict], dialect) -> Optional[str]:
-        if value is None:
-            return None
-        return json.dumps(value)
-
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[datetime]:
-        if value is None:
-            return None
-        return json.loads(value)
-
 
 jtypes = (int, float, bool, type(None))
 class ExceptionAdapter(sqlalchemy.TypeDecorator):
@@ -173,7 +158,9 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
 
     I elaborate on it here: [mypy-driven error handling](https://beepb00p.xyz/mypy-error-handling.html#kiss).
     '''
-    impl = Json
+    impl = sqlalchemy.JSON
+
+    cache_ok = True
 
     @property
     def python_type(self): return Exception
@@ -207,8 +194,8 @@ PRIMITIVES = {
     bool     : sqlalchemy.Boolean,
     datetime : IsoDateTime,
     date     : IsoDate,
-    dict     : Json,
-    list     : Json,
+    dict     : sqlalchemy.JSON,
+    list     : sqlalchemy.JSON,
     Exception: ExceptionAdapter,
 }
 
