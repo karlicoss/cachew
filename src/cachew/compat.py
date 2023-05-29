@@ -1,9 +1,8 @@
-import sys
-
+# fmt: off
 def fix_sqlalchemy_StatementError_str() -> None:
     # see https://github.com/sqlalchemy/sqlalchemy/issues/5632
     import sqlalchemy
-    v = sqlalchemy.__version__  # type: ignore[attr-defined]
+    v = sqlalchemy.__version__
     if v != '1.3.19':
         # sigh... will still affect smaller versions.. but patching code to remove import dynamically would be far too mad
         return
@@ -32,7 +31,7 @@ def fix_sqlalchemy_StatementError_str() -> None:
                     # NOTE: this will still cause issues
                     from sqlalchemy.sql import util
 
-                    params_repr = util._repr_params(  # type: ignore[attr-defined]
+                    params_repr = util._repr_params(
                         self.params, 10, ismulti=self.ismulti
                     )
                     details.append("[parameters: %r]" % params_repr)
@@ -41,4 +40,5 @@ def fix_sqlalchemy_StatementError_str() -> None:
             details.append(code_str)
         return "\n".join(["(%s)" % det for det in self.detail] + details)
 
-    SE._sql_message = _sql_message  # type: ignore[attr-defined,assignment]
+    SE._sql_message = _sql_message  # type: ignore[method-assign,assignment]
+# fmt: on
