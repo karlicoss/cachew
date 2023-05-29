@@ -35,7 +35,7 @@ def main() -> None:
         package_dir={'': 'src'},
         package_data={pkg: ['py.typed']},
 
-        python_requires='>=3.7',
+        python_requires='>=3.8',
 
         install_requires=install_requires,
         extras_require={

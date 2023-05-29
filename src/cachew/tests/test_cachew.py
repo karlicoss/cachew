@@ -15,7 +15,7 @@ from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Itera
 from more_itertools import one, ilen, last, unique_everseen
 
 import pytz
-import pytest  # type: ignore
+import pytest
 
 from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values, settings
 
@@ -81,7 +81,7 @@ def test_ntbinder_primitive(tp, val):
     # TODO good candidate for property tests...
     b = NTBinder.make(tp, name='x')
     row = b.to_row(val)
-    vv = b.from_row(list(row)) # type: ignore[var-annotated]
+    vv = b.from_row(list(row))
     assert vv == val
 
 
@@ -788,7 +788,7 @@ def fuzz_cachew_impl():
     """
     Insert random sleeps in cachew_impl to increase likelihood of concurrency issues
     """
-    import patchy  # type: ignore[import]
+    import patchy
     from .. import cachew_wrapper
     patch = '''\
 @@ -740,6 +740,11 @@
@@ -895,7 +895,7 @@ def test_defensive(restore_settings):
         ctx = pytest.raises(Exception) if throw else nullcontext()
         settings.THROW_ON_ERROR = throw
 
-        with ctx: # type: ignore
+        with ctx:
             fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig) # type: ignore
             assert list(fun()) == [123]
             assert list(fun()) == [123]

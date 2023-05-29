@@ -13,12 +13,20 @@ fi
 
 if [ -n "${CI-}" ]; then
     # install OS specific stuff here
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+    case "$OSTYPE" in
+    darwin*) 
         # macos
         :
-    else
+        ;;
+    cygwin* | msys* | win*)
+        # windows
         :
-    fi
+        ;;
+    *)
+        # must be linux?
+        :
+        ;;
+    esac
 fi
 
 

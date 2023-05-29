@@ -33,7 +33,7 @@ import dataclasses
 import warnings
 
 
-import appdirs  # type: ignore[import]
+import appdirs
 
 import sqlalchemy
 from sqlalchemy import Column, Table, event, text
@@ -119,7 +119,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
         zone = spl[1]
         # else attempt to decypher pytz tzinfo
         try:
-            import pytz # type: ignore
+            import pytz
         except ImportError:
             self.warn_pytz()
             return dt
@@ -167,7 +167,7 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
 
     def process_literal_param(self, value, dialect): raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:  # type: ignore[override]
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:
         if value is None:
             return None
         sargs: List[Any] = []
@@ -885,7 +885,7 @@ def cachew_wrapper(
     try:
         dbp: Path
         if callable(cache_path):
-            pp = cache_path(*args, **kwargs) # type: ignore
+            pp = cache_path(*args, **kwargs)
             if pp is None:
                 logger.info('[%s]: cache explicitly disabled (cache_path is None)', cn)
                 yield from func(*args, **kwargs)
