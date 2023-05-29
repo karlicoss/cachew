@@ -120,10 +120,10 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 
 
 # How it works
-Basically, your data objects get [flattened out](src/cachew/__init__.py#L426)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L498).
+Basically, your data objects get [flattened out](src/cachew/__init__.py#L409)
+and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L481).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L826)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L809)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -162,7 +162,7 @@ If you want to experiment for youself, check out [tests.test_many](src/cachew/te
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L690) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L673) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
@@ -260,7 +260,7 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 ## Settings
 
 
-[cachew.settings](src/cachew/__init__.py#L58) exposes some parameters that allow you to control `cachew` behaviour:
+[cachew.settings](src/cachew/__init__.py#L41) exposes some parameters that allow you to control `cachew` behaviour:
 - `ENABLE`: set to `False` if you want to disable caching for without removing the decorators (useful for testing and debugging).
    You can also use [cachew.extra.disabled_cachew](src/cachew/__init__.py#L18) context manager to do it temporarily.
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [appdirs docs](https://github.com/ActiveState/appdirs#some-example-output)).

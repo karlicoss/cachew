@@ -1,19 +1,4 @@
-from pkg_resources import get_distribution, DistributionNotFound
-
-try:
-    # Change here if project is renamed and does not equal the package name
-    dist_name = __name__
-    __version__ = get_distribution(dist_name).version
-except DistributionNotFound:
-    __version__ = 'unknown'
-finally:
-    del get_distribution, DistributionNotFound
-
-__author__    = "Dima Gerasimov"
-__copyright__ = "Dima Gerasimov"
-__license__   = "mit"
-
-
+import importlib.metadata
 import functools
 import logging
 from itertools import chain, islice
@@ -21,11 +6,9 @@ import inspect
 import json
 from datetime import datetime, date
 import stat
-import tempfile
 from pathlib import Path
 import time
 import sqlite3
-import sys
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
                     Type, Union, TypeVar, Generic, Sequence, Iterable, Set, Dict, cast)
@@ -47,7 +30,7 @@ except Exception as e:
 
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
-CACHEW_VERSION: str = __version__
+CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
 
 PathIsh = Union[Path, str]
