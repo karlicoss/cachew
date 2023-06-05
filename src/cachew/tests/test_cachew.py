@@ -1,26 +1,32 @@
+from contextlib import nullcontext
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, asdict
 from datetime import datetime, date, timezone
 import inspect
 from itertools import islice, chain
-import logging
 import os
 from pathlib import Path
 from random import Random
-from subprocess import check_call, run, PIPE
+from subprocess import check_call, check_output, run, PIPE
 import string
 import sys
 import time
+from time import sleep
 import timeit
 from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union, Sequence
 
 from more_itertools import one, ilen, last, unique_everseen
 
+import patchy
 import pytz
+
 import pytest
 
 from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values, settings
 
 
 logger = get_logger()
+
 
 @pytest.fixture(autouse=True)
 def throw_on_errors():
@@ -40,26 +46,11 @@ def restore_settings():
             setattr(settings, k, v)
 
 
-@pytest.fixture
-def tdir(tmp_path):
-    # todo just use tmp_path instead?
-    yield Path(tmp_path)
-
-
-@pytest.mark.skipif(sys.version_info < (3, 7), reason="""
-wtf??? 
->>> from typing import Union
->>> from datetime import date, datetime
->>> Union[date, datetime]
-<class 'datetime.date'>
-same with bool/int apparently
-""")
-def test_mypy_annotations():
+def test_mypy_annotations() -> None:
     # mypy won't handle, so this has to be dynamic
-    from typing import Union
     vs = []
-    for t in Types.__args__: # type: ignore
-        (arg, ) = t.__args__
+    for t in Types.__args__:  # type: ignore
+        (arg,) = t.__args__
         vs.append(arg)
 
     def types(ts):
@@ -68,16 +59,18 @@ def test_mypy_annotations():
     assert types(vs) == types(Values.__args__)  # type: ignore
 
     for p in PRIMITIVES:
-        assert p in Values.__args__ # type: ignore
+        assert p in Values.__args__  # type: ignore
 
 
+# fmt: off
 @pytest.mark.parametrize('tp, val', [
     (int, 22),
     (bool, False),
     (Optional[str], 'abacaba'),
     (Union[str, int], 1),
 ])
-def test_ntbinder_primitive(tp, val):
+# fmt: on
+def test_ntbinder_primitive(tp, val) -> None:
     # TODO good candidate for property tests...
     b = NTBinder.make(tp, name='x')
     row = b.to_row(val)
@@ -99,11 +92,11 @@ def test_simple() -> None:
     list(fun())
 
 
-def test_custom_hash(tdir):
+def test_custom_hash(tmp_path: Path) -> None:
     """
     Demo of using argument's modification time to determine if underlying data changed
     """
-    src = tdir / 'source'
+    src = tmp_path / 'source'
     src.write_text('0')
 
     entities = [
@@ -113,10 +106,12 @@ def test_custom_hash(tdir):
     ]
     calls = 0
 
+    # fmt: off
     @cachew(
-        cache_path=tdir,
+        cache_path=tmp_path,
         depends_on=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
     )
+    # fmt: on
     def data(path: Path) -> Iterable[UUU]:
         nonlocal calls
         calls += 1
@@ -141,8 +136,8 @@ def test_custom_hash(tdir):
     assert calls == 3
 
 
-def test_caching(tdir):
-    @cachew(tdir)
+def test_caching(tmp_path: Path) -> None:
+    @cachew(tmp_path)
     def data() -> Iterator[UUU]:
         time.sleep(1)
         for i in range(5):
@@ -159,7 +154,7 @@ def inner(_it, _timer{init}):
     _t1 = _timer()
     return _t1 - _t0, retval
 """
-    timeit.template = template # type: ignore
+    timeit.template = template  # type: ignore
 
     timer = timeit.Timer(lambda: len(list(data())))
     t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
@@ -206,23 +201,22 @@ def test_cache_path(tmp_path: Path) -> None:
     '''
     Tests various ways of specifying cache path
     '''
-    tdir = tmp_path
-
     calls = 0
+
     def orig() -> Iterable[int]:
         nonlocal calls
         yield 1
         yield 2
         calls += 1
 
-    fun = cachew(tdir / 'non_existent_dir' / 'cache_dir')(orig)
+    fun = cachew(tmp_path / 'non_existent_dir' / 'cache_dir')(orig)
     assert list(fun()) == [1, 2]
     assert calls == 1
     assert list(fun()) == [1, 2]
     assert calls == 1
 
     # dir by default
-    cdir = tdir / 'non_existent_dir' / 'cache_dir'
+    cdir = tmp_path / 'non_existent_dir' / 'cache_dir'
     assert cdir.is_dir()
     cfile = one(cdir.glob('*'))
     assert cfile.name.startswith('cachew.tests.test_cachew:test_cache_path.')
@@ -234,7 +228,7 @@ def test_cache_path(tmp_path: Path) -> None:
     assert list(fun()) == [1, 2]
     assert calls == 3
 
-    f = tdir / 'a_file'
+    f = tmp_path / 'a_file'
     f.touch()
     fun = cachew(cache_path=f)(orig)
     assert list(fun()) == [1, 2]
@@ -242,14 +236,14 @@ def test_cache_path(tmp_path: Path) -> None:
     assert list(fun()) == [1, 2]
     assert calls == 4
 
-    fun = cachew(tdir / 'name', force_file=True)(orig)
+    fun = cachew(tmp_path / 'name', force_file=True)(orig)
     assert list(fun()) == [1, 2]
     assert calls == 5
     assert list(fun()) == [1, 2]
     assert calls == 5
 
     # if passed force_file, also treat as file
-    assert (tdir / 'name').is_file()
+    assert (tmp_path / 'name').is_file()
 
     # treat None as "don't cache" ('factory')
     fun = cachew(cache_path=lambda *args: None)(orig)
@@ -265,11 +259,15 @@ def test_cache_path(tmp_path: Path) -> None:
 
 class UGood(NamedTuple):
     x: int
+
+
 class UBad:
     pass
 
+
 def test_unsupported_class(tmp_path: Path) -> None:
     with pytest.raises(CachewException, match='.*failed to infer cache type.*'):
+
         @cachew(cache_path=tmp_path)
         def fun() -> List[UBad]:
             return [UBad()]
@@ -294,10 +292,12 @@ class TE2(NamedTuple):
 
 # you can run one specific test (e.g. to profile) by passing it as -k to pytest
 # e.g. -k 'test_many[500000-False]'
+# fmt: off
 @pytest.mark.parametrize('count,on_ci', [
-    (100000, True ),
+    (100000, True),
     (500000, False),
 ])
+# fmt: on
 def test_many(count: int, on_ci: bool, tmp_path: Path) -> None:
     if 'CI' in os.environ and not on_ci:
         pytest.skip("test would be too slow on CI anyway, only meant to run manually")
@@ -349,12 +349,12 @@ class AA(NamedTuple):
     value2: int
 
 
-def test_return_type_inference(tdir):
+def test_return_type_inference(tmp_path: Path) -> None:
     """
     Tests that return type (BB) is inferred from the type annotation
     """
 
-    @cachew(tdir)
+    @cachew(tmp_path)
     def data() -> Iterator[BB]:
         yield BB(xx=1, yy=2)
         yield BB(xx=3, yy=4)
@@ -363,9 +363,9 @@ def test_return_type_inference(tdir):
     assert len(list(data())) == 2
 
 
-def test_return_type_mismatch(tdir):
+def test_return_type_mismatch(tmp_path: Path) -> None:
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
-    @cachew(tdir, cls=AA)
+    @cachew(tmp_path, cls=AA)
     def data2() -> List[BB]:
         return [
             AA(value=1, b=None, value2=123),  # type: ignore[list-item]
@@ -377,20 +377,22 @@ def test_return_type_mismatch(tdir):
     assert list(data2()) == [AA(value=1, b=None, value2=123)]
 
 
-def test_return_type_none(tdir):
+def test_return_type_none(tmp_path: Path) -> None:
     with pytest.raises(CachewException):
-        @cachew(tdir)
+
+        @cachew(tmp_path)
         # pylint: disable=unused-variable
         def data():
             return []
 
 
-def test_callable_cache_path(tdir):
+def test_callable_cache_path(tmp_path: Path) -> None:
     """
     Cache path can be function dependent on wrapped function's arguments
     """
     called: Set[str] = set()
-    @cachew(cache_path=lambda kind: tdir / f'{kind}.cache')
+
+    @cachew(cache_path=lambda kind: tmp_path / f'{kind}.cache')
     def get_data(kind: str) -> Iterator[BB]:
         assert kind not in called
         called.add(kind)
@@ -399,14 +401,15 @@ def test_callable_cache_path(tdir):
         else:
             yield BB(xx=2, yy=2)
 
+    # fmt: off
     assert list(get_data('first'))  == [BB(xx=1, yy=1)]
     assert list(get_data('second')) == [BB(xx=2, yy=2)]
     assert list(get_data('first'))  == [BB(xx=1, yy=1)]
     assert list(get_data('second')) == [BB(xx=2, yy=2)]
+    # fmt: on
 
 
-def test_nested(tdir):
-
+def test_nested(tmp_path: Path) -> None:
     d1 = AA(
         value=1,
         b=BB(xx=2, yy=3),
@@ -417,11 +420,12 @@ def test_nested(tdir):
         b=None,
         value2=5,
     )
+
     def data():
         yield d1
         yield d2
 
-    @cachew(cache_path=tdir, cls=AA)
+    @cachew(cache_path=tmp_path, cls=AA)
     def get_data():
         yield from data()
 
@@ -435,13 +439,13 @@ class BBv2(NamedTuple):
     zz: float
 
 
-def test_schema_change(tdir):
+def test_schema_change(tmp_path: Path) -> None:
     """
     Should discard cache on schema change (BB to BBv2) in this example
     """
     b = BB(xx=2, yy=3)
 
-    @cachew(cache_path=tdir, cls=BB)
+    @cachew(cache_path=tmp_path, cls=BB)
     def get_data():
         return [b]
 
@@ -449,14 +453,15 @@ def test_schema_change(tdir):
 
     # TODO make type part of key?
     b2 = BBv2(xx=3, yy=4, zz=5.0)
-    @cachew(cache_path=tdir, cls=BBv2)
+
+    @cachew(cache_path=tmp_path, cls=BBv2)
     def get_data_v2():
         return [b2]
 
     assert list(get_data_v2()) == [b2]
 
 
-def test_transaction(tdir):
+def test_transaction(tmp_path: Path) -> None:
     """
     Should keep old cache and not leave it in some broken state in case of errors
     """
@@ -465,7 +470,7 @@ def test_transaction(tdir):
     class TestError(Exception):
         pass
 
-    @cachew(cache_path=tdir, cls=BB, chunk_by=1)
+    @cachew(cache_path=tmp_path, cls=BB, chunk_by=1)
     def get_data(version: int):
         for i in range(3):
             yield BB(xx=2, yy=i)
@@ -488,21 +493,26 @@ class Job(NamedTuple):
     title: Optional[str]
 
 
-def test_optional(tdir):
+def test_optional(tmp_path: Path) -> None:
     """
     Tests support for typing.Optional
     """
 
-    @cachew(tdir)
+    @cachew(tmp_path)
     def data() -> Iterator[Job]:
+        # fmt: off
         yield Job('google'      , title='engineed')
         yield Job('selfemployed', title=None)
+        # fmt: on
 
-    list(data()) # trigger cachew
+    list(data())  # trigger cachew
+    # fmt: off
     assert list(data()) == [
         Job('google'      , title='engineed'),
         Job('selfemployed', title=None),
     ]
+    # fmt: on
+
 
 # TODO add test for optional for misleading type annotation
 
@@ -539,7 +549,7 @@ class Breaky(NamedTuple):
     job: Optional[Job]
 
 
-def test_unique(tdir):
+def test_unique(tmp_path: Path) -> None:
     assert [c.name for c in NTBinder.make(Breaky).columns] == [
         'job_title',
         '_job_is_null',
@@ -551,7 +561,8 @@ def test_unique(tdir):
         job_title=123,
         job=Job(company='123', title='whatever'),
     )
-    @cachew(cache_path=tdir)
+
+    @cachew(cache_path=tmp_path)
     def iter_breaky() -> Iterator[Breaky]:
         yield b
         yield b
@@ -560,8 +571,8 @@ def test_unique(tdir):
     assert list(iter_breaky()) == [b, b]
 
 
-def test_stats(tdir):
-    cache_file = tdir / 'cache'
+def test_stats(tmp_path: Path) -> None:
+    cache_file = tmp_path / 'cache'
 
     # 4 + things are string lengths
     one = (4 + 5) + (4 + 10) + 4 + (4 + 12 + 4 + 8)
@@ -576,7 +587,6 @@ def test_stats(tdir):
 
 
 def test_dataclass(tmp_path: Path) -> None:
-    from dataclasses import dataclass
     @dataclass
     class Test:
         field: int
@@ -589,8 +599,7 @@ def test_dataclass(tmp_path: Path) -> None:
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
 
 
-def test_dates(tmp_path):
-    from dataclasses import dataclass
+def test_dates(tmp_path: Path) -> None:
     @dataclass
     class X:
         d1: datetime
@@ -622,15 +631,15 @@ def test_dates(tmp_path):
     r = one(fun())
     # attempting to preserve pytz zone names is a bit arbitrary
     # but on the other hand, they will be in python 3.9, so I guess it's ok
-    assert r.d1.tzinfo.zone == x.d1.tzinfo.zone # type: ignore
-    assert r.d2.tzinfo.zone == x.d2.tzinfo.zone # type: ignore
+    assert r.d1.tzinfo.zone == x.d1.tzinfo.zone  # type: ignore
+    assert r.d2.tzinfo.zone == x.d2.tzinfo.zone  # type: ignore
     assert r.d3.tzname() is None
     assert r.d4.tzname() is None
     assert r.d5.tzinfo is timezone.utc
 
 
-def test_types(tdir):
-    from dataclasses import dataclass, asdict
+def test_types(tmp_path: Path) -> None:
+    # fmt: off
     @dataclass
     class Test:
         an_int : int
@@ -642,11 +651,13 @@ def test_types(tdir):
         a_json : Dict[str, Any]
         a_list : List[Any]
         an_exc : Exception
+    # fmt: on
 
     # pylint: disable=no-member
-    assert len(Test.__annotations__) == len(PRIMITIVES) # precondition so we don't forget to update test
+    assert len(Test.__annotations__) == len(PRIMITIVES)  # precondition so we don't forget to update test
 
     tz = pytz.timezone('Europe/Berlin')
+    # fmt: off
     obj = Test(
         an_int =1123,
         a_bool =True,
@@ -658,8 +669,9 @@ def test_types(tdir):
         a_list =['aba', 123, None],
         an_exc =RuntimeError('error!', 123),
     )
+    # fmt: on
 
-    @cachew(tdir)
+    @cachew(tmp_path)
     def get() -> Iterator[Test]:
         yield obj
 
@@ -676,6 +688,7 @@ def test_types(tdir):
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
 # TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
+
 def test_primitive(tmp_path: Path):
     @cachew(tmp_path)
     def fun() -> Iterator[str]:
@@ -689,6 +702,7 @@ def test_primitive(tmp_path: Path):
 class O(NamedTuple):
     x: int
 
+
 def test_default_arguments(tmp_path: Path) -> None:
     class HackHash:
         def __init__(self, x: int) -> None:
@@ -700,6 +714,7 @@ def test_default_arguments(tmp_path: Path) -> None:
     hh = HackHash(1)
 
     calls = 0
+
     def orig(a: int, param=hh) -> Iterator[O]:
         yield O(hh.x)
         nonlocal calls
@@ -746,6 +761,7 @@ def test_default_arguments(tmp_path: Path) -> None:
 class U(NamedTuple):
     x: Union[str, O]
 
+
 def test_union(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun() -> Iterator[U]:
@@ -757,7 +773,6 @@ def test_union(tmp_path: Path) -> None:
 
 
 def test_union_with_dataclass(tmp_path: Path) -> None:
-    from dataclasses import dataclass
     # NOTE: empty dataclass doesn't have __annotations__ ??? not sure if need to handle it...
     @dataclass
     class DD:
@@ -772,7 +787,6 @@ def test_union_with_dataclass(tmp_path: Path) -> None:
 
 
 def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
-    from time import sleep
     @cachew(cache_path)
     def test(count: int) -> Iterator[int]:
         for i in range(count):
@@ -788,8 +802,8 @@ def fuzz_cachew_impl():
     """
     Insert random sleeps in cachew_impl to increase likelihood of concurrency issues
     """
-    import patchy
     from .. import cachew_wrapper
+
     patch = '''\
 @@ -740,6 +740,11 @@
 
@@ -810,23 +824,19 @@ def fuzz_cachew_impl():
 
 
 # TODO fuzz when they start so they enter transaction at different times?
-
 # TODO how to run it enough times on CI and increase likelihood of failing?
 # for now, stress testing manually:
 # while PYTHONPATH=src pytest -s cachew -k concurrent_writes ; do sleep 0.5; done
-def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl):
+def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl) -> None:
     cache_path = tmp_path / 'cache.sqlite'
-    from concurrent.futures import ProcessPoolExecutor as Pool
 
     # warm up to create the database
     # FIXME ok, that will be fixed separately with atomic move I suppose
     _concurrent_helper(cache_path, 1)
 
     processes = 5
-    with Pool() as pool:
-        futures = [
-            pool.submit(_concurrent_helper, cache_path, count)
-        for count in range(processes)]
+    with ProcessPoolExecutor() as pool:
+        futures = [pool.submit(_concurrent_helper, cache_path, count) for count in range(processes)]
 
         for count, f in enumerate(futures):
             assert f.result() == [i * i for i in range(count)]
@@ -834,9 +844,9 @@ def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl):
 
 # TODO ugh. need to keep two processes around to test for yield holding transaction lock
 
+
 def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
     cache_path = tmp_path / 'cache.sqlite'
-    from concurrent.futures import ProcessPoolExecutor as Pool
 
     count = 10
     # warm up
@@ -844,12 +854,9 @@ def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
 
     processes = 4
 
-    import time
     start = time.time()
-    with Pool() as pool:
-        futures = [
-            pool.submit(_concurrent_helper, cache_path, count, 1)
-        for _ in range(processes)]
+    with ProcessPoolExecutor() as pool:
+        futures = [pool.submit(_concurrent_helper, cache_path, count, 1) for _ in range(processes)]
 
         for f in futures:
             print(f.result())
@@ -875,10 +882,11 @@ def test_mcachew(tmp_path: Path):
     assert list(func()) == ['one', 'two']
 
 
-def test_defensive(restore_settings):
+def test_defensive(restore_settings) -> None:
     '''
     Make sure that cachew doesn't crash on misconfiguration
     '''
+
     def orig() -> Iterator[int]:
         yield 123
 
@@ -890,13 +898,12 @@ def test_defensive(restore_settings):
     assert list(fun()) == [123]
     assert list(fun()) == [123]
 
-    from contextlib import nullcontext
     for throw in [True, False]:
         ctx = pytest.raises(Exception) if throw else nullcontext()
         settings.THROW_ON_ERROR = throw
 
         with ctx:
-            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig) # type: ignore
+            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig)  # type: ignore
             assert list(fun()) == [123]
             assert list(fun()) == [123]
 
@@ -914,10 +921,11 @@ def test_defensive(restore_settings):
             assert list(fun()) == [123]
 
 
-def test_recursive(tmp_path: Path):
+def test_recursive(tmp_path: Path) -> None:
     d0 = 0
     d1 = 1000
     calls = 0
+
     @cachew(tmp_path)
     def factorials(n: int) -> Iterable[int]:
         nonlocal calls, d0, d1
@@ -956,8 +964,7 @@ def test_recursive(tmp_path: Path):
     assert calls == 10
 
 
-
-def test_deep_recursive(tmp_path: Path):
+def test_deep_recursive(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def rec(n: int) -> Iterable[int]:
         if n == 0:
@@ -979,7 +986,7 @@ def test_deep_recursive(tmp_path: Path):
         sys.setrecursionlimit(rlimit)
 
 
-def test_recursive_error(tmp_path: Path):
+def test_recursive_error(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def rec(n: int) -> Iterable[int]:
         if n == 0:
@@ -1003,11 +1010,12 @@ def test_recursive_error(tmp_path: Path):
     assert len(list(rec(100))) == 101
 
 
-def test_exceptions(tmp_path: Path):
+def test_exceptions(tmp_path: Path) -> None:
     class X(NamedTuple):
         a: int
 
     d = datetime.strptime('20200102 03:04:05', '%Y%m%d %H:%M:%S')
+
     @cachew(tmp_path)
     def fun() -> Iterator[Exception]:
         yield RuntimeError('whatever', 123, d, X(a=123))
@@ -1020,12 +1028,13 @@ def test_exceptions(tmp_path: Path):
 
 
 # see https://beepb00p.xyz/mypy-error-handling.html#kiss
-def test_result(tmp_path: Path):
+def test_result(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun() -> Iterator[Union[Exception, int]]:
         yield 1
         yield RuntimeError("sad!")
         yield 123
+
     list(fun())
     [v1, ve, v123] = fun()
     assert v1 == 1
@@ -1033,8 +1042,9 @@ def test_result(tmp_path: Path):
     assert ve.args == ('sad!',)
 
 
-def test_version_change(tmp_path: Path):
+def test_version_change(tmp_path: Path) -> None:
     calls = 0
+
     @cachew(tmp_path, logger=logger)
     def fun() -> Iterator[str]:
         nonlocal calls
@@ -1048,6 +1058,7 @@ def test_version_change(tmp_path: Path):
 
     # todo ugh. not sure how to do this as a relative import??
     import cachew as cachew_module
+
     old_version = cachew_module.CACHEW_VERSION
 
     try:
@@ -1067,22 +1078,22 @@ def test_version_change(tmp_path: Path):
     assert calls == 3
 
 
-def dump_old_cache(tmp_path: Path):
+def dump_old_cache(tmp_path: Path) -> None:
     # call this if you want to get an sql script for version upgrade tests..
     oc = tmp_path / 'old_cache.sqlite'
+
     @cachew(oc)
     def fun() -> Iterator[int]:
         yield from [1, 2, 3]
 
     list(fun())
     assert oc.exists(), oc
-    from subprocess import check_output, check_call
+
     sql = check_output(['sqlite3', oc, '.dump']).decode('utf8')
     print(sql, file=sys.stderr)
 
 
-
-def test_old_cache_v0_6_3(tmp_path: Path):
+def test_old_cache_v0_6_3(tmp_path: Path) -> None:
     sql = '''
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
@@ -1110,8 +1121,9 @@ COMMIT;
     assert [1, 2, 3] == list(fun())
 
 
-def test_disabled(tmp_path: Path):
+def test_disabled(tmp_path: Path) -> None:
     calls = 0
+
     @cachew(tmp_path)
     def fun() -> Iterator[int]:
         yield 1
@@ -1124,6 +1136,7 @@ def test_disabled(tmp_path: Path):
     assert calls == 1
 
     from cachew.extra import disabled_cachew
+
     with disabled_cachew():
         assert list(fun()) == [1, 2]
         assert calls == 2
@@ -1134,14 +1147,16 @@ def test_disabled(tmp_path: Path):
 def test_early_exit(tmp_path: Path) -> None:
     # cachew works on iterators and we'd prefer not to cache if the iterator hasn't been exhausted
     calls_f = 0
-    @cachew(tmp_path) #  / 'fun', force_file=True)
+
+    @cachew(tmp_path)
     def f() -> Iterator[int]:
         yield from range(20)
         nonlocal calls_f
         calls_f += 1
 
     calls_g = 0
-    @cachew(tmp_path) # / 'fun', force_file=True)
+
+    @cachew(tmp_path)
     def g() -> Iterator[int]:
         yield from f()
         nonlocal calls_g
@@ -1211,7 +1226,7 @@ def test_synthetic_keyset(tmp_path: Path, use_synthetic: bool) -> None:
         yield str(n - 1)
         yield str(n)
 
-
+    # fmt: off
     # should result in 01 + 12 + 45                     == 01245
     keys125         = ['1', '2', '5'                    ]
     # should result in 01 + 12 + 45 + 56 + 67           == 0124567
@@ -1220,24 +1235,26 @@ def test_synthetic_keyset(tmp_path: Path, use_synthetic: bool) -> None:
     keys125689      = ['1', '2', '5', '6',      '8', '9']
     # should result in           45 + 56      + 78 + 89 ==    456789
     keys5689        = [          '5', '6',      '8', '9']
-
+    # fmt: on
 
     def recomputed() -> List[str]:
         r = list(_recomputed)
         _recomputed.clear()
         return r
 
-
     ## 'cachew_cached' will just be [] if synthetic key is not used, so no impact on data
     @cachew(tmp_path, synthetic_key=('keys' if use_synthetic else None))
     def fun_aux(keys: Sequence[str], *, cachew_cached: Iterable[str] = []) -> Iterator[str]:
-        yield from unique_everseen(chain(
-            cachew_cached,
-            *(compute(key) for key in keys),
-        ))
+        yield from unique_everseen(
+            chain(
+                cachew_cached,
+                *(compute(key) for key in keys),
+            )
+        )
 
     def fun(keys: Sequence[str]) -> Set[str]:
         return set(fun_aux(keys=keys))
+
     ##
 
     assert fun(keys125) == set('01' '12' '45')
