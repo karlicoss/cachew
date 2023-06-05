@@ -586,11 +586,12 @@ def test_stats(tmp_path: Path) -> None:
     print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
 
 
-def test_dataclass(tmp_path: Path) -> None:
-    @dataclass
-    class Test:
-        field: int
+@dataclass
+class Test:
+    field: int
 
+
+def test_dataclass(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def get_dataclasses() -> Iterator[Test]:
         yield from [Test(field=i) for i in range(5)]
@@ -599,20 +600,41 @@ def test_dataclass(tmp_path: Path) -> None:
     assert list(get_dataclasses()) == [Test(field=i) for i in range(5)]
 
 
-def test_dates(tmp_path: Path) -> None:
-    @dataclass
-    class X:
-        d1: datetime
-        d2: datetime
-        d3: datetime
-        d4: datetime
-        d5: datetime
+def test_inner_class(tmp_path: Path) -> None:
+    # NOTE: this doesn't work at the moment if from __future__ import annotations is used in client code (e.g. on top of this test)
+    # because then annotations end up as strings and we can't eval it as we don't have access to a class defined inside function
+    # keeping this test just to keep track of whether this is fixed at some point
+    # possibly relevant:
+    # - https://peps.python.org/pep-0563/#keeping-the-ability-to-use-function-local-state-when-defining-annotations
 
+    @dataclass
+    class InnerDataclass:
+        field: int
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[InnerDataclass]:
+        yield from []
+
+    # should manage to infer type and not crash at least
+    list(fun())
+    list(fun())
+
+
+@dataclass
+class Dates:
+    d1: datetime
+    d2: datetime
+    d3: datetime
+    d4: datetime
+    d5: datetime
+
+
+def test_dates(tmp_path: Path) -> None:
     tz = pytz.timezone('Europe/London')
     dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
     dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
 
-    x = X(
+    x = Dates(
         d1=tz.localize(dwinter),
         d2=tz.localize(dsummer),
         d3=dwinter,
@@ -621,7 +643,7 @@ def test_dates(tmp_path: Path) -> None:
     )
 
     @cachew(tmp_path)
-    def fun() -> Iterable[X]:
+    def fun() -> Iterable[Dates]:
         yield x
 
     assert one(fun()) == x
@@ -638,27 +660,28 @@ def test_dates(tmp_path: Path) -> None:
     assert r.d5.tzinfo is timezone.utc
 
 
-def test_types(tmp_path: Path) -> None:
-    # fmt: off
-    @dataclass
-    class Test:
-        an_int : int
-        a_bool : bool
-        a_float: float
-        a_str  : str
-        a_dt   : datetime
-        a_date : date
-        a_json : Dict[str, Any]
-        a_list : List[Any]
-        an_exc : Exception
-    # fmt: on
+# fmt: off
+@dataclass
+class AllTypes:
+    an_int : int
+    a_bool : bool
+    a_float: float
+    a_str  : str
+    a_dt   : datetime
+    a_date : date
+    a_json : Dict[str, Any]
+    a_list : List[Any]
+    an_exc : Exception
+# fmt: on
 
+
+def test_types(tmp_path: Path) -> None:
     # pylint: disable=no-member
-    assert len(Test.__annotations__) == len(PRIMITIVES)  # precondition so we don't forget to update test
+    assert len(AllTypes.__annotations__) == len(PRIMITIVES)  # precondition so we don't forget to update test
 
     tz = pytz.timezone('Europe/Berlin')
     # fmt: off
-    obj = Test(
+    obj = AllTypes(
         an_int =1123,
         a_bool =True,
         a_float=3.131,
@@ -672,10 +695,10 @@ def test_types(tmp_path: Path) -> None:
     # fmt: on
 
     @cachew(tmp_path)
-    def get() -> Iterator[Test]:
+    def get() -> Iterator[AllTypes]:
         yield obj
 
-    def H(t: Test):
+    def H(t: AllTypes):
         # Exceptions can't be directly compared.. so this kinda helps
         d = asdict(t)
         d['an_exc'] = d['an_exc'].args
@@ -772,12 +795,13 @@ def test_union(tmp_path: Path) -> None:
     assert list(fun()) == [U('hi'), U(O(123))]
 
 
-def test_union_with_dataclass(tmp_path: Path) -> None:
-    # NOTE: empty dataclass doesn't have __annotations__ ??? not sure if need to handle it...
-    @dataclass
-    class DD:
-        x: int
+# NOTE: empty dataclass doesn't have __annotations__ ??? not sure if need to handle it...
+@dataclass
+class DD:
+    x: int
 
+
+def test_union_with_dataclass(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun() -> Iterator[Union[int, DD]]:
         yield 123
