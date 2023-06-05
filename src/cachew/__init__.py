@@ -22,7 +22,7 @@ import sqlalchemy
 from sqlalchemy import Column, Table, event, text
 
 
-from .compat import fix_sqlalchemy_StatementError_str
+from .compat import fix_sqlalchemy_StatementError_str, get_annotations
 try:
     fix_sqlalchemy_StatementError_str()
 except Exception as e:
@@ -614,11 +614,12 @@ def infer_type(func) -> Union[Failure, Type[Any]]:
     >>> infer_type(union_provider)
     typing.Union[str, int]
     """
-    rtype = getattr(func, '__annotations__', {}).get('return', None)
+    annots = get_annotations(func, eval_str=True)
+    rtype = annots.get('return', None)
     if rtype is None:
         return f"no return type annotation on {func}"
 
-    def bail(reason):
+    def bail(reason: str) -> str:
         return f"can't infer type from {rtype}: " + reason
 
     # need to get erased type, otherwise subclass check would fail
