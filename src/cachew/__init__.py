@@ -1011,7 +1011,7 @@ def cachew_wrapper(
 
                 # 'table' used to be old 'cache' table name, so we just delete it regardless
                 # otherwise it might overinfalte the cache db with stale values
-                conn.execute(text(f'DROP TABLE IF EXISTS `table`'))
+                conn.execute(text('DROP TABLE IF EXISTS `table`'))
 
                 # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
                 # since it's possible to have schema changes inbetween calls
