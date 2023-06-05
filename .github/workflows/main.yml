@@ -10,7 +10,13 @@ on:
   pull_request: # needed to trigger on others' PRs
   # Note that people who fork it need to go to "Actions" tab on their fork and click "I understand my workflows, go ahead and enable them".
   workflow_dispatch: # needed to trigger workflows manually
-  # todo cron?
+    # todo cron?
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
 
 
 jobs:
@@ -40,8 +46,8 @@ jobs:
         submodules: recursive
         fetch-depth: 0  # nicer to have all git history when debugging/for tests
 
-    # uncomment for SSH debugging
-    # - uses: mxschmitt/action-tmate@v3
+    - uses: mxschmitt/action-tmate@v3
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
 
     # explicit bash command is necessary for Windows CI runner, otherwise it thinks it's cmd...
     - run: bash .ci/run
