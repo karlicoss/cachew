@@ -123,7 +123,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 Basically, your data objects get [flattened out](src/cachew/__init__.py#L409)
 and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L481).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L809)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L810)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -140,13 +140,13 @@ and compares it against the previously stored hash value.
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`, `list`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L632), [tests.test_primitive](src/cachew/tests/test_cachew.py#L679), [tests.test_dates](src/cachew/tests/test_cachew.py#L592)
-    * [Optional](src/cachew/tests/test_cachew.py#L491) types
-    * [Union](src/cachew/tests/test_cachew.py#L749) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L408)
-    * [Exceptions](src/cachew/tests/test_cachew.py#L1006)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L678), [tests.test_primitive](src/cachew/tests/test_cachew.py#L715), [tests.test_dates](src/cachew/tests/test_cachew.py#L632)
+    * [Optional](src/cachew/tests/test_cachew.py#L496) types
+    * [Union](src/cachew/tests/test_cachew.py#L788) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L412)
+    * [Exceptions](src/cachew/tests/test_cachew.py#L1037)
     
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L438) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L442) and discards old data automatically
 
 
 # Performance
@@ -157,17 +157,17 @@ During reading cache all that happens is reading rows from sqlite and mapping th
 I haven't set up proper benchmarks/performance regressions yet, so don't want to make specific claims, however that would almost certainly make your programm faster if computations take more than several seconds.
 
 
-If you want to experiment for youself, check out [tests.test_many](src/cachew/tests/test_cachew.py#L297)
+If you want to experiment for youself, check out [tests.test_many](src/cachew/tests/test_cachew.py#L296)
 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L673) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L674) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
     
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L388) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L389) and depends on function's arguments.
     
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
     
@@ -175,7 +175,7 @@ Some useful (but optional) arguments of `@cachew` decorator:
     
    By default it just uses string representation of the arguments, you can also specify a custom callable.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L102) if the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L95) if the input file was modified.
     
 * `cls` is the type that would be serialized.
 
