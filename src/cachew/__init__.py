@@ -11,7 +11,8 @@ import time
 import sqlite3
 import typing
 from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
-                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, Dict, cast)
+                    Type, Union, TypeVar, Generic, Sequence, Iterable, Set, Dict, cast,
+                    TYPE_CHECKING, overload)
 import dataclasses
 import warnings
 
@@ -671,8 +672,10 @@ def cachew_error(e: Exception) -> None:
 
 use_default_path = cast(Path, object())
 
+
+# using cachew_impl here just to use different signatures during type checking (see below)
 @doublewrap
-def cachew(
+def cachew_impl(
         func=None,
         cache_path: Optional[PathProvider]=use_default_path,
         force_file: bool=False,
@@ -783,6 +786,32 @@ def cachew(
         kwargs['_cachew_context'] = ctx
         return cachew_wrapper(*args, **kwargs)
     return binder
+
+
+if TYPE_CHECKING:
+    F = TypeVar('F', bound=Callable)
+
+    # we need two versions due to @doublewrap
+    # this is when we just annotate as @cachew without any args
+    @overload  # type: ignore[no-overload-impl]
+    def cachew(fun: F) -> F:
+        ...
+
+    # TODO PathProvider here could benefit from paramspec??
+    @overload
+    def cachew(
+            cache_path: Optional[PathProvider]=...,
+            *,
+            force_file: bool=...,
+            cls=...,
+            depends_on: HashFunction=...,
+            logger=...,
+            chunk_by: int=...,
+            synthetic_key: Optional[str]=...,
+    ) -> Callable[[F], F]:
+        ...
+else:
+    cachew = cachew_impl
 
 
 def cname(func: Callable) -> str:

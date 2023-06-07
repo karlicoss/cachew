@@ -246,7 +246,8 @@ def test_cache_path(tmp_path: Path) -> None:
     assert (tmp_path / 'name').is_file()
 
     # treat None as "don't cache" ('factory')
-    fun = cachew(cache_path=lambda *args: None)(orig)
+    # hmm not sure why mypy complains here.. might better if we get to use ParamSpec?
+    fun = cachew(cache_path=lambda *args: None)(orig)  # type: ignore[arg-type]
     assert list(fun()) == [1, 2]
     assert calls == 6
     assert list(fun()) == [1, 2]
@@ -374,7 +375,7 @@ def test_return_type_mismatch(tmp_path: Path) -> None:
     # TODO hmm, this is kinda a downside that it always returns
     # could preserve the original return type, but too much trouble for now
 
-    assert list(data2()) == [AA(value=1, b=None, value2=123)]
+    assert list(data2()) == [AA(value=1, b=None, value2=123)]  # type: ignore[comparison-overlap]
 
 
 def test_return_type_none(tmp_path: Path) -> None:
@@ -738,12 +739,17 @@ def test_default_arguments(tmp_path: Path) -> None:
 
     calls = 0
 
-    def orig(a: int, param=hh) -> Iterator[O]:
+    def orig(a: int, param: HackHash = hh) -> Iterator[O]:
         yield O(hh.x)
         nonlocal calls
         calls += 1
 
-    fun = cachew(tmp_path, depends_on=lambda a, param: (a, param.x))(orig)
+    def depends_on(a: int, param: HackHash) -> str:
+        # hmm. in principle this should be str according to typing
+        # on practice though we always convert hash to str, so maybe type should be changed to Any?
+        return (a, param.x)  # type: ignore[return-value]
+
+    fun = cachew(tmp_path, depends_on=depends_on)(orig)
 
     list(fun(123))
     assert list(fun(123)) == [O(1)]
@@ -918,7 +924,7 @@ def test_defensive(restore_settings) -> None:
         yield "x"
         yield 123
 
-    fun = cachew(bad_arg=123)(orig)
+    fun = cachew(bad_arg=123)(orig)  # type: ignore[call-overload]
     assert list(fun()) == [123]
     assert list(fun()) == [123]
 
@@ -1063,6 +1069,7 @@ def test_result(tmp_path: Path) -> None:
     [v1, ve, v123] = fun()
     assert v1 == 1
     assert v123 == 123
+    assert isinstance(ve, Exception)
     assert ve.args == ('sad!',)
 
 
