@@ -46,6 +46,11 @@ def main() -> None:
                 'bandit',
 
                 'more-itertools',
+
+                'enlighten',  # used in logging helper, but not really required
+            ],
+            'optional': [
+                'colorlog',
             ],
         },
 

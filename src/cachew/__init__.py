@@ -30,6 +30,8 @@ try:
 except Exception as e:
     logging.exception(e)
 
+from .logging_helper import makeLogger
+
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
@@ -54,10 +56,8 @@ class settings:
     THROW_ON_ERROR: bool = False
 
 
-
 def get_logger() -> logging.Logger:
-    return logging.getLogger('cachew')
-
+    return makeLogger(__name__)
 
 
 class IsoDateTime(sqlalchemy.TypeDecorator):
@@ -750,7 +750,17 @@ def cachew_impl(
     call took 5 seconds
     """
     if logger is None:
-        logger = get_logger()
+        module_name = getattr(func, '__module__', None)
+        if module_name is None:
+            # rely on default cachew logger
+            logger = get_logger()
+        else:
+            # if logger for the function's module already exists, reuse it
+            if module_name in logging.Logger.manager.loggerDict:
+                logger = logging.getLogger(module_name)
+            else:
+                logger = get_logger()
+
 
     hashf = kwargs.get('hashf', None)
     if hashf is not None:
@@ -760,12 +770,12 @@ def cachew_impl(
     cn = cname(func)
     # todo not very nice that ENABLE check is scattered across two places
     if not settings.ENABLE or cache_path is None:
-        logger.info('[%s]: cache explicitly disabled (settings.ENABLE is False or cache_path is None)', cn)
+        logger.debug('[%s]: cache explicitly disabled (settings.ENABLE is False or cache_path is None)', cn)
         return func
 
     if cache_path is use_default_path:
         cache_path = settings.DEFAULT_CACHEW_DIR
-        logger.info('[%s]: no cache_path specified, using the default %s', cn, cache_path)
+        logger.debug('[%s]: no cache_path specified, using the default %s', cn, cache_path)
 
     # TODO fuzz infer_type, should never crash?
     inferred = infer_type(func)
@@ -905,7 +915,7 @@ def cachew_wrapper(
 
     cn = cname(func)
     if not settings.ENABLE:
-        logger.info('[%s]: cache explicitly disabled (settings.ENABLE is False)', cn)
+        logger.debug('[%s]: cache explicitly disabled (settings.ENABLE is False)', cn)
         yield from func(*args, **kwargs)
         return
 
@@ -919,7 +929,7 @@ def cachew_wrapper(
         if callable(cache_path):
             pp = cache_path(*args, **kwargs)
             if pp is None:
-                logger.info('[%s]: cache explicitly disabled (cache_path is None)', cn)
+                logger.debug('[%s]: cache explicitly disabled (cache_path is None)', cn)
                 yield from func(*args, **kwargs)
                 return
             else:
@@ -991,6 +1001,8 @@ def cachew_wrapper(
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
+                total = list(conn.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(table_cache)))[0][0]
+                logger.info(f'{cn}: loading {total} objects from cachew (sqlite {dbp})')
                 yield from cached_items()
                 return
 
@@ -1098,8 +1110,10 @@ def cachew_wrapper(
                     conn.execute(insert_into_table_cache_tmp, chunk_dict)
                     chunk = []
 
+            total_objects = 0
             for d in datas:
                 try:
+                    total_objects += 1
                     yield d
                 except GeneratorExit:
                     early_exit = True
@@ -1124,6 +1138,7 @@ def cachew_wrapper(
 
             # pylint: disable=no-value-for-parameter
             conn.execute(db.table_hash.insert().values([{'value': new_hash}]))
+            logger.info(f'{cn}: wrote   {total_objects} objects to   cachew (sqlite {dbp})')
     except Exception as e:
         # sigh... see test_early_exit_shutdown...
         if early_exit and 'Cannot operate on a closed database' in str(e):
