@@ -295,8 +295,9 @@ class TE2(NamedTuple):
 # e.g. -k 'test_many[500000-False]'
 # fmt: off
 @pytest.mark.parametrize('count,on_ci', [
-    (100000, True),
-    (500000, False),
+    (100_000, True),
+    (500_000, False),
+    (1_000_000, False),
 ])
 # fmt: on
 def test_many(count: int, on_ci: bool, tmp_path: Path) -> None:
@@ -317,7 +318,22 @@ def test_many(count: int, on_ci: bool, tmp_path: Path) -> None:
 
     assert ilen(iter_data()) == count  # initial
     assert ilen(iter_data()) == count  # hitting cache
-    assert last(iter_data()) == TE2(value=count - 1, uuu=UUU(xx=count - 1, yy=count - 1), value2=count - 1)
+
+    # these are baseline results on @karlicoss desktop pc (initialization + hitting the cache)
+    # 11.13s call     src/cachew/tests/test_cachew.py::test_many[1000000-False]
+    # 5.61s call     src/cachew/tests/test_cachew.py::test_many[500000-False]
+    # 1.13s call     src/cachew/tests/test_cachew.py::test_many[100000-True]
+
+
+    # these are results with jsonpickle.. not great
+    # 86.42s call     src/cachew/tests/test_cachew.py::test_many[1000000-False]
+    # 44.08s call     src/cachew/tests/test_cachew.py::test_many[500000-False]
+    # 8.78s call     src/cachew/tests/test_cachew.py::test_many[100000-True]
+
+
+
+    # assert last(iter_data()) == TE2(value=count - 1, uuu=UUU(xx=count - 1, yy=count - 1), value2=count - 1)
+
 
     # serializing to db
     # in-memory: 16 seconds

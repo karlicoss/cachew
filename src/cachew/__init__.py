@@ -18,6 +18,8 @@ import dataclasses
 import warnings
 
 
+import jsonpickle
+
 import appdirs
 
 import sqlalchemy
@@ -403,103 +405,6 @@ class NTBinder(Generic[NT]):
             fields=fields,
         )
 
-    @property
-    def columns(self) -> List[Column]:
-        return list(self.iter_columns())
-
-    # TODO not necessarily namedtuple? could be primitive type
-    def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
-        return tuple(self._to_row(obj))
-
-    def from_row(self, row: Iterable[Any]) -> NT:
-        riter = iter(row)
-        res = self._from_row(riter)
-        remaining = list(islice(riter, 0, 1))
-        if len(remaining) != 0:
-            raise CachewException(f'unconsumed items in iterator {remaining}')
-        assert res is not None  # nosec # help mypy; top level will not be None
-        return res
-
-
-    def _to_row(self, obj) -> Iterator[Optional[Values]]:
-        if self.primitive:
-            yield obj
-        elif self.union is not None:
-            CachewUnion = self.union
-            (uf,) = self.fields
-            # TODO assert only one of them matches??
-            union = CachewUnion(**{
-                f.name: obj if isinstance(obj, f.type_) else None
-                for f in uf.fields
-            })
-            yield from uf._to_row(union)
-        else:
-            if self.optional:
-                is_none = obj is None
-                yield is_none
-            else:
-                is_none = False; assert obj is not None  # TODO hmm, that last assert is not very symmetric...
-
-            if is_none:
-                for _ in range(self.span - 1):
-                    yield None
-            else:
-                yield from chain.from_iterable(
-                    f._to_row(getattr(obj, f.name))
-                    for f in self.fields
-                )
-
-    def _from_row(self, row_iter):
-        if self.primitive:
-            return next(row_iter)
-        elif self.union is not None:
-            CachewUnion = self.union
-            (uf,) = self.fields
-            # TODO assert only one of them is not None?
-            union_params = [
-                r
-                for r in uf._from_row(row_iter) if r is not None
-            ]
-            assert len(union_params) == 1, union_params
-            return union_params[0]
-        else:
-            if self.optional:
-                is_none = next(row_iter)
-            else:
-                is_none = False
-
-            if is_none:
-                for _ in range(self.span - 1):
-                    x = next(row_iter)
-                    assert x is None, x  # huh. assert is kinda opposite of producing value
-                return None
-            else:
-                return self.type_(*(
-                    f._from_row(row_iter)
-                    for f in self.fields
-                ))
-
-    # TODO not sure if we want to allow optionals on top level?
-    def iter_columns(self) -> Iterator[Column]:
-        used_names: Set[str] = set()
-
-        def col(name: str, tp) -> Column:
-            while name in used_names:
-                name = '_' + name
-            used_names.add(name)
-            return Column(name, tp)
-
-        if self.primitive:
-            if self.name is None: raise AssertionError
-            yield col(self.name, PRIMITIVES[self.type_])
-        else:
-            prefix = '' if self.name is None else self.name + '_'
-            if self.optional:
-                yield col(f'_{prefix}is_null', sqlalchemy.Boolean)
-            for f in self.fields:
-                for c in f.iter_columns():
-                    yield col(f'{prefix}{c.name}', c.type)
-
     def __str__(self):
         lines = ['  ' * level + str(x.name) + ('?' if x.optional else '') + f' <span {x.span}>' for level, x in self.flatten()]
         return '\n'.join(lines)
@@ -562,9 +467,10 @@ class DbHelper:
 
         self.binder = NTBinder.make(tp=cls)
         # actual cache
-        self.table_cache     = Table('cache'    , self.meta, *self.binder.columns)
+        # FIXME change table definition
+        self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.String))
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
-        self.table_cache_tmp = Table('cache_tmp', self.meta, *self.binder.columns)
+        self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.String))
 
     def __enter__(self) -> 'DbHelper':
         return self
@@ -882,7 +788,7 @@ class Context(Generic[P]):
         }
         kwargs = {**defaults, **kwargs}
         binder = NTBinder.make(tp=self.cls_)
-        schema = str(binder.columns) # todo not super nice, but works fine for now
+        schema = str('FIXME') # todo not super nice, but works fine for now
         hash_parts = {
             'cachew'      : CACHEW_VERSION,
             'schema'      : schema,
@@ -996,8 +902,8 @@ def cachew_wrapper(
 
             def cached_items():
                 rows = conn.execute(table_cache.select())
-                for row in rows:
-                    yield binder.from_row(row)
+                for (js,) in rows:
+                    yield jsonpickle.decode(js)
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
@@ -1107,7 +1013,7 @@ def cachew_wrapper(
                         dict(zip(column_names, row))
                         for row in chunk
                     ]
-                    conn.execute(insert_into_table_cache_tmp, chunk_dict)
+                    conn.execute(insert_into_table_cache_tmp, [{'data': c} for c in chunk])
                     chunk = []
 
             total_objects = 0
@@ -1118,8 +1024,9 @@ def cachew_wrapper(
                 except GeneratorExit:
                     early_exit = True
                     return
-                  
-                chunk.append(binder.to_row(d))
+
+                js = jsonpickle.encode(d)
+                chunk.append(js)
                 if len(chunk) >= chunk_by:
                     flush()
             flush()
