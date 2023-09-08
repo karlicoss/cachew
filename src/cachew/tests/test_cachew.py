@@ -294,29 +294,40 @@ class TE2(NamedTuple):
 # you can run one specific test (e.g. to profile) by passing it as -k to pytest
 # e.g. -k 'test_many[500000-False]'
 # fmt: off
-@pytest.mark.parametrize('count,on_ci', [
-    (100000, True),
-    (500000, False),
+@pytest.mark.parametrize('count,run_on_ci', [
+    (100_000  , True ),
+    (500_000  , False),
+    (1_000_000, False),
 ])
 # fmt: on
-def test_many(count: int, on_ci: bool, tmp_path: Path) -> None:
-    if 'CI' in os.environ and not on_ci:
+def test_many(count: int, run_on_ci: bool, tmp_path: Path) -> None:
+    if 'CI' in os.environ and not run_on_ci:
         pytest.skip("test would be too slow on CI anyway, only meant to run manually")
     # should be a parametrized test perhaps
     src = tmp_path / 'source'
     src.touch()
 
-    @cachew(cache_path=lambda path: tmp_path / (path.name + '.cache'))
-    def _iter_data(_: Path) -> Iterator[TE2]:
+    cache_path = tmp_path / 'test_many'
+
+    @cachew(cache_path=cache_path, force_file=True)
+    def iter_data() -> Iterator[TE2]:
         for i in range(count):
             # TODO also profile datetimes?
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
-    def iter_data() -> Iterator[TE2]:
-        return _iter_data(src)
 
+    a = time.time()
     assert ilen(iter_data()) == count  # initial
+    b = time.time()
+    print(f'test_many: initial write to cache took {b - a:.1f}s', file=sys.stderr)
+
+    print(f'test_many: cache size is {cache_path.stat().st_size / 10 ** 6}Mb', file=sys.stderr)
+
+    a = time.time()
     assert ilen(iter_data()) == count  # hitting cache
+    b = time.time()
+    print(f'test_many: reading from cache took {b - a:.1f}s', file=sys.stderr)
+
     assert last(iter_data()) == TE2(value=count - 1, uuu=UUU(xx=count - 1, yy=count - 1), value2=count - 1)
 
     # serializing to db
