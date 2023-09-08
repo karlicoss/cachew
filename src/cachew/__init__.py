@@ -995,9 +995,16 @@ def cachew_wrapper(
 
 
             def cached_items():
-                rows = conn.execute(table_cache.select())
-                for row in rows:
-                    yield binder.from_row(row)
+                raw_connection = db.engine.raw_connection()
+                # meh... probably not portable?
+                query = str(table_cache.select().compile())
+                try:
+                    cursor = raw_connection.cursor()
+                    for row in cursor.execute(query):
+                        yield binder.from_row(row)
+                    cursor.close()
+                finally:
+                    raw_connection.close()
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
