@@ -471,11 +471,11 @@ def benchmark():
             jsons[i] = schema.to_json(objects[i])
     print(len(jsons))
 
-    res = [None for _ in range(N)]
-    with timer(f'deserializing {N} objects of type {BType}'):
-        for i in range(N):
-            res[i] = schema.from_json(jsons[i])
-    print(len(res))
+    # res = [None for _ in range(N)]
+    # with timer(f'deserializing {N} objects of type {BType}'):
+    #     for i in range(N):
+    #         res[i] = schema.from_json(jsons[i])
+    # print(len(res))
 
 
 # test()
