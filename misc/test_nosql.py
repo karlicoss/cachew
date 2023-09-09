@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass
 import inspect
-from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple
+from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints
 
 import orjson
 
@@ -50,6 +50,16 @@ def to_json(o, Type):
 
     origin = get_origin(Type)
     args = get_args(Type)
+
+    if origin is None:
+        assert is_dataclass(Type)
+        hints = get_type_hints(Type)
+        return {
+            k: to_json(getattr(o, k), t)
+            for k, t in hints.items()
+            # todo could add type info?
+        }
+
     is_union = origin is Union or origin is types.UnionType
     if is_union:
         for ti, t in enumerate(args):
@@ -90,6 +100,15 @@ def from_json(d, Type):
 
     origin = get_origin(Type)
     args = get_args(Type)
+
+    if origin is None:
+        assert is_dataclass(Type)
+        hints = get_type_hints(Type)
+        return Type(**{  # meh, but not sure if there is a faster way?
+            k: from_json(d[k], t)
+            for k, t in hints.items()
+        })
+
 
     is_union = origin is Union or origin is types.UnionType
     if is_union:
@@ -165,7 +184,15 @@ do_json((1, 2, 3), tuple[int, int, int])
 do_json({'a': 'aa', 'b': 'bb'}, dict[str, str])
 do_json({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
 
+
 # compounds of simple types
 do_json(['1', 2, '3'], list[str | int])
 
 
+# dataclasses
+@dataclass
+class P:
+    x: int
+    y: int
+
+do_json(P(x=1, y=2), P)
