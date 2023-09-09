@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass
 import inspect
+from pathlib import Path
+import sys
 from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple
 
 import orjson
@@ -9,6 +12,25 @@ from codetiming import Timer
 
 def timer(name: str) -> Timer:
     return Timer(name=name, text=name + ': ' + '{:.2f}s')
+
+
+PROFILES = Path(__file__).absolute().parent / 'profiles'
+
+
+@contextmanager
+def profile(name: str):
+    from pyinstrument import Profiler
+
+    with Profiler() as profiler:
+        yield
+
+    PROFILES.mkdir(exist_ok=True)
+    results_file = PROFILES / f"{name}.html"
+
+    print("results for " + name, file=sys.stderr)
+    profiler.print()
+
+    results_file.write_text(profiler.output_html())
 
 
 @dataclass
@@ -407,15 +429,15 @@ def do_json(o, T, expected=None):
 
     schema = build_schema(T)
 
-    print('-----')
-    print("type", T)
-    print("schema", schema)
-    print("original", o, T)
+    # print('-----')
+    # print("type", T)
+    # print("schema", schema)
+    # print("original", o, T)
     j = schema.to_json(o)
-    print("json    ", j)
+    # print("json    ", j)
     o2 = schema.from_json(j)
-    print("restored", o2, T)
-    print('-----')
+    # print("restored", o2, T)
+    # print('-----')
 
     assert expected == o2, (expected, o2)
 
@@ -431,7 +453,7 @@ class Name(NamedTuple):
     last: str
 
 
-def test():
+def test_basic() -> None:
     # primitives
     do_json(1, int)
     do_json('aaa', str)
@@ -472,35 +494,50 @@ def test():
     do_json(Name(first='aaa', last='bbb'), Name)
 
 
+# TODO not sure about this..
+import gc
+gc.disable()
+
+
+import pytest
+
+
 BType = Union[str, Name]
 
-def benchmark():
-    import gc
-    gc.disable()
-
-    N = 1_000_000
+@pytest.fixture(params=[
+    50_000,
+    1_000_000,
+    5_000_000,
+])
+def prepare_union_str_namedtuple(request):
+    N = request.param
     objects: list[BType] = []
     for i in range(N):
         if i % 2 == 0:
             objects.append(str(i))
         else:
             objects.append(Name(first=f'first {i}', last=f'last {i}'))
+    yield objects
 
+
+def test_union_str_namedtuple(prepare_union_str_namedtuple, request) -> None:
+    test_name = request.node.name
+
+    objects = prepare_union_str_namedtuple
+    N = len(objects)
 
     schema = build_schema(BType)
 
     jsons = [None for _ in range(N)]
-    with timer(f'serializing   {N} objects of type {BType}'):
+    with timer(f'serializing   {N} objects of type {BType}'), profile(test_name + ':serialize'):
         for i in range(N):
             jsons[i] = schema.to_json(objects[i])
     print(len(jsons))
 
     res = [None for _ in range(N)]
-    with timer(f'deserializing {N} objects of type {BType}'):
+    with timer(f'deserializing {N} objects of type {BType}'), profile(test_name + ':deserialize'):
         for i in range(N):
             res[i] = schema.from_json(jsons[i])
     print(len(res))
 
 
-test()
-benchmark()
