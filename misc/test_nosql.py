@@ -3,6 +3,7 @@ from abc import abstractmethod
 from collections import abc
 from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sys
@@ -11,6 +12,7 @@ from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple,
 
 
 import orjson
+import pytz
 
 from codetiming import Timer
 
@@ -42,7 +44,7 @@ def profile(name: str):
     results_file.write_text(profiler.output_html())
 
 
-Json = dict[str, Any] | tuple[Any, ...]
+Json = dict[str, Any] | tuple[Any, ...] | str | float | int | bool | type(None)
 
 
 ident = lambda x: x
@@ -244,6 +246,15 @@ class XException(Schema):
         return self.type(*d)
 
 
+@dataclass(slots=True)
+class XDatetime(Schema):
+    def to_json(self, o: datetime) -> Json:
+        return o.isoformat()
+
+    def from_json(self, d: Json):
+        return datetime.fromisoformat(d)
+
+
 def build_schema(Type) -> Schema:
     prim = primitives_from.get(Type)
     if prim is not None:
@@ -255,6 +266,9 @@ def build_schema(Type) -> Schema:
     if origin is None:
         if issubclass(Type, Exception):
             return XException(type=Type)
+
+        if issubclass(Type, datetime):
+            return XDatetime(type=Type)
 
         assert is_dataclass(Type) or is_namedtuple(Type)
         hints = get_type_hints(Type)
@@ -344,6 +358,7 @@ def do_json(o, T, expected=None):
     # Exception.__eq__ = exc_eq
 
     assert normalise(expected) == normalise(o2), (expected, o2)
+    return o2
 
 
 @dataclass
@@ -419,6 +434,24 @@ def test_basic() -> None:
         RuntimeError('more stuff'),
         RuntimeError(),
     ], list[RuntimeError | P])
+
+    # datetimes
+    tz = pytz.timezone('Europe/London')
+    dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
+    dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
+
+    dates = [
+        tz.localize(dwinter),
+        tz.localize(dsummer),
+        dwinter,
+        dsummer,
+        dsummer.replace(tzinfo=timezone.utc),
+        # TODO date class as well?
+    ]
+    for dd in dates:
+        ddr = do_json(dd, datetime)
+        # print(dd, dd.tzinfo, ddr, ddr.tzinfo)
+        assert dd.tzinfo == ddr.tzinfo
 
 
 
