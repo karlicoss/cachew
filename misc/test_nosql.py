@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+from abc import abstractmethod
+from collections import abc
 from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass
-import inspect
+import os
 from pathlib import Path
 import sys
-from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple
+import types
+from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple, Any
+
 
 import orjson
 
@@ -19,6 +23,11 @@ PROFILES = Path(__file__).absolute().parent / 'profiles'
 
 @contextmanager
 def profile(name: str):
+    # ugh. seems like pyinstrument slows down code quite a bit?
+    if os.environ.get('PYINSTRUMENT') is None:
+        yield
+        return
+
     from pyinstrument import Profiler
 
     with Profiler() as profiler:
@@ -33,40 +42,29 @@ def profile(name: str):
     results_file.write_text(profiler.output_html())
 
 
-@dataclass
-class Comment:
-    msg: str
-
-@dataclass
-class Point:
-    x: int
-    y: int
-    comments: list[Comment]
-
-
-items = [
-    Point(x=1, y=2, comments=[Comment('a'), Comment('b')]),
-]
-
 ident = lambda x: x
 
 
 primitives_to = {
     int: ident,
-    float: ident,
     str: ident,
     type(None): ident,
+    float: ident,
+    bool: ident,
+    # if type is Any, there isn't much we can do to dump it -- just dump into json and rely on the best
+    # so in this sense it works exacly like primitives
+    Any: ident,
 }
 
 
 primitives_from = {
     int: ident,
-    float: ident,
     str: ident,
     type(None): ident,
+    float: ident,
+    bool: ident,
+    Any: ident,
 }
-
-import types
 
 
 # https://stackoverflow.com/a/2166841/706389
@@ -81,41 +79,6 @@ def is_namedtuple(t) -> bool:
     return all(type(n) == str for n in f)
 
 
-from functools import lru_cache
-
-
-def memoize_cls(fun):
-    return lru_cache(None)(fun)
-
-
-missing = object()
-def memoize_cls_by_str(fun):  # ok, this seems quite a bit slower than hash
-    cache = {}
-    def wrapper(cls):
-        key = str(cls)
-        v = cache.get(key, missing)
-        if v is not missing:
-            return v
-        v = fun(cls)
-        print("BEFORE", len(cache))
-        cache[key] = v
-        print("AFTER ", len(cache))
-        print("CALLING", fun, cls, cache)
-        return v
-    return wrapper
-
-# gives a big speedup, these are pretty slow
-_get_type_hints = memoize_cls(get_type_hints)
-_get_origin     = memoize_cls(get_origin)
-_get_args       = memoize_cls(get_args)
-_is_dataclass   = memoize_cls(is_dataclass)
-_is_namedtuple  = memoize_cls(is_namedtuple)
-
-
-
-from typing import Any
-
-from abc import abstractmethod
 
 
 # NOTE: using slots gives a small speedup (maybe 5%?)
@@ -267,7 +230,7 @@ def build_schema(Type) -> Schema:
     origin = get_origin(Type)
     if origin is None:
         assert is_dataclass(Type) or is_namedtuple(Type)
-        hints = _get_type_hints(Type)
+        hints = get_type_hints(Type)
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return Dataclass(
             type=Type,
@@ -324,105 +287,6 @@ def build_schema(Type) -> Schema:
     assert False, f"unsupported: {Type} {origin} {args}"
 
 
-def to_json(o, Type):
-    prim = primitives_to.get(Type)
-    if prim is not None:
-        return prim(o)
-
-    origin = _get_origin(Type)
-    args = _get_args(Type)
-
-    if origin is None:
-        assert _is_dataclass(Type) or _is_namedtuple(Type)
-        hints = _get_type_hints(Type)
-        return {
-            k: to_json(getattr(o, k), t)
-            for k, t in hints.items()
-            # todo could add type info?
-        }
-
-    is_union = origin is Union or origin is types.UnionType
-    if is_union:
-        for ti, t in enumerate(args):
-            if isinstance(o, t):
-                jj = to_json(o, t)
-                # TODO __type__ here isn't really used.. but could keep some debug info? dunno
-                return {'__type__': 'union', '__index__': ti, '__value__': jj}
-        else:
-            assert False, "shouldn't happen"
-    is_listish = origin is list
-    if is_listish:
-        (t,) = args
-        return [to_json(i, t) for i in o]
-    # hmm check for is typing.Sequence doesn't pass for some reason
-    # perhaps because it's a deprecated alias?
-    is_tuplish = origin is tuple or origin is abc.Sequence
-    if is_tuplish:
-        if origin is tuple:
-            return [to_json(i, t) for i, t in zip(o, args)]
-        else:
-            # for sequence.. a bit meh
-            (t,) = args
-            return [to_json(i, t) for i in o]
-
-    is_dictish = origin is dict
-    if is_dictish:
-        (ft, tt) = args
-        return {k: to_json(v, tt) for k, v in o.items()}
-
-    assert False, f"unsupported: {o} {Type} {origin} {args}"
-
-from collections import abc
-def from_json(d, Type):
-    prim = primitives_from.get(Type)
-    if prim is not None:
-        return prim(d)
-
-    origin = get_origin(Type)
-    args = get_args(Type)
-
-    if origin is None:
-        assert is_dataclass(Type) or is_namedtuple(Type)
-        hints = _get_type_hints(Type)
-        return Type(**{  # meh, but not sure if there is a faster way?
-            k: from_json(d[k], t)
-            for k, t in hints.items()
-        })
-
-
-    is_union = origin is Union or origin is types.UnionType
-    if is_union:
-        ti = d['__index__']
-        t = args[ti]
-        return from_json(d['__value__'], t)
-
-    is_listish = origin is list
-    if is_listish:
-        (t,) = args
-        return [from_json(i, t) for i in d]
-
-    is_tuplish = origin is tuple or origin is abc.Sequence
-    if is_tuplish:
-        if origin is tuple:
-            return tuple(from_json(i, t) for i, t in zip(d, args))
-        else:
-            # meh
-            (t,) = args
-            return tuple(from_json(i, t) for i in d)
-
-    is_dictish = origin is dict
-    if is_dictish:
-        (ft, tt) = args
-        return {k: from_json(v, tt) for k, v in d.items()}
-
-    assert False, f"unsupported: {d} {Type} {origin} {args}"
-
-
-Type = str | int
-
-item: Type = 3
-
-
 def do_json(o, T, expected=None):
     if expected is None:
         expected = o
@@ -451,6 +315,14 @@ class P:
 class Name(NamedTuple):
     first: str
     last: str
+
+
+IdType = int
+
+@dataclass
+class WithJson:
+    id: IdType
+    raw_data: dict[str, Any]
 
 
 def test_basic() -> None:
@@ -493,6 +365,12 @@ def test_basic() -> None:
     # Namedtuple
     do_json(Name(first='aaa', last='bbb'), Name)
 
+    # json-ish stuff
+    do_json({}, dict[str, Any])
+    do_json(WithJson(id=123, raw_data=dict(payload='whatever', tags=['a', 'b', 'c'])), WithJson)
+    do_json([], list[Any])
+
+
 
 # TODO not sure about this..
 import gc
@@ -504,40 +382,45 @@ import pytest
 
 BType = Union[str, Name]
 
-@pytest.fixture(params=[
-    50_000,
-    1_000_000,
-    5_000_000,
-])
-def prepare_union_str_namedtuple(request):
-    N = request.param
+def prepare_union_str_namedtuple(N):
     objects: list[BType] = []
     for i in range(N):
         if i % 2 == 0:
             objects.append(str(i))
         else:
             objects.append(Name(first=f'first {i}', last=f'last {i}'))
-    yield objects
+    return objects
 
 
-def test_union_str_namedtuple(prepare_union_str_namedtuple, request) -> None:
-    test_name = request.node.name
-
-    objects = prepare_union_str_namedtuple
+def do_test_union_str_namedtuple(*, count: int, test_name: str) -> None:
+    objects = prepare_union_str_namedtuple(N=count)
     N = len(objects)
 
     schema = build_schema(BType)
 
     jsons = [None for _ in range(N)]
-    with timer(f'serializing   {N} objects of type {BType}'), profile(test_name + ':serialize'):
+    with profile(test_name + ':serialize'), timer(f'serializing   {N} objects of type {BType}'):
         for i in range(N):
             jsons[i] = schema.to_json(objects[i])
     print(len(jsons))
 
     res = [None for _ in range(N)]
-    with timer(f'deserializing {N} objects of type {BType}'), profile(test_name + ':deserialize'):
+    with profile(test_name + ':deserialize'), timer(f'deserializing {N} objects of type {BType}'):
         for i in range(N):
             res[i] = schema.from_json(jsons[i])
     print(len(res))
 
 
+@pytest.mark.parametrize('count', [
+    50_000,
+    1_000_000,
+    5_000_000,
+])
+def test_union_str_namedtuple(count: int, request) -> None:
+    do_test_union_str_namedtuple(count=count, test_name=request.node.name)
+
+# OK, performance with calling this manually (not via pytest) is the same
+# do_test_union_str_namedtuple(count=1_000_000, test_name='adhoc')
+
+
+# TODO next test should probs be runtimeerror?
