@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass, is_dataclass
 import inspect
-from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints
+from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple
 
 import orjson
 
@@ -43,6 +43,18 @@ primitives_from = {
 import types
 
 
+# https://stackoverflow.com/a/2166841/706389
+def is_namedtuple(t) -> bool:
+    b = t.__bases__
+    if len(b) != 1 or b[0] != tuple:
+        return False
+    f = getattr(t, '_fields', None)
+    if not isinstance(f, tuple):
+        return False
+    # pylint: disable=unidiomatic-typecheck
+    return all(type(n) == str for n in f)
+
+
 def to_json(o, Type):
     prim = primitives_to.get(Type)
     if prim is not None:
@@ -52,7 +64,7 @@ def to_json(o, Type):
     args = get_args(Type)
 
     if origin is None:
-        assert is_dataclass(Type)
+        assert is_dataclass(Type) or is_namedtuple(Type)
         hints = get_type_hints(Type)
         return {
             k: to_json(getattr(o, k), t)
@@ -102,7 +114,7 @@ def from_json(d, Type):
     args = get_args(Type)
 
     if origin is None:
-        assert is_dataclass(Type)
+        assert is_dataclass(Type) or is_namedtuple(Type)
         hints = get_type_hints(Type)
         return Type(**{  # meh, but not sure if there is a faster way?
             k: from_json(d[k], t)
@@ -196,3 +208,10 @@ class P:
     y: int
 
 do_json(P(x=1, y=2), P)
+
+# Namedtuple
+class Name(NamedTuple):
+    first: str
+    last: str
+
+do_json(Name(first='aaa', last='bbb'), Name)
