@@ -42,6 +42,9 @@ def profile(name: str):
     results_file.write_text(profiler.output_html())
 
 
+Json = dict[str, Any] | tuple[Any, ...]
+
+
 ident = lambda x: x
 
 
@@ -222,13 +225,37 @@ class XDict(Schema):
         }
 
 
+# TODO unify with primitives?
+JTypes = {int, str, type(None), float, bool}
+
+
+def _exc_helper(args):
+    for a in args:
+        at = type(a)
+        assert at in JTypes, (a, at)
+        yield a
+
+@dataclass(slots=True)
+class XException(Schema):
+    def to_json(self, o: Exception) -> Json:
+        return tuple(_exc_helper(o.args))
+
+    def from_json(self, d: Json):
+        return self.type(*d)
+
+
 def build_schema(Type) -> Schema:
     prim = primitives_from.get(Type)
     if prim is not None:
         return Primitive(type=Type)
 
     origin = get_origin(Type)
+
+    # if origin not none, it's some sort of generic type?
     if origin is None:
+        if issubclass(Type, Exception):
+            return XException(type=Type)
+
         assert is_dataclass(Type) or is_namedtuple(Type)
         hints = get_type_hints(Type)
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
@@ -303,7 +330,20 @@ def do_json(o, T, expected=None):
     # print("restored", o2, T)
     # print('-----')
 
-    assert expected == o2, (expected, o2)
+    # Exception's don't support equality normally, so we need to do some hacks..
+    def normalise(x):
+        if isinstance(x, Exception):
+            return (type(x), x.args)
+        if type(x) is list:
+            return [(type(i), i.args) if isinstance(i, Exception) else i for i in x]
+        return x
+
+    # ugh that doesn't work
+    # def exc_eq(s, other):
+    #     return (type(s), s.args) == (type(other), other.args)
+    # Exception.__eq__ = exc_eq
+
+    assert normalise(expected) == normalise(o2), (expected, o2)
 
 
 @dataclass
@@ -369,6 +409,16 @@ def test_basic() -> None:
     do_json({}, dict[str, Any])
     do_json(WithJson(id=123, raw_data=dict(payload='whatever', tags=['a', 'b', 'c'])), WithJson)
     do_json([], list[Any])
+
+    # exceptions
+    do_json(RuntimeError('whatever!'), RuntimeError)
+    do_json([
+        RuntimeError('I', 'am', 'exception', 123),
+        P(x=1, y=2),
+        P(x=11, y=22),
+        RuntimeError('more stuff'),
+        RuntimeError(),
+    ], list[RuntimeError | P])
 
 
 
