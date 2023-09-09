@@ -114,32 +114,42 @@ class Schema:
 @dataclass(slots=True)
 class Primitive(Schema):
     def to_json(self, o):
-        prim = primitives_to.get(self.type)
-        assert prim is not None
-        return prim(o)
+        # NOTE: returning here directly (instead of calling identity lambda) gives about 20% speedup
+        # I think custom types should have their own Schema subclass
+        return o
+        # prim = primitives_to.get(self.type)
+        # assert prim is not None
+        # return prim(o)
 
     def from_json(self, d):
-        prim = primitives_from.get(self.type)
-        assert prim is not None
-        return prim(d)
+        return d
+        # prim = primitives_from.get(self.type)
+        # assert prim is not None
+        # return prim(d)
 
 
 @dataclass(slots=True)
 class Dataclass(Schema):
-    fields: dict[str, Schema]
+    # using list of tuples instead of dict gives about 5% speedup
+    fields: tuple[tuple[str, Schema], ...]
 
     def to_json(self, o):
+        # TODO would be nice if we didn't create a dictionary here
+        # considering it is going to be serialized to json anyway
+        # maybe we need to yield json bits actually?
         return {
-            # TODO would be nice to get rid of getattr here?
+            # would be kinda nice if we didn't have to use getattr here
+            # but I think for dataclass this is actually the fastest way
+            # TODO for NamedTuples could just use them as tuples.. think about separating
             k: ks.to_json(getattr(o, k))
-            for k, ks in self.fields.items()
+            for k, ks in self.fields
         }
 
     def from_json(self, d):
         # dict comprehension is meh, but not sure if there is a faster way?
         return self.type(**{
             k: ks.from_json(d[k])
-            for k, ks in self.fields.items()
+            for k, ks in self.fields
         })
 
 
@@ -149,15 +159,16 @@ class XUnion(Schema):
     args: tuple[tuple[int, Schema], ...]
 
     def to_json(self, o):
+        # TODO could do a bit of magic here and remember the last index that worked?
+        # that way if some objects dominate the Union, the first isinstance would always work
         for tidx, a in self.args:
             if isinstance(o, a.type):  # this takes quite a lot of time (sort of expected?)
                 # using lists instead of dicts gives a bit of a speedup (about 15%)
                 # so probably worth it even though a bit cryptic
                 # also could add a tag or something?
-                # TODO could try returning tuples instead of lists?
-                # yeah, it's a little faster -- should do it
+                # NOTE: using tuple instead of list gives a tiiny speedup
                 jj = a.to_json(o)
-                return [tidx, jj]
+                return (tidx, jj)
                 # {
                 #     '__union_index__': tidx,
                 #     '__value__': jj,
@@ -180,7 +191,7 @@ class XList(Schema):
     arg: Schema
 
     def to_json(self, o):
-        return [self.arg.to_json(i) for i in o]
+        return tuple(self.arg.to_json(i) for i in o)
 
     def from_json(self, d):
         return [self.arg.from_json(i) for i in d]
@@ -191,7 +202,7 @@ class XTuple(Schema):
     args: tuple[Schema, ...]
 
     def to_json(self, o):
-        return [a.to_json(i) for a, i in zip(self.args, o)]
+        return tuple(a.to_json(i) for a, i in zip(self.args, o))
 
     def from_json(self, d):
         return tuple(a.from_json(i) for a, i in zip(self.args, d))
@@ -202,7 +213,7 @@ class XSequence(Schema):
     arg: Schema
 
     def to_json(self, o):
-        return [self.arg.to_json(i) for i in o]
+        return tuple(self.arg.to_json(i) for i in o)
 
     def from_json(self, d):
         return tuple(self.arg.from_json(i) for i in d)
@@ -235,7 +246,7 @@ def build_schema(Type) -> Schema:
     if origin is None:
         assert is_dataclass(Type) or is_namedtuple(Type)
         hints = _get_type_hints(Type)
-        fields = {k: build_schema(t) for k, t in hints.items()}
+        fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return Dataclass(
             type=Type,
             fields=fields,
@@ -467,7 +478,7 @@ def benchmark():
     import gc
     gc.disable()
 
-    N = 5_000_000
+    N = 1_000_000
     objects: list[BType] = []
     for i in range(N):
         if i % 2 == 0:
@@ -484,12 +495,12 @@ def benchmark():
             jsons[i] = schema.to_json(objects[i])
     print(len(jsons))
 
-    # res = [None for _ in range(N)]
-    # with timer(f'deserializing {N} objects of type {BType}'):
-    #     for i in range(N):
-    #         res[i] = schema.from_json(jsons[i])
-    # print(len(res))
+    res = [None for _ in range(N)]
+    with timer(f'deserializing {N} objects of type {BType}'):
+        for i in range(N):
+            res[i] = schema.from_json(jsons[i])
+    print(len(res))
 
 
-# test()
+test()
 benchmark()
