@@ -59,17 +59,236 @@ def is_namedtuple(t) -> bool:
     return all(type(n) == str for n in f)
 
 
+from functools import lru_cache
+
+
+def memoize_cls(fun):
+    return lru_cache(None)(fun)
+
+
+missing = object()
+def memoize_cls_by_str(fun):  # ok, this seems quite a bit slower than hash
+    cache = {}
+    def wrapper(cls):
+        key = str(cls)
+        v = cache.get(key, missing)
+        if v is not missing:
+            return v
+        v = fun(cls)
+        print("BEFORE", len(cache))
+        cache[key] = v
+        print("AFTER ", len(cache))
+        print("CALLING", fun, cls, cache)
+        return v
+    return wrapper
+
+# gives a big speedup, these are pretty slow
+_get_type_hints = memoize_cls(get_type_hints)
+_get_origin     = memoize_cls(get_origin)
+_get_args       = memoize_cls(get_args)
+_is_dataclass   = memoize_cls(is_dataclass)
+_is_namedtuple  = memoize_cls(is_namedtuple)
+
+
+
+from typing import Any
+
+from abc import abstractmethod
+
+# TODO frozen?
+#
+@dataclass
+class Schema:
+    type: Any
+
+    @abstractmethod
+    def to_json(self, o):
+        pass
+
+    @abstractmethod
+    def from_json(self, d):
+        pass
+
+
+@dataclass
+class Primitive(Schema):
+    def to_json(self, o):
+        prim = primitives_to.get(self.type)
+        assert prim is not None
+        return prim(o)
+
+    def from_json(self, d):
+        prim = primitives_from.get(self.type)
+        assert prim is not None
+        return prim(d)
+
+
+@dataclass
+class Dataclass(Schema):
+    fields: dict[str, Schema]
+
+    def to_json(self, o):
+        return {
+            # TODO would be nice to get rid of getattr here?
+            k: ks.to_json(getattr(o, k))
+            for k, ks in self.fields.items()
+        }
+
+    def from_json(self, d):
+        # dict comprehension is meh, but not sure if there is a faster way?
+        return self.type(**{
+            k: ks.from_json(d[k])
+            for k, ks in self.fields.items()
+        })
+
+
+@dataclass
+class XUnion(Schema):
+    args: tuple[Schema, ...]
+
+    def to_json(self, o):
+        for tidx, a in enumerate(self.args):
+            if isinstance(o, a.type):
+                jj = a.to_json(o)
+                return {
+                    '__type__': 'union',
+                    '__index__': tidx,
+                    '__value__': jj,
+                }
+        else:
+            assert False, "shouldn't happen!"
+
+    def from_json(self, d):
+        tidx = d['__index__']
+        s = self.args[tidx]
+        return s.from_json(d['__value__'])
+
+
+
+@dataclass
+class XList(Schema):
+    arg: Schema
+
+    def to_json(self, o):
+        return [self.arg.to_json(i) for i in o]
+
+    def from_json(self, d):
+        return [self.arg.from_json(i) for i in d]
+
+
+@dataclass
+class XTuple(Schema):
+    args: tuple[Schema, ...]
+
+    def to_json(self, o):
+        return [a.to_json(i) for a, i in zip(self.args, o)]
+
+    def from_json(self, d):
+        return tuple(a.from_json(i) for a, i in zip(self.args, d))
+
+
+@dataclass
+class XSequence(Schema):
+    arg: Schema
+
+    def to_json(self, o):
+        return [self.arg.to_json(i) for i in o]
+
+    def from_json(self, d):
+        return tuple(self.arg.from_json(i) for i in d)
+
+
+@dataclass
+class XDict(Schema):
+    ft: Primitive
+    tt: Schema
+
+    def to_json(self, o):
+        return {
+            k: self.tt.to_json(v)
+            for k, v in o.items()
+        }
+
+    def from_json(self, d):
+        return {
+            k: self.tt.from_json(v)
+            for k, v in d.items()
+        }
+
+
+def build_schema(Type) -> Schema:
+    prim = primitives_from.get(Type)
+    if prim is not None:
+        return Primitive(type=Type)
+
+    origin = get_origin(Type)
+    if origin is None:
+        assert is_dataclass(Type) or is_namedtuple(Type)
+        hints = _get_type_hints(Type)
+        fields = {k: build_schema(t) for k, t in hints.items()}
+        return Dataclass(
+            type=Type,
+            fields=fields,
+        )
+
+    args = get_args(Type)
+    is_union = origin is Union or origin is types.UnionType
+    if is_union:
+        return XUnion(
+            type=Type,
+            args=tuple(build_schema(a) for a in args),
+        )
+
+    is_listish = origin is list
+    if is_listish:
+        (t,) = args
+        return XList(
+            type=Type,
+            arg=build_schema(t),
+        )
+
+    # hmm check for is typing.Sequence doesn't pass for some reason
+    # perhaps because it's a deprecated alias?
+    is_tuplish = origin is tuple or origin is abc.Sequence
+    if is_tuplish:
+        if origin is tuple:
+            return XTuple(
+                type=Type,
+                args=tuple(build_schema(a) for a in args),
+            )
+        else:
+            (t, ) = args
+            return XSequence(
+                type=Type,
+                arg=build_schema(t),
+            )
+
+    is_dictish = origin is dict
+    if is_dictish:
+        (ft, tt) = args
+        fts = build_schema(ft)
+        tts = build_schema(tt)
+        assert isinstance(fts, Primitive)
+        return XDict(
+            type=Type,
+            ft=fts,
+            tt=tts,
+        )
+
+    assert False, f"unsupported: {Type} {origin} {args}"
+
+
 def to_json(o, Type):
     prim = primitives_to.get(Type)
     if prim is not None:
         return prim(o)
 
-    origin = get_origin(Type)
-    args = get_args(Type)
+    origin = _get_origin(Type)
+    args = _get_args(Type)
 
     if origin is None:
-        assert is_dataclass(Type) or is_namedtuple(Type)
-        hints = get_type_hints(Type)
+        assert _is_dataclass(Type) or _is_namedtuple(Type)
+        hints = _get_type_hints(Type)
         return {
             k: to_json(getattr(o, k), t)
             for k, t in hints.items()
@@ -96,7 +315,7 @@ def to_json(o, Type):
         if origin is tuple:
             return [to_json(i, t) for i, t in zip(o, args)]
         else:
-            # meh
+            # for sequence.. a bit meh
             (t,) = args
             return [to_json(i, t) for i in o]
 
@@ -106,7 +325,6 @@ def to_json(o, Type):
         return {k: to_json(v, tt) for k, v in o.items()}
 
     assert False, f"unsupported: {o} {Type} {origin} {args}"
-
 
 from collections import abc
 def from_json(d, Type):
@@ -119,7 +337,7 @@ def from_json(d, Type):
 
     if origin is None:
         assert is_dataclass(Type) or is_namedtuple(Type)
-        hints = get_type_hints(Type)
+        hints = _get_type_hints(Type)
         return Type(**{  # meh, but not sure if there is a faster way?
             k: from_json(d[k], t)
             for k, t in hints.items()
@@ -163,11 +381,17 @@ def do_json(o, T, expected=None):
     if expected is None:
         expected = o
 
+    schema = build_schema(T)
+
+    print('-----')
+    print("type", T)
+    print("schema", schema)
     print("original", o, T)
-    j = to_json(o, T)
+    j = schema.to_json(o)
     print("json    ", j)
-    o2 = from_json(j, T)
+    o2 = schema.from_json(j)
     print("restored", o2, T)
+    print('-----')
 
     assert expected == o2, (expected, o2)
 
@@ -238,16 +462,21 @@ def benchmark():
         else:
             objects.append(Name(first=f'first {i}', last=f'last {i}'))
 
+
+    schema = build_schema(BType)
+
     jsons = [None for _ in range(N)]
     with timer(f'serializing   {N} objects of type {BType}'):
         for i in range(N):
-            jsons[i] = to_json(objects[i], BType)
+            jsons[i] = schema.to_json(objects[i])
+    print(len(jsons))
 
     res = [None for _ in range(N)]
     with timer(f'deserializing {N} objects of type {BType}'):
         for i in range(N):
-            res[i] = from_json(jsons[i], BType)
+            res[i] = schema.from_json(jsons[i])
+    print(len(res))
 
 
-
+# test()
 benchmark()
