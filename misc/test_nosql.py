@@ -5,7 +5,11 @@ from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple,
 
 import orjson
 
-from cachew import is_union
+from codetiming import Timer
+
+def timer(name: str) -> Timer:
+    return Timer(name=name, text=name + ': ' + '{:.2f}s')
+
 
 @dataclass
 class Comment:
@@ -168,50 +172,82 @@ def do_json(o, T, expected=None):
     assert expected == o2, (expected, o2)
 
 
-# primitives
-do_json(1, int)
-do_json('aaa', str)
-do_json(None, type(None))
-# TODO emit other value as none type? not sure what should happen
-
-# unions
-do_json(1, Union[str, int])
-do_json('aaa', str | int)
-
-# optionals
-do_json('aaa', Optional[str])
-do_json('aaa', str | None)
-do_json('aaa', str | None)
-
-# lists
-do_json([1, 2, 3], list[int])
-do_json([1, 2, 3], List[int])
-do_json([1, 2, 3], Sequence[int], expected=(1, 2, 3))
-do_json((1, 2, 3), Sequence[int])
-do_json((1, 2, 3), Tuple[int, int, int])
-do_json((1, 2, 3), tuple[int, int, int])
-
-
-# dicts
-do_json({'a': 'aa', 'b': 'bb'}, dict[str, str])
-do_json({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
-
-
-# compounds of simple types
-do_json(['1', 2, '3'], list[str | int])
-
-
-# dataclasses
 @dataclass
 class P:
     x: int
     y: int
 
-do_json(P(x=1, y=2), P)
 
-# Namedtuple
 class Name(NamedTuple):
     first: str
     last: str
 
-do_json(Name(first='aaa', last='bbb'), Name)
+
+def test():
+    # primitives
+    do_json(1, int)
+    do_json('aaa', str)
+    do_json(None, type(None))
+    # TODO emit other value as none type? not sure what should happen
+
+    # unions
+    do_json(1, Union[str, int])
+    do_json('aaa', str | int)
+
+    # optionals
+    do_json('aaa', Optional[str])
+    do_json('aaa', str | None)
+    do_json('aaa', str | None)
+
+    # lists
+    do_json([1, 2, 3], list[int])
+    do_json([1, 2, 3], List[int])
+    do_json([1, 2, 3], Sequence[int], expected=(1, 2, 3))
+    do_json((1, 2, 3), Sequence[int])
+    do_json((1, 2, 3), Tuple[int, int, int])
+    do_json((1, 2, 3), tuple[int, int, int])
+
+
+    # dicts
+    do_json({'a': 'aa', 'b': 'bb'}, dict[str, str])
+    do_json({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
+
+
+    # compounds of simple types
+    do_json(['1', 2, '3'], list[str | int])
+
+
+    # dataclasses
+    do_json(P(x=1, y=2), P)
+
+    # Namedtuple
+    do_json(Name(first='aaa', last='bbb'), Name)
+
+
+BType = Union[str, Name]
+
+def benchmark():
+    import gc
+    gc.disable()
+
+    N = 1_000_000
+    objects: list[BType] = []
+    for i in range(N):
+        if i % 2 == 0:
+            objects.append(str(i))
+        else:
+            objects.append(Name(first=f'first {i}', last=f'last {i}'))
+
+    jsons = [None for _ in range(N)]
+    with timer(f'serializing   {N} objects of type {BType}'):
+        for i in range(N):
+            jsons[i] = to_json(objects[i], BType)
+
+    res = [None for _ in range(N)]
+    with timer(f'deserializing {N} objects of type {BType}'):
+        for i in range(N):
+            res[i] = from_json(jsons[i], BType)
+
+
+
+benchmark()
