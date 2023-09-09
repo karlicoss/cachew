@@ -144,24 +144,33 @@ class Dataclass(Schema):
 
 @dataclass
 class XUnion(Schema):
-    args: tuple[Schema, ...]
+    # it's a bit faster to cache indixes here, gives about 15% speedup
+    args: tuple[tuple[int, Schema], ...]
 
     def to_json(self, o):
-        for tidx, a in enumerate(self.args):
-            if isinstance(o, a.type):
+        for tidx, a in self.args:
+            if isinstance(o, a.type):  # this takes quite a lot of time (sort of expected?)
+                # using lists instead of dicts gives a bit of a speedup (about 15%)
+                # so probably worth it even though a bit cryptic
+                # also could add a tag or something?
+                # TODO could try returning tuples instead of lists?
+                # yeah, it's a little faster -- should do it
                 jj = a.to_json(o)
-                return {
-                    '__type__': 'union',
-                    '__index__': tidx,
-                    '__value__': jj,
-                }
+                return [tidx, jj]
+                # {
+                #     '__union_index__': tidx,
+                #     '__value__': jj,
+                # }
         else:
             assert False, "shouldn't happen!"
 
     def from_json(self, d):
-        tidx = d['__index__']
-        s = self.args[tidx]
-        return s.from_json(d['__value__'])
+        # tidx = d['__union_index__']
+        # s = self.args[tidx]
+        # return s.from_json(d['__value__'])
+        tidx, val = d
+        _, s = self.args[tidx]
+        return s.from_json(val)
 
 
 
@@ -236,7 +245,10 @@ def build_schema(Type) -> Schema:
     if is_union:
         return XUnion(
             type=Type,
-            args=tuple(build_schema(a) for a in args),
+            args=tuple(
+                (tidx, build_schema(a))
+                for tidx, a in enumerate(args)
+            ),
         )
 
     is_listish = origin is list
@@ -454,7 +466,7 @@ def benchmark():
     import gc
     gc.disable()
 
-    N = 1_000_000
+    N = 5_000_000
     objects: list[BType] = []
     for i in range(N):
         if i % 2 == 0:
