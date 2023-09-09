@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass
 import inspect
-from typing import Union, get_origin, get_args, Optional
+from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple
 
 import orjson
 
@@ -59,13 +59,25 @@ def to_json(o, Type):
                 return {'__type__': 'union', '__index__': ti, '__value__': jj}
         else:
             assert False, "shouldn't happen"
+    is_listish = origin is list
+    if is_listish:
+        (t,) = args
+        return [to_json(i, t) for i in o]
+    # hmm check for is typing.Sequence doesn't pass for some reason
+    # perhaps because it's a deprecated alias?
+    is_tuplish = origin is tuple or origin is abc.Sequence
+    if is_tuplish:
+        if origin is tuple:
+            return [to_json(i, t) for i, t in zip(o, args)]
+        else:
+            # meh
+            (t,) = args
+            return [to_json(i, t) for i in o]
 
-        # TODO need to strip off generic??
-        # need to figure out which of the union members it actually is?
-
-    assert False, f"unsupported: {o} {Type}"
+    assert False, f"unsupported: {o} {Type} {origin} {args}"
 
 
+from collections import abc
 def from_json(d, Type):
     prim = primitives_from.get(Type)
     if prim is not None:
@@ -78,6 +90,18 @@ def from_json(d, Type):
         ti = d['__index__']
         t = args[ti]
         return from_json(d['__value__'], t)
+    is_listish = origin is list
+    if is_listish:
+        (t,) = args
+        return [from_json(i, t) for i in d]
+    is_tuplish = origin is tuple or origin is abc.Sequence
+    if is_tuplish:
+        if origin is tuple:
+            return tuple(from_json(i, t) for i, t in zip(d, args))
+        else:
+            # meh
+            (t,) = args
+            return tuple(from_json(i, t) for i in d)
     assert False
 
 
@@ -86,13 +110,17 @@ Type = str | int
 item: Type = 3
 
 
-def do_json(o, T):
+def do_json(o, T, expected=None):
+    if expected is None:
+        expected = o
+
     print("original", o, T)
     j = to_json(o, T)
     print("json    ", j)
     o2 = from_json(j, T)
     print("restored", o2, T)
-    assert o == o2, (o, o2)
+
+    assert expected == o2, (expected, o2)
 
 
 # primitives
@@ -110,6 +138,13 @@ do_json('aaa', Optional[str])
 do_json('aaa', str | None)
 do_json('aaa', str | None)
 
+# lists
+do_json([1, 2, 3], list[int])
+do_json([1, 2, 3], List[int])
+do_json([1, 2, 3], Sequence[int], expected=(1, 2, 3))
+do_json((1, 2, 3), Sequence[int])
+do_json((1, 2, 3), Tuple[int, int, int])
+do_json((1, 2, 3), tuple[int, int, int])
 
 
 # doit(item)
