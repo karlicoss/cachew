@@ -95,9 +95,10 @@ from typing import Any
 
 from abc import abstractmethod
 
-# TODO frozen?
-#
-@dataclass
+
+# NOTE: using slots gives a small speedup (maybe 5%?)
+# I suppose faster access to fields or something..
+@dataclass(slots=True)
 class Schema:
     type: Any
 
@@ -110,7 +111,7 @@ class Schema:
         pass
 
 
-@dataclass
+@dataclass(slots=True)
 class Primitive(Schema):
     def to_json(self, o):
         prim = primitives_to.get(self.type)
@@ -123,7 +124,7 @@ class Primitive(Schema):
         return prim(d)
 
 
-@dataclass
+@dataclass(slots=True)
 class Dataclass(Schema):
     fields: dict[str, Schema]
 
@@ -142,7 +143,7 @@ class Dataclass(Schema):
         })
 
 
-@dataclass
+@dataclass(slots=True)
 class XUnion(Schema):
     # it's a bit faster to cache indixes here, gives about 15% speedup
     args: tuple[tuple[int, Schema], ...]
@@ -174,7 +175,7 @@ class XUnion(Schema):
 
 
 
-@dataclass
+@dataclass(slots=True)
 class XList(Schema):
     arg: Schema
 
@@ -185,7 +186,7 @@ class XList(Schema):
         return [self.arg.from_json(i) for i in d]
 
 
-@dataclass
+@dataclass(slots=True)
 class XTuple(Schema):
     args: tuple[Schema, ...]
 
@@ -196,7 +197,7 @@ class XTuple(Schema):
         return tuple(a.from_json(i) for a, i in zip(self.args, d))
 
 
-@dataclass
+@dataclass(slots=True)
 class XSequence(Schema):
     arg: Schema
 
@@ -207,7 +208,7 @@ class XSequence(Schema):
         return tuple(self.arg.from_json(i) for i in d)
 
 
-@dataclass
+@dataclass(slots=True)
 class XDict(Schema):
     ft: Primitive
     tt: Schema
