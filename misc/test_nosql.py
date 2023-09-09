@@ -74,6 +74,11 @@ def to_json(o, Type):
             (t,) = args
             return [to_json(i, t) for i in o]
 
+    is_dictish = origin is dict
+    if is_dictish:
+        (ft, tt) = args
+        return {k: to_json(v, tt) for k, v in o.items()}
+
     assert False, f"unsupported: {o} {Type} {origin} {args}"
 
 
@@ -85,15 +90,18 @@ def from_json(d, Type):
 
     origin = get_origin(Type)
     args = get_args(Type)
+
     is_union = origin is Union or origin is types.UnionType
     if is_union:
         ti = d['__index__']
         t = args[ti]
         return from_json(d['__value__'], t)
+
     is_listish = origin is list
     if is_listish:
         (t,) = args
         return [from_json(i, t) for i in d]
+
     is_tuplish = origin is tuple or origin is abc.Sequence
     if is_tuplish:
         if origin is tuple:
@@ -102,7 +110,13 @@ def from_json(d, Type):
             # meh
             (t,) = args
             return tuple(from_json(i, t) for i in d)
-    assert False
+
+    is_dictish = origin is dict
+    if is_dictish:
+        (ft, tt) = args
+        return {k: from_json(v, tt) for k, v in d.items()}
+
+    assert False, f"unsupported: {d} {Type} {origin} {args}"
 
 
 Type = str | int
@@ -147,5 +161,11 @@ do_json((1, 2, 3), Tuple[int, int, int])
 do_json((1, 2, 3), tuple[int, int, int])
 
 
-# doit(item)
-# print(orjson.dumps(item))
+# dicts
+do_json({'a': 'aa', 'b': 'bb'}, dict[str, str])
+do_json({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
+
+# compounds of simple types
+do_json(['1', 2, '3'], list[str | int])
+
+
