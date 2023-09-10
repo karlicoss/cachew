@@ -249,29 +249,26 @@ class XException(Schema):
 @dataclass(slots=True)
 class XDatetime(Schema):
     def to_json(self, o: datetime) -> Json:
-        # TODO could also represent as tuple? not sure
-        # benchmark!
         iso = o.isoformat()
         tz = o.tzinfo
         if tz is None:
-            return iso
+            return (iso, None)
 
         if isinstance(tz, pytz.BaseTzInfo):
             zone = tz.zone
             # should be present: https://github.com/python/typeshed/blame/968fd6d01d23470e0c8368e7ee7c43f54aaedc0e/stubs/pytz/pytz/tzinfo.pyi#L6
             assert zone is not None, (o, tz)
-            return iso + ' ' + zone
+            return (iso, zone)
         else:
-            return iso
+            return (iso, None)
 
 
-    def from_json(self, d: str):
-        spl = d.split(' ')
-        dt = datetime.fromisoformat(spl[0])
-        if len(spl) == 1:
+    def from_json(self, d: tuple):
+        iso, zone = d
+        dt = datetime.fromisoformat(iso)
+        if zone is None:
             return dt
 
-        zone = spl[1]
         tz = pytz.timezone(zone)
         return dt.astimezone(tz)
 
@@ -482,8 +479,8 @@ def test_basic() -> None:
         if d in dates_pytz:
             assert d.tzinfo.zone == dd.tzinfo.zone
 
-    assert do_json(dsummer_tz, datetime)[0] == '2020-08-03T01:02:03+01:00 Europe/London'
-    assert do_json(dwinter, datetime)[0] == '2020-02-03T01:02:03'
+    assert do_json(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London')
+    assert do_json(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None)
 
 
 
