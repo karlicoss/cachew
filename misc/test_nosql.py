@@ -532,6 +532,24 @@ def do_test(*, test_name: str, Type, factory, count: int) -> None:
                 i += 1
         conn.close()
 
+    cache = db.parent / 'cache.jsonl'
+
+    with profile(test_name + ':jsonl_dump'), timer(f'jsonl dump    {count} objects of type {Type}'):
+        with cache.open('wb') as fo:
+            for s in strs:
+                fo.write(s + b'\n')
+
+    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore
+    with profile(test_name + ':jsonl_load'), timer(f'jsonl load    {count} objects of type {Type}'):
+        i = 0
+        with cache.open('rb') as fo:
+            for l in fo:
+                l = l.rstrip(b'\n')
+                strs3[i] = l
+                i += 1
+
+    assert strs2[:100] + strs2[-100:] == strs3[:100] + strs3[-100:]  # just in case
+
     jsons2: list[Json] = [None for _ in range(count)]
     with profile(test_name + ':json_load'  ), timer(f'json load     {count} objects of type {Type}'):
         for i in range(count):
