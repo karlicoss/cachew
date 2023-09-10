@@ -17,6 +17,8 @@ from typing import (Any, Callable, Iterator, List, NamedTuple, Optional, Tuple,
 import dataclasses
 import warnings
 
+import cattrs
+import orjson
 
 import appdirs
 
@@ -562,9 +564,10 @@ class DbHelper:
 
         self.binder = NTBinder.make(tp=cls)
         # actual cache
-        self.table_cache     = Table('cache'    , self.meta, *self.binder.columns)
+        # FIXME change table definition
+        self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.String))
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
-        self.table_cache_tmp = Table('cache_tmp', self.meta, *self.binder.columns)
+        self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.String))
 
     def __enter__(self) -> 'DbHelper':
         return self
@@ -882,7 +885,7 @@ class Context(Generic[P]):
         }
         kwargs = {**defaults, **kwargs}
         binder = NTBinder.make(tp=self.cls_)
-        schema = str(binder.columns) # todo not super nice, but works fine for now
+        schema = str('FIXME') # todo not super nice, but works fine for now
         hash_parts = {
             'cachew'      : CACHEW_VERSION,
             'schema'      : schema,
@@ -993,11 +996,14 @@ def cachew_wrapper(
 
             logger.debug('old hash: %s', old_hash)
 
+            converter = cattrs.Converter()
 
             def cached_items():
                 rows = conn.execute(table_cache.select())
-                for row in rows:
-                    yield binder.from_row(row)
+                for (js,) in rows:
+                    xx = orjson.loads(js)
+                    rr = converter.structure(xx, binder.type_)
+                    yield rr
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
@@ -1107,8 +1113,10 @@ def cachew_wrapper(
                         dict(zip(column_names, row))
                         for row in chunk
                     ]
-                    conn.execute(insert_into_table_cache_tmp, chunk_dict)
+                    conn.execute(insert_into_table_cache_tmp, [{'data': c} for c in chunk])
                     chunk = []
+
+            converter = cattrs.Converter()
 
             total_objects = 0
             for d in datas:
@@ -1118,8 +1126,11 @@ def cachew_wrapper(
                 except GeneratorExit:
                     early_exit = True
                     return
-                  
-                chunk.append(binder.to_row(d))
+
+
+                js = converter.unstructure(d, binder.type_)
+                js = orjson.dumps(js) # .decode('utf8') # TODO just dump as bytes?? decoding takes time
+                chunk.append(js)
                 if len(chunk) >= chunk_by:
                     flush()
             flush()

@@ -78,7 +78,8 @@ def test_ntbinder_primitive(tp, val) -> None:
     assert vv == val
 
 
-class UUU(NamedTuple):
+@dataclass
+class UUU:
     xx: int
     yy: int
 
@@ -285,7 +286,10 @@ def test_unsupported_class(tmp_path: Path) -> None:
         list(fun2())
 
 
-class TE2(NamedTuple):
+# NOTE: had to change this from NamedTuple, since cattrs doesn't seem to handle NamedTuple correctly atm
+# performance for current cachew is same for dataclass/NamedTuple, so doesn't impact benchmarks
+@dataclass
+class TE2:
     value: int
     uuu: UUU
     value2: int
