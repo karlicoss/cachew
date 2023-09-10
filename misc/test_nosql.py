@@ -6,6 +6,8 @@ from dataclasses import dataclass, is_dataclass
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import shutil
+import sqlite3
 import sys
 import types
 from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple, Any
@@ -504,12 +506,45 @@ def do_test(*, test_name: str, Type, factory, count: int) -> None:
         for i in range(count):
             jsons[i] = schema.to_json(objects[i])
 
-    res = [None for _ in range(count)]
+    strs: list[bytes] = [None for _ in range(count)]  # type: ignore
+    with profile(test_name + ':json_dump'  ), timer(f'json dump     {count} objects of type {Type}'):
+        for i in range(count):
+            # TODO any orjson options to speed up?
+            strs[i] = orjson.dumps(jsons[i])
+
+    db = Path('/tmp/cachew_test/db.sqlite')
+    if db.parent.exists():
+        shutil.rmtree(db.parent)
+    db.parent.mkdir()
+
+    with profile(test_name + ':sqlite_dump'), timer(f'sqlite dump   {count} objects of type {Type}'):
+        with sqlite3.connect(db) as conn:
+            conn.execute('CREATE TABLE data (value BLOB)')
+            conn.executemany('INSERT INTO data (value) VALUES (?)', [(s, ) for s in strs])
+        conn.close()
+
+    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore
+    with profile(test_name + ':sqlite_load'), timer(f'sqlite load   {count} objects of type {Type}'):
+        with sqlite3.connect(db) as conn:
+            i = 0
+            for (value,) in conn.execute('SELECT value FROM data'):
+                strs2[i] = value
+                i += 1
+        conn.close()
+
+    jsons2: list[Json] = [None for _ in range(count)]
+    with profile(test_name + ':json_load'  ), timer(f'json load     {count} objects of type {Type}'):
+        for i in range(count):
+            # TODO any orjson options to speed up?
+            jsons2[i] = orjson.loads(strs2[i])
+
+    objects2 = [None for _ in range(count)]
     with profile(test_name + ':deserialize'), timer(f'deserializing {count} objects of type {Type}'):
         for i in range(count):
-            res[i] = schema.from_json(jsons[i])
+            objects2[i] = schema.from_json(jsons2[i])
 
-    assert objects == res
+    assert objects == objects2
+
 
 
 @pytest.mark.parametrize('count', [
@@ -554,6 +589,25 @@ def test_datetimes(count: int, request) -> None:
             yield dt.replace(tzinfo=tz)
 
     do_test(test_name=request.node.name, Type=datetime, factory=factory, count=count)
+
+
+def test_many_from_cachew(request) -> None:
+    count = 1_000_000
+
+    class UUU(NamedTuple):
+        xx: int
+        yy: int
+
+    class TE2(NamedTuple):
+        value: int
+        uuu: UUU
+        value2: int
+
+    def factory(*, count: int):
+        for i in range(count):
+            yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
+
+    do_test(test_name=request.node.name, Type=TE2, factory=factory, count=count)
 
 
 # TODO next test should probs be runtimeerror?
