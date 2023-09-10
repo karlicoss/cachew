@@ -495,35 +495,24 @@ gc.disable()
 import pytest
 
 
-BType = Union[str, Name]
+def do_test(*, test_name: str, Type, factory, count: int) -> None:
+    # TODO measure this too? this is sort of a baseline for deserializing
+    with profile(test_name + ':baseline'   ), timer(f'building      {count} objects of type {Type}'):
+        objects = list(factory(count=count))
 
-def prepare_union_str_namedtuple(N):
-    objects: list[BType] = []
-    for i in range(N):
-        if i % 2 == 0:
-            objects.append(str(i))
-        else:
-            objects.append(Name(first=f'first {i}', last=f'last {i}'))
-    return objects
+    schema = build_schema(Type)
 
-
-def do_test_union_str_namedtuple(*, count: int, test_name: str) -> None:
-    objects = prepare_union_str_namedtuple(N=count)
-    N = len(objects)
-
-    schema = build_schema(BType)
-
-    jsons = [None for _ in range(N)]
-    with profile(test_name + ':serialize'), timer(f'serializing   {N} objects of type {BType}'):
-        for i in range(N):
+    jsons = [None for _ in range(count)]
+    with profile(test_name + ':serialize'  ), timer(f'serializing   {count} objects of type {Type}'):
+        for i in range(count):
             jsons[i] = schema.to_json(objects[i])
-    print(len(jsons))
 
-    res = [None for _ in range(N)]
-    with profile(test_name + ':deserialize'), timer(f'deserializing {N} objects of type {BType}'):
-        for i in range(N):
+    res = [None for _ in range(count)]
+    with profile(test_name + ':deserialize'), timer(f'deserializing {count} objects of type {Type}'):
+        for i in range(count):
             res[i] = schema.from_json(jsons[i])
-    print(len(res))
+
+    assert objects == res
 
 
 @pytest.mark.parametrize('count', [
@@ -532,10 +521,42 @@ def do_test_union_str_namedtuple(*, count: int, test_name: str) -> None:
     5_000_000,
 ])
 def test_union_str_namedtuple(count: int, request) -> None:
-    do_test_union_str_namedtuple(count=count, test_name=request.node.name)
+    def factory(count: int):
+        objects: list[str | Name] = []
+        for i in range(count):
+            if i % 2 == 0:
+                objects.append(str(i))
+            else:
+                objects.append(Name(first=f'first {i}', last=f'last {i}'))
+        return objects
+
+    do_test(test_name=request.node.name, Type=str | Name, factory=factory, count=count)
 
 # OK, performance with calling this manually (not via pytest) is the same
 # do_test_union_str_namedtuple(count=1_000_000, test_name='adhoc')
+
+
+@pytest.mark.parametrize('count', [
+    50_000,
+    1_000_000,
+    5_000_000,
+])
+def test_datetimes(count: int, request) -> None:
+    def factory(*, count: int):
+        tzs = [
+            pytz.timezone('Europe/Berlin'),
+            timezone.utc,
+            pytz.timezone('America/New_York'),
+        ]
+        start = datetime.fromisoformat('1990-01-01T00:00:00')
+        end   = datetime.fromisoformat('2030-01-01T00:00:00')
+        step = (end - start) / count
+        for i in range(count):
+            dt = start + step * i
+            tz = tzs[i % len(tzs)]
+            yield dt.replace(tzinfo=tz)
+
+    do_test(test_name=request.node.name, Type=datetime, factory=factory, count=count)
 
 
 # TODO next test should probs be runtimeerror?
