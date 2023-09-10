@@ -249,10 +249,31 @@ class XException(Schema):
 @dataclass(slots=True)
 class XDatetime(Schema):
     def to_json(self, o: datetime) -> Json:
-        return o.isoformat()
+        # TODO could also represent as tuple? not sure
+        # benchmark!
+        iso = o.isoformat()
+        tz = o.tzinfo
+        if tz is None:
+            return iso
 
-    def from_json(self, d: Json):
-        return datetime.fromisoformat(d)
+        if isinstance(tz, pytz.BaseTzInfo):
+            zone = tz.zone
+            # should be present: https://github.com/python/typeshed/blame/968fd6d01d23470e0c8368e7ee7c43f54aaedc0e/stubs/pytz/pytz/tzinfo.pyi#L6
+            assert zone is not None, (o, tz)
+            return iso + ' ' + zone
+        else:
+            return iso
+
+
+    def from_json(self, d: str):
+        spl = d.split(' ')
+        dt = datetime.fromisoformat(spl[0])
+        if len(spl) == 1:
+            return dt
+
+        zone = spl[1]
+        tz = pytz.timezone(zone)
+        return dt.astimezone(tz)
 
 
 def build_schema(Type) -> Schema:
@@ -358,7 +379,7 @@ def do_json(o, T, expected=None):
     # Exception.__eq__ = exc_eq
 
     assert normalise(expected) == normalise(o2), (expected, o2)
-    return o2
+    return (j, o2)
 
 
 @dataclass
@@ -439,19 +460,30 @@ def test_basic() -> None:
     tz = pytz.timezone('Europe/London')
     dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
     dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
+    dwinter_tz = tz.localize(dwinter)
+    dsummer_tz = tz.localize(dsummer)
 
+    dates_pytz = [
+        dwinter_tz,
+        dsummer_tz,
+    ]
     dates = [
-        tz.localize(dwinter),
-        tz.localize(dsummer),
+        *dates_pytz,
         dwinter,
         dsummer,
         dsummer.replace(tzinfo=timezone.utc),
         # TODO date class as well?
     ]
-    for dd in dates:
-        ddr = do_json(dd, datetime)
-        # print(dd, dd.tzinfo, ddr, ddr.tzinfo)
-        assert dd.tzinfo == ddr.tzinfo
+    for d in dates:
+        jj, dd = do_json(d, datetime)
+        assert d.tzinfo == dd.tzinfo
+
+        # test that we preserve pytz zone names
+        if d in dates_pytz:
+            assert d.tzinfo.zone == dd.tzinfo.zone
+
+    assert do_json(dsummer_tz, datetime)[0] == '2020-08-03T01:02:03+01:00 Europe/London'
+    assert do_json(dwinter, datetime)[0] == '2020-02-03T01:02:03'
 
 
 
