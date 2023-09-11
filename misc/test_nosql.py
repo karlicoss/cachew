@@ -4,15 +4,19 @@ from collections import abc
 from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass
 from datetime import datetime, timezone
+from functools import partial
 import os
 from pathlib import Path
 import shutil
 import sqlite3
 import sys
 import types
-from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple, Any
+from typing import Union, get_origin, get_args, Optional, List, Sequence, Tuple, get_type_hints, NamedTuple, Any, Literal
 
 
+import cattrs
+from cattrs import Converter
+from cattrs.strategies import configure_tagged_union
 import orjson
 import pytz
 
@@ -348,6 +352,12 @@ def build_schema(Type) -> Schema:
     assert False, f"unsupported: {Type} {origin} {args}"
 
 
+Impl = Literal[
+    'cachew',  # our custom deserialization
+    'cattrs',
+]
+
+
 def do_json(o, T, expected=None):
     if expected is None:
         expected = o
@@ -386,8 +396,8 @@ class P:
     x: int
     y: int
 
-
-class Name(NamedTuple):
+@dataclass
+class Name:
     first: str
     last: str
 
@@ -401,6 +411,8 @@ class WithJson:
 
 
 def test_basic() -> None:
+    # TODO customise with cattrs
+
     # primitives
     do_json(1, int)
     do_json('aaa', str)
@@ -438,7 +450,11 @@ def test_basic() -> None:
     do_json(P(x=1, y=2), P)
 
     # Namedtuple
-    do_json(Name(first='aaa', last='bbb'), Name)
+    class NT(NamedTuple):
+        first: str
+        last: str
+
+    do_json(NT(first='aaa', last='bbb'), NT)
 
     # json-ish stuff
     do_json({}, dict[str, Any])
@@ -494,17 +510,64 @@ gc.disable()
 import pytest
 
 
-def do_test(*, test_name: str, Type, factory, count: int) -> None:
+def do_test(*, test_name: str, Type, factory, count: int, impl: Impl='cachew') -> None:
     # TODO measure this too? this is sort of a baseline for deserializing
     with profile(test_name + ':baseline'   ), timer(f'building      {count} objects of type {Type}'):
         objects = list(factory(count=count))
 
-    schema = build_schema(Type)
+    if impl == 'cachew':
+        schema = build_schema(Type)
+
+        to_json = schema.to_json
+        from_json = schema.from_json
+
+    elif impl == 'cattrs':
+        converter = Converter()
+
+        def is_union(type_) -> bool:
+            origin = get_origin(type_)
+            return origin is Union or origin is types.UnionType
+
+        def union_structure_hook_factory(_):
+            def union_hook(data, type_):
+                args = get_args(type_)
+
+                if data is None:  # we don't try to coerce None into anything
+                    return None
+
+                for t in args:
+                    try:
+                        res = converter.structure(data, t)
+                        print("YAY", data, t)
+                        return res
+                    except Exception:
+                        continue
+                raise ValueError(f"Could not cast {data} to {type_}")
+            return union_hook
+
+        # borrowed from https://github.com/python-attrs/cattrs/issues/423
+        # uhh, this doesn't really work straightaway...
+        # likely need to combine what cattr does with configure_tagged_union
+        # converter.register_structure_hook_factory(is_union, union_structure_hook_factory)
+        # configure_tagged_union(
+        #     union=Type,
+        #     converter=converter,
+        # )
+        # NOTE: this seems to give a bit of speedup... maybe raise an issue or something?
+        unstruct_func = converter._unstructure_func.dispatch(Type)  # about 20% speedup
+        struct_func   = converter._structure_func  .dispatch(Type)  # TODO speedup
+
+        to_json = unstruct_func
+        # todo would be nice to use partial? but how do we bind a positional arg?
+        from_json = lambda x: struct_func(x, Type)
+    else:
+        assert False
+
 
     jsons = [None for _ in range(count)]
     with profile(test_name + ':serialize'  ), timer(f'serializing   {count} objects of type {Type}'):
         for i in range(count):
-            jsons[i] = schema.to_json(objects[i])
+            jsons[i] = to_json(objects[i])
 
     strs: list[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':json_dump'  ), timer(f'json dump     {count} objects of type {Type}'):
@@ -559,18 +622,21 @@ def do_test(*, test_name: str, Type, factory, count: int) -> None:
     objects2 = [None for _ in range(count)]
     with profile(test_name + ':deserialize'), timer(f'deserializing {count} objects of type {Type}'):
         for i in range(count):
-            objects2[i] = schema.from_json(jsons2[i])
+            objects2[i] = from_json(jsons2[i])
 
     assert objects == objects2
 
 
 
-@pytest.mark.parametrize('count', [
-    50_000,
-    1_000_000,
-    5_000_000,
-])
-def test_union_str_namedtuple(count: int, request) -> None:
+@pytest.mark.parametrize('impl', Impl.__args__)
+@pytest.mark.parametrize('count', [50_000, 1_000_000, 5_000_000])
+def test_union_str_dataclass(impl: Impl, count: int, request) -> None:
+    # NOTE: previously was union_str_namedtuple, but adapted to work with cattrs for now
+    # perf difference between datacalss/namedtuple here seems negligible so old benchmark results should apply
+
+    if impl == 'cattrs':
+        pytest.skip('TODO need to adjust the handling of Union types..')
+
     def factory(count: int):
         objects: list[str | Name] = []
         for i in range(count):
@@ -580,18 +646,18 @@ def test_union_str_namedtuple(count: int, request) -> None:
                 objects.append(Name(first=f'first {i}', last=f'last {i}'))
         return objects
 
-    do_test(test_name=request.node.name, Type=str | Name, factory=factory, count=count)
+    do_test(test_name=request.node.name, Type=str | Name, factory=factory, count=count, impl=impl)
 
 # OK, performance with calling this manually (not via pytest) is the same
-# do_test_union_str_namedtuple(count=1_000_000, test_name='adhoc')
+# do_test_union_str_dataclass(count=1_000_000, test_name='adhoc')
 
 
-@pytest.mark.parametrize('count', [
-    50_000,
-    1_000_000,
-    5_000_000,
-])
-def test_datetimes(count: int, request) -> None:
+@pytest.mark.parametrize('impl', Impl.__args__)
+@pytest.mark.parametrize('count', [1_000_000, 5_000_000])
+def test_datetimes(impl: Impl, count: int, request) -> None:
+    if impl == 'cattrs':
+        pytest.skip('TODO support datetime with pytz for cattrs')
+
     def factory(*, count: int):
         tzs = [
             pytz.timezone('Europe/Berlin'),
@@ -606,17 +672,20 @@ def test_datetimes(count: int, request) -> None:
             tz = tzs[i % len(tzs)]
             yield dt.replace(tzinfo=tz)
 
-    do_test(test_name=request.node.name, Type=datetime, factory=factory, count=count)
+    do_test(test_name=request.node.name, Type=datetime, factory=factory, count=count, impl=impl)
 
 
-def test_many_from_cachew(request) -> None:
+@pytest.mark.parametrize('impl', Impl.__args__)
+def test_many_from_cachew(impl: Impl, request) -> None:
     count = 1_000_000
 
-    class UUU(NamedTuple):
+    @dataclass
+    class UUU:
         xx: int
         yy: int
 
-    class TE2(NamedTuple):
+    @dataclass
+    class TE2:
         value: int
         uuu: UUU
         value2: int
@@ -625,7 +694,7 @@ def test_many_from_cachew(request) -> None:
         for i in range(count):
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
-    do_test(test_name=request.node.name, Type=TE2, factory=factory, count=count)
+    do_test(test_name=request.node.name, Type=TE2, factory=factory, count=count, impl=impl)
 
 
 # TODO next test should probs be runtimeerror?
