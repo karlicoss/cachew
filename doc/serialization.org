@@ -1,0 +1,115 @@
+Cachew works kinda like ==functools.lru_cache=, but it also workss in-between program runs.
+For that, it needs to somehow persist the objects on the disk (unlike =lru_cache= which just keeps references to the objects already in process memory).
+
+While persisting objects to the cache, essentially cachew needs to map them into simpler types, i.e. ones you can keep in a database like strings/ints/binary blobs.
+
+At the moment (as of =v0.13.0=), we use sqlite as the cache store, with =sqlalchemy= as the interface to interact with it.
+
+The way cachew works now is, to save the object in cache:
+
+- first it's "flattened out" to conform to the database row model, so individual fields (including recursive fields) become database columns
+- python types are mapped into sqlalchemy types, with extra =sqlalchemy.TypeDecorator= instances to support custom types like =datetime= or =Exception=
+
+You can find a more detailed example [[https://github.com/karlicoss/cachew/blob/175afade0a417bfd533ced174365d246b8a7dabc/src/cachew/__init__.py#L319-L353][here]].
+
+A big problem is that in general it's not really possible to serialize, and especially to deserialize back an arbitrary object in Python, unless you resort to binary serialization like =pickle= (which is very slow and comes with its own hosts of issues).
+
+However in cachew we require the user to supply the *type signature* for the functions that are cached, so we can benefit from it for serializing and deserializing.
+
+Few years ago, when I implemented =cachew= at first, there weren't really many options for serialization driven by type signatures, so I implemented the custom code I mentioned above to support that. In 2023, however, more and more libraries are benefiting from type signatures, in particular for serializing stuff.
+
+So I decided to give it another go, in hope of using some mature library, simplifying cachew's code, and possibly getting a perfromance boost.
+It's possible that I missed some documentation so if you think the problems I am describing can actually be worked around, please don't hesitate to let me know.
+
+* Comparison
+
+In cachew the very minimum we're aiming to support are:
+
+- all json-ish types, e.g. =int=/=str=/=dict=/=list= etc
+- =dataclass= and =NamedTuple=
+- =Optional= and =Union=
+- custom types, e.g. =datetime=, =Exception= (e.g. at least preserve exception message)
+
+See [[file:test_serialization.py]] for more specific examples and supporting evidence for my summary here.
+
+** [[https://docs.python.org/3.10/library/pickle.html][pickle]]
+Builtin pickle module can handle any objects, without even needing type annotations.
+
+However, it's [[https://www.benfrederickson.com/dont-pickle-your-data/][famously very slow]], so I even didn't consider using it.
+
+It's also not secure in general, although in our case we control the objects we save/load from cache, so it's not a big issue.
+
+** [[https://github.com/jsonpickle/jsonpickle#readme][jsonpickle]]
+Jsonpickle -- similar to pickle, can handle any types.
+
+I [[https://github.com/karlicoss/cachew/commit/048df33e65560205d63845f022b027a27719ff48][gave it a go]] just in case, and it's an order of magnitude slower than custom serialization code I already had, which is a no-go.
+
+** [[https://github.com/lidatong/dataclasses-json/#readme][dataclasses-json]]
+TODO link to code
+- CON: requires annotating all dataclasses involved with =@dataclass_json=, recursively.
+  This is a blocker from using it in =cachew=.
+- CON: requires the type to be a =@dataclass= to annotate
+  So if you have something simpler you'll have to wrap it into a dummy dataclass or something.
+- PRO: supports =Union= correctly
+
+** [[https://github.com/marshmallow-code/marshmallow][marshmallow]]
+
+By default marshmallow doesn't support dataclasses or unions, but there are some extra packages
+
+- for dataclasses https://github.com/lovasoa/marshmallow_dataclass
+  - PRO: doesn't require modifying the original class, handles recursion out of the box
+  - CON: doesn't handle =Union= correctly TODO link to code
+    This is a blocker for cachew.
+    In addition it has a custom implementation of Union handling (rather than e.g. relying on =python-marshmallow-union=).
+- https://github.com/adamboche/python-marshmallow-union
+  I didn't even get to try it since if dataclasses don't work marshmallow is a no-go for me.
+  Plus for some reason =marshmallow_dataclass= has a custom Union handling implementation which is different from this one, so it's going to be a huge mess.
+
+** [[https://github.com/pydantic/pydantic#readme][pydantic]]
+- PRO: if you use =TypeAdapter=, you can serialize/deserialize arbitrary types without decorating/inheriting from =BaseModel=
+- CON: doesn't handle =Union= correctly
+  Again, this is a bit blocker. I've created an issue on pydantic bug tracker here: https://github.com/pydantic/pydantic/issues/7391
+
+  Kind of sad, because otherwise pydantic seemed promising!
+
+** [[https://github.com/python-attrs/cattrs#features][cattrs]]
+- PRO: doesn't require modifying the classes you serialise
+- PRO: rich feature set, clearly aiming to comply with standard python's typing annotations
+- PRO: in particular, =Union= types are handled correctly
+
+  The only caveat is that to support proper Union type discrimination, you need to 'register' it first.
+  So essentialy you still have to traverse the type, find all Unions in it and register with =catrrs=.
+  # TODO link to issue?
+- CON: there is an issue with handling =NamedTuple=
+
+  It isn't converted to a dictionary like =dataclass= does, likely a bug.
+  # TODO link to issue
+
+Since the above seems quite good, I did a quick cachew hack on [[https://github.com/karlicoss/cachew/tree/cattrs][cattrs branch]] to try and use it.
+
+The pipeline is the following:
+- serialize type to a dictionary with primitive types via =cattrs=
+- serialize dictionary to a byte string via =orjson=
+- persist the byte string as an sqlite database row
+
+(for deserializing we just do the same in reverse)
+
+You can find the results [[https://github.com/karlicoss/cachew/commit/82691b10cd1d4ced4862dff21cf038fb83f9525c][here]] -- cattrs proved to be quite a huge speedup over my custom serialization code!
+
+It needs a bit more work and evaluation for use in =cachew=, however it's super promising!
+
+# TODO https://catt.rs/en/stable/preconf.html#orjson
+
+Some interesting reading about cattrs:
+- https://threeofwands.com/why-cattrs-is-so-fast/#v2-the-genconverter
+- https://threeofwands.com/why-i-use-attrs-instead-of-pydantic
+
+* Verdict
+
+The biggest shared issues are that most of this libraries:
+- require modifying the original class definitions, either by inheriting or decorating
+- don't handle =Union= at all or don't handle it corectly (usually relying on the structural equivalence rather than actual types)
+
+So for most of them, I even didn't get to trying to support custom types and measuing performance with =cachew=.
+
+Of all of them only =cattrs= stood out, it takes builtin python typing and performance very seriously, so if you need no bullshit serialization in python, I can definitely recommend it. I might switch to it in [[https://github.com/karlicoss/promnesia][promnesia]] (where we have full control over the type we serialize in the database), and could potentially be used in HPI for [[https://github.com/karlicoss/HPI/blob/master/my/core/serialize.py][my.core.serialize]].
