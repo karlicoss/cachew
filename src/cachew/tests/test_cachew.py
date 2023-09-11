@@ -22,7 +22,8 @@ import pytz
 
 import pytest
 
-from .. import cachew, get_logger, PRIMITIVES, NTBinder, CachewException, Types, Values, settings
+from .. import cachew, get_logger, NTBinder, CachewException, settings
+from ..utils import PRIMITIVE_TYPES, Types, Values
 
 
 logger = get_logger()
@@ -58,7 +59,7 @@ def test_mypy_annotations() -> None:
 
     assert types(vs) == types(Values.__args__)  # type: ignore
 
-    for p in PRIMITIVES:
+    for p in PRIMITIVE_TYPES:
         assert p in Values.__args__  # type: ignore
 
 
@@ -689,7 +690,7 @@ class AllTypes:
 
 def test_types(tmp_path: Path) -> None:
     # pylint: disable=no-member
-    assert len(AllTypes.__annotations__) == len(PRIMITIVES)  # precondition so we don't forget to update test
+    assert len(AllTypes.__annotations__) == len(PRIMITIVE_TYPES)  # precondition so we don't forget to update test
 
     tz = pytz.timezone('Europe/Berlin')
     # fmt: off
