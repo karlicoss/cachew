@@ -160,7 +160,7 @@ def test_cattrs():
 
     converter = Converter()
 
-    ### issue: NamedTuples aren't unstructured? TODO file a bug
+    ### issue: NamedTuples aren't unstructured? asked here https://github.com/python-attrs/cattrs/issues/425
     class X(NamedTuple):
         value: int
 
@@ -202,6 +202,18 @@ def test_cattrs():
     print("restored ", objs2)
 
     assert objs == objs2, (objs, objs2)
+    ###
+
+
+    ### issue: unions of simple types aren't supported?
+    # see https://github.com/python-attrs/cattrs/issues/423
+    mixed: list[int | str] = [
+        123,
+        'Jakarta',
+    ]
+    json = converter.unstructure(mixed, list[int | str])
+    # NOTE: this fails
+    # mixed2 = converter.structure(json , list[int | str])
     ###
 
 

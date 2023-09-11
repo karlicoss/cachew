@@ -1,4 +1,4 @@
-Cachew works kinda like ==functools.lru_cache=, but it also workss in-between program runs.
+Cachew works kinda like =functools.lru_cache=, but it also works in-between program runs.
 For that, it needs to somehow persist the objects on the disk (unlike =lru_cache= which just keeps references to the objects already in process memory).
 
 While persisting objects to the cache, essentially cachew needs to map them into simpler types, i.e. ones you can keep in a database like strings/ints/binary blobs.
@@ -45,7 +45,7 @@ Jsonpickle -- similar to pickle, can handle any types.
 I [[https://github.com/karlicoss/cachew/commit/048df33e65560205d63845f022b027a27719ff48][gave it a go]] just in case, and it's an order of magnitude slower than custom serialization code I already had, which is a no-go.
 
 ** [[https://github.com/lidatong/dataclasses-json/#readme][dataclasses-json]]
-TODO link to code
+# TODO link to code
 - CON: requires annotating all dataclasses involved with =@dataclass_json=, recursively.
   This is a blocker from using it in =cachew=.
 - CON: requires the type to be a =@dataclass= to annotate
@@ -58,7 +58,7 @@ By default marshmallow doesn't support dataclasses or unions, but there are some
 
 - for dataclasses https://github.com/lovasoa/marshmallow_dataclass
   - PRO: doesn't require modifying the original class, handles recursion out of the box
-  - CON: doesn't handle =Union= correctly TODO link to code
+  - CON: doesn't handle =Union= correctly
     This is a blocker for cachew.
     In addition it has a custom implementation of Union handling (rather than e.g. relying on =python-marshmallow-union=).
 - https://github.com/adamboche/python-marshmallow-union
@@ -75,15 +75,19 @@ By default marshmallow doesn't support dataclasses or unions, but there are some
 ** [[https://github.com/python-attrs/cattrs#features][cattrs]]
 - PRO: doesn't require modifying the classes you serialise
 - PRO: rich feature set, clearly aiming to comply with standard python's typing annotations
-- PRO: in particular, =Union= types are handled correctly
-
-  The only caveat is that to support proper Union type discrimination, you need to 'register' it first.
-  So essentialy you still have to traverse the type, find all Unions in it and register with =catrrs=.
-  # TODO link to issue?
 - CON: there is an issue with handling =NamedTuple=
 
-  It isn't converted to a dictionary like =dataclass= does, likely a bug.
-  # TODO link to issue
+  It isn't converted to a dictionary like =dataclass= does, [[https://github.com/python-attrs/cattrs/issues/425][likely a bug]]?
+- =Union= types are supported, but require some extra configuration
+
+  Unions work, but you have to 'register' them first.
+  A bit annoying that this is necessary even for simple unions like =int | str=, although [[https://github.com/python-attrs/cattrs/issues/423][possible]] to workaround.
+
+  The plus side is that cattr has a builtin utility for Union type discrimination.
+
+  I guess for my application I could traverse the type and register all necessary Unions with =catrrs=?
+  # TODO create an issue to support opting in everywhere by default?
+
 
 Since the above seems quite good, I did a quick cachew hack on [[https://github.com/karlicoss/cachew/tree/cattrs][cattrs branch]] to try and use it.
 
@@ -112,4 +116,6 @@ The biggest shared issues are that most of this libraries:
 
 So for most of them, I even didn't get to trying to support custom types and measuing performance with =cachew=.
 
-Of all of them only =cattrs= stood out, it takes builtin python typing and performance very seriously, so if you need no bullshit serialization in python, I can definitely recommend it. I might switch to it in [[https://github.com/karlicoss/promnesia][promnesia]] (where we have full control over the type we serialize in the database), and could potentially be used in HPI for [[https://github.com/karlicoss/HPI/blob/master/my/core/serialize.py][my.core.serialize]].
+Of all of them only =cattrs= stood out, it takes builtin python typing and performance very seriously, and very configurable.
+So if you need no bullshit serialization in python, I can definitely recommend it.
+I might switch to it in [[https://github.com/karlicoss/promnesia][promnesia]] (where we have full control over the type we serialize in the database), and could potentially be used in HPI for [[https://github.com/karlicoss/HPI/blob/master/my/core/serialize.py][my.core.serialize]].
