@@ -4,7 +4,6 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, date, timezone
 import inspect
 from itertools import islice, chain
-import os
 from pathlib import Path
 from random import Random
 from subprocess import check_call, check_output, run, PIPE
@@ -24,6 +23,8 @@ import pytest
 
 from .. import cachew, get_logger, NTBinder, CachewException, settings
 from ..utils import PRIMITIVE_TYPES, Types, Values
+
+from .utils import running_on_ci
 
 
 logger = get_logger()
@@ -294,16 +295,10 @@ class TE2(NamedTuple):
 
 # you can run one specific test (e.g. to profile) by passing it as -k to pytest
 # e.g. -k 'test_many[500000-False]'
-# fmt: off
-@pytest.mark.parametrize('count,run_on_ci', [
-    (100_000  , True ),
-    (500_000  , False),
-    (1_000_000, False),
-])
-# fmt: on
-def test_many(count: int, run_on_ci: bool, tmp_path: Path) -> None:
-    if 'CI' in os.environ and not run_on_ci:
-        pytest.skip("test would be too slow on CI anyway, only meant to run manually")
+@pytest.mark.parametrize('count', [100_000, 500_000, 1_000_000])
+def test_many(count: int, tmp_path: Path) -> None:
+    if count > 100_000 and running_on_ci:
+        pytest.skip("test would be too slow on CI, only meant to run manually")
     # should be a parametrized test perhaps
     src = tmp_path / 'source'
     src.touch()

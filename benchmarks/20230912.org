@@ -1,0 +1,180 @@
+Running on @karlicoss desktop PC.
+
+- serializing/deserializing here refers to converting object to json-ish python dictionary (not actual json string!)
+- json dump/json load refers to converting the dict above to a json string and back
+- sqlite dump/jsonl dump refers to saving/loading these strings to a persistent storage
+
+
+#+begin_example
+$ pytest --pyargs --ignore-glob '*test_cachew*' -k marshall -s
+=========================================================== test session starts ============================================================
+platform linux -- Python 3.10.6, pytest-7.3.1, pluggy-1.0.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+configfile: pytest.ini
+plugins: anyio-3.6.2
+collected 37 items / 8 deselected / 29 selected
+
+src/cachew/marshall/cachew.py::test_serialize_and_deserialize PASSED
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-1000000-cachew]
+building      1000000 objects of type str | cachew.tests.marshall.Name: 0.60s
+serializing   1000000 objects of type str | cachew.tests.marshall.Name: 0.85s
+json dump     1000000 objects of type str | cachew.tests.marshall.Name: 0.46s
+sqlite dump   1000000 objects of type str | cachew.tests.marshall.Name: 1.11s
+sqlite load   1000000 objects of type str | cachew.tests.marshall.Name: 0.31s
+jsonl dump    1000000 objects of type str | cachew.tests.marshall.Name: 0.13s
+jsonl load    1000000 objects of type str | cachew.tests.marshall.Name: 0.13s
+json load     1000000 objects of type str | cachew.tests.marshall.Name: 1.04s
+deserializing 1000000 objects of type str | cachew.tests.marshall.Name: 0.86s
+PASSED
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-1000000-cattrs] SKIPPED (TODO need to adjust the handling of Union ...)
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-5000000-cachew]
+building      5000000 objects of type str | cachew.tests.marshall.Name: 3.00s
+serializing   5000000 objects of type str | cachew.tests.marshall.Name: 4.38s
+json dump     5000000 objects of type str | cachew.tests.marshall.Name: 2.14s
+sqlite dump   5000000 objects of type str | cachew.tests.marshall.Name: 5.43s
+sqlite load   5000000 objects of type str | cachew.tests.marshall.Name: 1.47s
+jsonl dump    5000000 objects of type str | cachew.tests.marshall.Name: 0.62s
+jsonl load    5000000 objects of type str | cachew.tests.marshall.Name: 0.64s
+json load     5000000 objects of type str | cachew.tests.marshall.Name: 4.74s
+deserializing 5000000 objects of type str | cachew.tests.marshall.Name: 4.06s
+PASSED
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-5000000-cattrs] SKIPPED (TODO need to adjust the handling of Union ...)
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-1000000-cattrs] SKIPPED (TODO need to adjust the handling of Union...)
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-5000000-cachew]
+building      5000000 objects of type str | cachew.tests.marshall.Name: 1.77s
+serializing   5000000 objects of type str | cachew.tests.marshall.Name: 2.59s
+json dump     5000000 objects of type str | cachew.tests.marshall.Name: 1.22s
+sqlite dump   5000000 objects of type str | cachew.tests.marshall.Name: 5.28s
+sqlite load   5000000 objects of type str | cachew.tests.marshall.Name: 1.58s
+jsonl dump    5000000 objects of type str | cachew.tests.marshall.Name: 0.64s
+jsonl load    5000000 objects of type str | cachew.tests.marshall.Name: 0.66s
+json load     5000000 objects of type str | cachew.tests.marshall.Name: 1.53s
+deserializing 5000000 objects of type str | cachew.tests.marshall.Name: 2.60s
+PASSED
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-5000000-cattrs] SKIPPED (TODO need to adjust the handling of Union...)
+src/cachew/tests/marshall.py::test_datetimes[gc_on-1000000-cachew]
+building      1000000 objects of type <class 'datetime.datetime'>: 1.05s
+serializing   1000000 objects of type <class 'datetime.datetime'>: 1.28s
+json dump     1000000 objects of type <class 'datetime.datetime'>: 0.22s
+sqlite dump   1000000 objects of type <class 'datetime.datetime'>: 1.14s
+sqlite load   1000000 objects of type <class 'datetime.datetime'>: 0.30s
+jsonl dump    1000000 objects of type <class 'datetime.datetime'>: 0.14s
+jsonl load    1000000 objects of type <class 'datetime.datetime'>: 0.14s
+json load     1000000 objects of type <class 'datetime.datetime'>: 0.70s
+deserializing 1000000 objects of type <class 'datetime.datetime'>: 2.20s
+PASSED
+src/cachew/tests/marshall.py::test_datetimes[gc_on-1000000-cattrs] SKIPPED (TODO support datetime with pytz for cattrs)
+src/cachew/tests/marshall.py::test_datetimes[gc_on-5000000-cachew]
+building      5000000 objects of type <class 'datetime.datetime'>: 5.08s
+serializing   5000000 objects of type <class 'datetime.datetime'>: 6.35s
+json dump     5000000 objects of type <class 'datetime.datetime'>: 1.13s
+sqlite dump   5000000 objects of type <class 'datetime.datetime'>: 5.58s
+sqlite load   5000000 objects of type <class 'datetime.datetime'>: 1.47s
+jsonl dump    5000000 objects of type <class 'datetime.datetime'>: 0.69s
+jsonl load    5000000 objects of type <class 'datetime.datetime'>: 0.70s
+json load     5000000 objects of type <class 'datetime.datetime'>: 6.85s
+deserializing 5000000 objects of type <class 'datetime.datetime'>: 11.10s
+PASSED
+src/cachew/tests/marshall.py::test_datetimes[gc_on-5000000-cattrs] SKIPPED (TODO support datetime with pytz for cattrs)
+src/cachew/tests/marshall.py::test_datetimes[gc_off-1000000-cachew]
+building      1000000 objects of type <class 'datetime.datetime'>: 1.37s
+serializing   1000000 objects of type <class 'datetime.datetime'>: 1.25s
+json dump     1000000 objects of type <class 'datetime.datetime'>: 0.24s
+sqlite dump   1000000 objects of type <class 'datetime.datetime'>: 1.12s
+sqlite load   1000000 objects of type <class 'datetime.datetime'>: 0.29s
+jsonl dump    1000000 objects of type <class 'datetime.datetime'>: 0.14s
+jsonl load    1000000 objects of type <class 'datetime.datetime'>: 0.14s
+json load     1000000 objects of type <class 'datetime.datetime'>: 0.24s
+deserializing 1000000 objects of type <class 'datetime.datetime'>: 2.17s
+PASSED
+src/cachew/tests/marshall.py::test_datetimes[gc_off-1000000-cattrs] SKIPPED (TODO support datetime with pytz for cattrs)
+src/cachew/tests/marshall.py::test_datetimes[gc_off-5000000-cachew]
+building      5000000 objects of type <class 'datetime.datetime'>: 5.10s
+serializing   5000000 objects of type <class 'datetime.datetime'>: 6.22s
+json dump     5000000 objects of type <class 'datetime.datetime'>: 1.17s
+sqlite dump   5000000 objects of type <class 'datetime.datetime'>: 5.43s
+sqlite load   5000000 objects of type <class 'datetime.datetime'>: 1.54s
+jsonl dump    5000000 objects of type <class 'datetime.datetime'>: 0.70s
+jsonl load    5000000 objects of type <class 'datetime.datetime'>: 0.71s
+json load     5000000 objects of type <class 'datetime.datetime'>: 1.22s
+deserializing 5000000 objects of type <class 'datetime.datetime'>: 10.97s
+PASSED
+src/cachew/tests/marshall.py::test_datetimes[gc_off-5000000-cattrs] SKIPPED (TODO support datetime with pytz for cattrs)
+src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cachew]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.64s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.43s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.30s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.16s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.30s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.02s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 2.78s
+PASSED
+src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cattrs]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.88s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.80s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.31s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.39s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.31s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.03s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 2.61s
+PASSED
+src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cachew]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.57s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.08s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.29s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.09s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.30s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.50s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.43s
+PASSED
+src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cattrs]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.57s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.39s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.29s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.16s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.32s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.16s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.15s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 0.50s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_many_from_cachew.<locals>.TE2'>: 1.29s
+PASSED
+
+============================================================ slowest durations =============================================================
+44.87s call     src/cachew/tests/marshall.py::test_datetimes[gc_on-5000000-cachew]
+38.76s call     src/cachew/tests/marshall.py::test_datetimes[gc_off-5000000-cachew]
+28.65s call     src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-5000000-cachew]
+20.05s call     src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-5000000-cachew]
+9.82s call     src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cachew]
+9.51s call     src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cattrs]
+8.37s call     src/cachew/tests/marshall.py::test_datetimes[gc_on-1000000-cachew]
+8.20s call     src/cachew/tests/marshall.py::test_datetimes[gc_off-1000000-cachew]
+6.45s call     src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cachew]
+5.93s call     src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-1000000-cachew]
+5.78s call     src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cattrs]
+3.98s call     src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-1000000-cachew]
+0.01s call     src/cachew/marshall/cachew.py::test_serialize_and_deserialize
+
+(68 durations < 0.005s hidden.  Use -vv to show these durations.)
+========================================================= short test summary info ==========================================================
+SKIPPED [6] src/cachew/tests/marshall.py:171: TODO need to adjust the handling of Union types..
+SKIPPED [4] src/cachew/tests/marshall.py:194: TODO support datetime with pytz for cattrs
+PASSED src/cachew/marshall/cachew.py::test_serialize_and_deserialize
+PASSED src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_union_str_dataclass[gc_on-5000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-5000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_datetimes[gc_on-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_datetimes[gc_on-5000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_datetimes[gc_off-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_datetimes[gc_off-5000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_many_from_cachew[gc_on-1000000-cattrs]
+PASSED src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cachew]
+PASSED src/cachew/tests/marshall.py::test_many_from_cachew[gc_off-1000000-cattrs]
+#+end_example

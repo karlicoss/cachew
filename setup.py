@@ -48,6 +48,12 @@ def main() -> None:
                 'more-itertools',
 
                 'enlighten',  # used in logging helper, but not really required
+
+                'orjson',  # for now test only but may actually use soon
+                'cattrs',  # benchmarking alternative marshalling implementation
+
+                'pyinstrument',  # for profiling from within tests
+                'codetiming',    # Timer context manager
             ],
             'optional': [
                 'colorlog',
