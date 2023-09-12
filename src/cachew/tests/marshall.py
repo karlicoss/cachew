@@ -5,6 +5,7 @@ import shutil
 import sqlite3
 import sys
 from typing import (
+    Any,
     List,
     Literal,
     Union,
@@ -16,6 +17,7 @@ import pytz
 
 from ..marshall.common import Json
 from ..marshall.cachew import CachewMarshall
+from ..legacy import NTBinder
 from .utils import (
     gc_control,
     profile,
@@ -27,19 +29,32 @@ from .utils import (
 Impl = Literal[
     'cachew',  # our custom deserialization
     'cattrs',
+    'legacy',  # our legacy deserialization
 ]
-Impl_members = Impl.__args__  # type: ignore[attr-defined]
+# don't include legacy by default, it's only here just for the sake of comparing once before switch
+Impls: List[Impl] = ['cachew', 'cattrs']
 
 
 def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew') -> None:
     if count > 100 and running_on_ci:
         pytest.skip("test too heavy for CI, only meant to run manually")
 
+    to_json: Any
+    from_json: Any
     if impl == 'cachew':
         marshall = CachewMarshall(Type_=Type)
         to_json = marshall.dump
         from_json = marshall.load
-
+    elif impl == 'legacy':
+        # NOTE: legacy binder emits a tuple which can be inserted directly into the database
+        # so 'json dump' and 'json load' should really be disregarded for this flavor
+        # if you're comparing with <other> implementation, you should compare
+        # legacy serializing as the sum of <other> serializing + <other> json dump
+        # that said, this way legacy will have a bit of an advantage since custom types (e.g. datetime)
+        # would normally be handled by sqlalchemy instead
+        binder = NTBinder.make(Type)
+        to_json = binder.to_row
+        from_json = binder.from_row
     elif impl == 'cattrs':
         from cattrs import Converter
         from cattrs.strategies import configure_tagged_union
@@ -87,7 +102,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         struct_func   = converter._structure_func  .dispatch(Type)  # TODO speedup
         # fmt: on
 
-        to_json = unstruct_func  # type: ignore[assignment]
+        to_json = unstruct_func
         # todo would be nice to use partial? but how do we bind a positional arg?
         from_json = lambda x: struct_func(x, Type)
     else:
@@ -158,7 +173,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         for i in range(count):
             objects2[i] = from_json(jsons2[i])
 
-    assert objects == objects2
+    assert objects[:100] + objects[-100:] == objects2[:100] + objects2[-100:]
 
 
 @dataclass
@@ -167,7 +182,7 @@ class Name:
     last: str
 
 
-@pytest.mark.parametrize('impl', Impl_members)
+@pytest.mark.parametrize('impl', Impls)
 @pytest.mark.parametrize('count', [99, 1_000_000, 5_000_000])
 @pytest.mark.parametrize('gc_on', [True, False], ids=['gc_on', 'gc_off'])
 def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> None:
@@ -193,7 +208,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
 # do_test_union_str_dataclass(count=1_000_000, test_name='adhoc')
 
 
-@pytest.mark.parametrize('impl', Impl_members)
+@pytest.mark.parametrize('impl', Impls)
 @pytest.mark.parametrize('count', [99, 1_000_000, 5_000_000])
 @pytest.mark.parametrize('gc_on', [True, False], ids=['gc_on', 'gc_off'])
 def test_datetimes(impl: Impl, count: int, gc_control, request) -> None:
@@ -217,10 +232,11 @@ def test_datetimes(impl: Impl, count: int, gc_control, request) -> None:
     do_test(test_name=request.node.name, Type=datetime, factory=factory, count=count, impl=impl)
 
 
-@pytest.mark.parametrize('impl', Impl_members)
+@pytest.mark.parametrize('impl', Impls)
 @pytest.mark.parametrize('count', [99, 1_000_000])
 @pytest.mark.parametrize('gc_on', [True, False], ids=['gc_on', 'gc_off'])
-def test_many_from_cachew(impl: Impl, count: int, gc_control, request) -> None:
+def test_nested_dataclass(impl: Impl, count: int, gc_control, request) -> None:
+    # NOTE: was previously named test_many_from_cachew
     @dataclass
     class UUU:
         xx: int

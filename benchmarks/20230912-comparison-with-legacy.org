@@ -1,0 +1,81 @@
+Running on @karlicoss desktop PC, =python3.10=.
+
+This is basically to justify switching to the new serialization method
+
+- old way, =legacy= used to 'flatten' the type into an sqlite row
+- new way, =cachew=, just dumps it as a dict, then to bytes via =orjson= and stores in a single sqlite column
+
+The numbers between legacy and cachew can't be directly compared though.
+Legacy =serializing= step emits a tuple, which can be inserted directly into the database.
+So to compare it with the new way, we need to compare with the sum of =serializing= + =json dump=.
+That said this won't be exact comparison either, since legacy binder relied on sqlalchemy to dump custom types to sqlite types (e.g. =datetime= or =Exception=). So legacy will have a slight advantage this way, but it's fine.
+
+So we can see that for:
+- =test_union_str_dataclass=
+  - new implementation: =0.53 + 0.45s= to serialize; =0.29 + 0.48= to deserialize
+  - old implementation: =2.38s= to serialize; =1.92= to deserialize
+- =test_nested_dataclass=
+  - new implementation: =1.05 + 0.26s= to serialize; =0.50 + 1.42= to deserialize
+  - old implementation: =1.92s= to serialize; =1.88= to deserialize
+
+For both tests, serialization if quite a bit faster with the new implementation.
+On the second test, they are on par for deserialization, but as I mention these numbers are in favor of the legacy implementation.
+
+In addition, keeping everything in one column unlocks some othe optimizations which wouldn't be possible with multiple columns.
+
+
+#+begin_example
+$ pytest --pyargs cachew.tests.marshall -k 'gc_off and 1000000 and not cattrs' -s
+=========================================================== test session starts ============================================================
+platform linux -- Python 3.10.12, pytest-7.3.1, pluggy-1.0.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /code/cachew_jsonpickle
+configfile: pytest.ini
+plugins: anyio-3.6.2
+collected 100 items / 95 deselected / 5 selected
+
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-1000000-cachew]
+building      1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.34s
+serializing   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.53s
+json dump     1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.45s
+sqlite dump   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 1.08s
+sqlite load   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.45s
+jsonl dump    1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.18s
+jsonl load    1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.13s
+json load     1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.29s
+deserializing 1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.48s
+PASSED
+src/cachew/tests/marshall.py::test_union_str_dataclass[gc_off-1000000-legacy]
+building      1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.35s
+serializing   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 2.38s
+json dump     1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.22s
+sqlite dump   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 1.06s
+sqlite load   1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.29s
+jsonl dump    1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.12s
+jsonl load    1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.12s
+json load     1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 0.23s
+deserializing 1000000 objects of type typing.Union[str, cachew.tests.marshall.Name]: 1.92s
+PASSED
+src/cachew/tests/marshall.py::test_nested_dataclass[gc_off-1000000-cachew]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.58s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 1.05s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.26s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 1.03s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.30s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.14s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.14s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.50s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 1.42s
+PASSED
+src/cachew/tests/marshall.py::test_nested_dataclass[gc_off-1000000-legacy]
+building      1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.56s
+serializing   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 1.92s
+json dump     1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.21s
+sqlite dump   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.99s
+sqlite load   1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.29s
+jsonl dump    1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.12s
+jsonl load    1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.12s
+json load     1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 0.24s
+deserializing 1000000 objects of type <class 'cachew.tests.marshall.test_nested_dataclass.<locals>.TE2'>: 1.88s
+PASSED
+#+end_example
