@@ -1,4 +1,4 @@
-Running on @karlicoss desktop PC.
+Running on @karlicoss desktop PC, =python3.10=
 
 - serializing/deserializing here refers to converting object to json-ish python dictionary (not actual json string!)
 - json dump/json load refers to converting the dict above to a json string and back
