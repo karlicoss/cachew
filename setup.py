@@ -9,6 +9,7 @@ description = 'Easy sqlite-backed persistent cache for dataclasses'
 install_requires = [
     'appdirs'        ,  # default cache dir
     'sqlalchemy>=1.0',  # cache DB interaction
+    'orjson',           # fast json serialization
 ]
 
 
@@ -49,7 +50,6 @@ def main() -> None:
 
                 'enlighten',  # used in logging helper, but not really required
 
-                'orjson',  # for now test only but may actually use soon
                 'cattrs',  # benchmarking alternative marshalling implementation
 
                 'pyinstrument',  # for profiling from within tests
