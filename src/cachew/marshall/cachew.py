@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections import abc
 from dataclasses import dataclass, is_dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import sys
 import types
 from typing import (
@@ -28,6 +28,7 @@ from .common import (
     Json,
     T,
 )
+from ..utils import CachewException
 
 
 class CachewMarshall(AbstractMarshall[T]):
@@ -206,8 +207,14 @@ JTypes = {int, str, type(None), float, bool}
 def _exc_helper(args):
     for a in args:
         at = type(a)
-        assert at in JTypes, (a, at)
-        yield a
+        if at in JTypes:
+            yield a
+        elif issubclass(at, date):
+            # TODO would be nice to restore datetime from cache too
+            # maybe generally save exception as a union? or intact and let orjson save it?
+            yield a.isoformat()
+        else:
+            yield str(a)  # not much we can do..
 
 
 @dataclass(**SLOTS)
@@ -243,6 +250,15 @@ class XDatetime(Schema):
 
         tz = pytz.timezone(zone)
         return dt.astimezone(tz)
+
+
+@dataclass(**SLOTS)
+class XDate(Schema):
+    def dump(self, obj: date) -> Json:
+        return obj.isoformat()
+
+    def load(self, dct: str):
+        return date.fromisoformat(dct)
 
 
 ident = lambda x: x
@@ -299,7 +315,13 @@ def build_schema(Type) -> Schema:
         if issubclass(Type, datetime):
             return XDatetime(type=Type)
 
-        assert is_dataclass(Type) or is_namedtuple(Type)
+        if issubclass(Type, date):
+            return XDate(type=Type)
+
+        if not (is_dataclass(Type) or is_namedtuple(Type)):
+            raise CachewException(
+                f"{Type} doesn't look like a supported type to cache. See https://github.com/karlicoss/cachew#features for the list of supported types."
+            )
         hints = get_type_hints(Type)
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return SDataclass(
@@ -413,7 +435,7 @@ def test_serialize_and_deserialize() -> None:
     # optionals
     helper('aaa', Optional[str])
     helper('aaa', Union[str, None])
-    helper(None , Union[str, None])
+    helper(None, Union[str, None])
 
     # lists
     helper([1, 2, 3], List[int])
@@ -467,6 +489,10 @@ def test_serialize_and_deserialize() -> None:
         RuntimeError('more stuff'),
         RuntimeError(),
     ], List[Union[RuntimeError, Point]])
+
+    exc_with_datetime     = Exception('I happenned on', datetime.fromisoformat('2021-04-03T10:11:12'))
+    exc_with_datetime_exp = Exception('I happenned on', '2021-04-03T10:11:12')
+    helper(exc_with_datetime, Exception, expected=exc_with_datetime_exp)
     # fmt: on
 
     # datetimes
@@ -485,7 +511,6 @@ def test_serialize_and_deserialize() -> None:
         dwinter,
         dsummer,
         dsummer.replace(tzinfo=timezone.utc),
-        # TODO date class as well?
     ]
     for d in dates:
         jj, dd = helper(d, datetime)
@@ -497,6 +522,8 @@ def test_serialize_and_deserialize() -> None:
 
     assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London')
     assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None)
+
+    assert helper(dwinter.date(), date)[0] == '2020-02-03'
 
 
 # TODO test type aliases and such??
