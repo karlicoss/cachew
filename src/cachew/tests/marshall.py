@@ -5,7 +5,9 @@ import shutil
 import sqlite3
 import sys
 from typing import (
+    List,
     Literal,
+    Union,
 )
 
 import orjson
@@ -48,9 +50,10 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         from typing import Union
         import types
 
-        def is_union(type_) -> bool:
-            origin = get_origin(type_)
-            return origin is Union or origin is types.UnionType
+        # TODO use later
+        # def is_union(type_) -> bool:
+        #     origin = get_origin(type_)
+        #     return origin is Union or origin is types.UnionType
 
         def union_structure_hook_factory(_):
             def union_hook(data, type_):
@@ -95,12 +98,12 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     with profile(test_name + ':baseline'), timer(f'building      {count} objects of type {Type}'):
         objects = list(factory(count=count))
 
-    jsons: list[Json] = [None for _ in range(count)]
+    jsons: List[Json] = [None for _ in range(count)]
     with profile(test_name + ':serialize'), timer(f'serializing   {count} objects of type {Type}'):
         for i in range(count):
             jsons[i] = to_json(objects[i])
 
-    strs: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs: List[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':json_dump'), timer(f'json dump     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
@@ -117,7 +120,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             conn.executemany('INSERT INTO data (value) VALUES (?)', [(s,) for s in strs])
         conn.close()
 
-    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs2: List[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':sqlite_load'), timer(f'sqlite load   {count} objects of type {Type}'):
         with sqlite3.connect(db) as conn:
             i = 0
@@ -133,7 +136,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             for s in strs:
                 fw.write(s + b'\n')
 
-    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs3: List[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':jsonl_load'), timer(f'jsonl load    {count} objects of type {Type}'):
         i = 0
         with cache.open('rb') as fr:
@@ -144,7 +147,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
 
     assert strs2[:100] + strs2[-100:] == strs3[:100] + strs3[-100:]  # just in case
 
-    jsons2: list[Json] = [None for _ in range(count)]
+    jsons2: List[Json] = [None for _ in range(count)]
     with profile(test_name + ':json_load'), timer(f'json load     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
@@ -175,7 +178,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
         pytest.skip('TODO need to adjust the handling of Union types..')
 
     def factory(count: int):
-        objects: list[str | Name] = []
+        objects: List[Union[str, Name]] = []
         for i in range(count):
             if i % 2 == 0:
                 objects.append(str(i))
@@ -183,7 +186,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
                 objects.append(Name(first=f'first {i}', last=f'last {i}'))
         return objects
 
-    do_test(test_name=request.node.name, Type=str | Name, factory=factory, count=count, impl=impl)
+    do_test(test_name=request.node.name, Type=Union[str, Name], factory=factory, count=count, impl=impl)
 
 
 # OK, performance with calling this manually (not via pytest) is the same

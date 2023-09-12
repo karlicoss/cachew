@@ -1,11 +1,14 @@
 from abc import abstractmethod
 from typing import (
     Any,
+    Dict,
     Generic,
+    Tuple,
     TypeVar,
+    Union,
 )
 
-Json = dict[str, Any] | tuple[Any, ...] | str | float | int | bool | None
+Json = Union[Dict[str, Any], Tuple[Any, ...], str, float, int, bool, None]
 
 
 T = TypeVar('T')

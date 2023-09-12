@@ -4,9 +4,11 @@ from abc import abstractmethod
 from collections import abc
 from dataclasses import dataclass, is_dataclass
 from datetime import datetime, timezone
+import sys
 import types
 from typing import (
     Any,
+    Dict,
     List,
     NamedTuple,
     Optional,
@@ -44,7 +46,16 @@ class CachewMarshall(AbstractMarshall[T]):
 
 # NOTE: using slots gives a small speedup (maybe 5%?)
 # I suppose faster access to fields or something..
-@dataclass(slots=True)
+
+SLOTS: Dict[str, bool]
+if sys.version_info[:2] >= (3, 10):
+    SLOTS = dict(slots=True)
+else:
+    # not available :(
+    SLOTS = dict()
+
+
+@dataclass(**SLOTS)
 class Schema:
     type: Any
 
@@ -57,7 +68,7 @@ class Schema:
         raise NotImplementedError
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SPrimitive(Schema):
     def dump(self, obj):
         # NOTE: returning here directly (instead of calling identity lambda) gives about 20% speedup
@@ -74,7 +85,7 @@ class SPrimitive(Schema):
         # return prim(d)
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SDataclass(Schema):
     # using list of tuples instead of dict gives about 5% speedup
     fields: tuple[tuple[str, Schema], ...]
@@ -101,7 +112,7 @@ class SDataclass(Schema):
         # fmt: on
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SUnion(Schema):
     # it's a bit faster to cache indixes here, gives about 15% speedup
     args: tuple[tuple[int, Schema], ...]
@@ -133,7 +144,7 @@ class SUnion(Schema):
         return s.load(val)
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SList(Schema):
     arg: Schema
 
@@ -144,7 +155,7 @@ class SList(Schema):
         return [self.arg.load(i) for i in dct]
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class STuple(Schema):
     args: tuple[Schema, ...]
 
@@ -155,7 +166,7 @@ class STuple(Schema):
         return tuple(a.load(i) for a, i in zip(self.args, dct))
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SSequence(Schema):
     arg: Schema
 
@@ -166,7 +177,7 @@ class SSequence(Schema):
         return tuple(self.arg.load(i) for i in dct)
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SDict(Schema):
     ft: SPrimitive
     tt: Schema
@@ -199,7 +210,7 @@ def _exc_helper(args):
         yield a
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class SException(Schema):
     def dump(self, obj: Exception) -> Json:
         return tuple(_exc_helper(obj.args))
@@ -208,7 +219,7 @@ class SException(Schema):
         return self.type(*dct)
 
 
-@dataclass(slots=True)
+@dataclass(**SLOTS)
 class XDatetime(Schema):
     def dump(self, obj: datetime) -> Json:
         iso = obj.isoformat()
@@ -297,7 +308,14 @@ def build_schema(Type) -> Schema:
         )
 
     args = get_args(Type)
-    is_union = origin is Union or origin is types.UnionType
+
+    if sys.version_info[:2] >= (3, 10):
+        is_uniontype = origin is types.UnionType
+    else:
+        is_uniontype = False
+
+    is_union = origin is Union or is_uniontype
+
     if is_union:
         return SUnion(
             type=Type,
@@ -389,27 +407,28 @@ def test_serialize_and_deserialize() -> None:
 
     # unions
     helper(1, Union[str, int])
-    helper('aaa', str | int)
+    if sys.version_info[:2] >= (3, 10):
+        helper('aaa', str | int)
 
     # optionals
     helper('aaa', Optional[str])
-    helper('aaa', str | None)
-    helper('aaa', str | None)
+    helper('aaa', Union[str, None])
+    helper(None , Union[str, None])
 
     # lists
-    helper([1, 2, 3], list[int])
+    helper([1, 2, 3], List[int])
     helper([1, 2, 3], List[int])
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
     helper((1, 2, 3), Tuple[int, int, int])
-    helper((1, 2, 3), tuple[int, int, int])
+    helper((1, 2, 3), Tuple[int, int, int])
 
     # dicts
-    helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
-    helper({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
+    helper({'a': 'aa', 'b': 'bb'}, Dict[str, str])
+    helper({'a': None, 'b': 'bb'}, Dict[str, Optional[str]])
 
     # compounds of simple types
-    helper(['1', 2, '3'], list[str | int])
+    helper(['1', 2, '3'], List[Union[str, int]])
 
     # TODO need to add test for equivalent dataclasses
 
@@ -431,12 +450,12 @@ def test_serialize_and_deserialize() -> None:
     @dataclass
     class WithJson:
         id: int
-        raw_data: dict[str, Any]
+        raw_data: Dict[str, Any]
 
     # json-ish stuff
-    helper({}, dict[str, Any])
+    helper({}, Dict[str, Any])
     helper(WithJson(id=123, raw_data=dict(payload='whatever', tags=['a', 'b', 'c'])), WithJson)
-    helper([], list[Any])
+    helper([], List[Any])
 
     # exceptions
     helper(RuntimeError('whatever!'), RuntimeError)
@@ -447,7 +466,7 @@ def test_serialize_and_deserialize() -> None:
         Point(x=11, y=22),
         RuntimeError('more stuff'),
         RuntimeError(),
-    ], list[RuntimeError | Point])
+    ], List[Union[RuntimeError, Point]])
     # fmt: on
 
     # datetimes
