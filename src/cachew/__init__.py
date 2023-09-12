@@ -14,6 +14,16 @@ from typing import (Any, Callable, List, Optional,
 import dataclasses
 import warnings
 
+try:
+    # orjson might not be available on some architectures, so let's make it defensive just in case
+    from orjson import loads as orjson_loads, dumps as orjson_dumps  # pylint: disable=no-name-in-module
+except:
+    warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance")
+    def orjson_dumps(*args, **kwargs):  # type: ignore[misc]
+        # sqlite needs a blob
+        return json.dumps(*args, **kwargs).encode('utf8')
+
+    orjson_loads = json.loads
 
 import appdirs
 
@@ -27,8 +37,8 @@ try:
 except Exception as e:
     logging.exception(e)
 
-from .legacy import NTBinder
 from .logging_helper import makeLogger
+from .marshall.cachew import CachewMarshall
 from .utils import (
     is_primitive,
     is_union,
@@ -142,11 +152,10 @@ class DbHelper:
         self.meta = sqlalchemy.MetaData()
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
 
-        self.binder = NTBinder.make(tp=cls)
         # actual cache
-        self.table_cache     = Table('cache'    , self.meta, *self.binder.columns)
+        self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.BLOB))
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
-        self.table_cache_tmp = Table('cache_tmp', self.meta, *self.binder.columns)
+        self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))
 
     def __enter__(self) -> 'DbHelper':
         return self
@@ -463,8 +472,7 @@ class Context(Generic[P]):
             if k in hsig.parameters or 'kwargs' in hsig.parameters
         }
         kwargs = {**defaults, **kwargs}
-        binder = NTBinder.make(tp=self.cls_)
-        schema = str(binder.columns) # todo not super nice, but works fine for now
+        schema = str(self.cls_)
         hash_parts = {
             'cachew'      : CACHEW_VERSION,
             'schema'      : schema,
@@ -547,7 +555,7 @@ def cachew_wrapper(
              db.connection.begin():
             # NOTE: deferred transaction
             conn = db.connection
-            binder = db.binder
+            marshall = CachewMarshall(Type_=cls)
             table_cache     = db.table_cache
             table_cache_tmp = db.table_cache_tmp
 
@@ -579,7 +587,9 @@ def cachew_wrapper(
             def cached_items():
                 rows = conn.execute(table_cache.select())
                 for row in rows:
-                    yield binder.from_row(row)
+                    j = orjson_loads(row[0])
+                    obj = marshall.load(j)
+                    yield obj
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
@@ -683,8 +693,7 @@ def cachew_wrapper(
             def flush() -> None:
                 nonlocal chunk
                 if len(chunk) > 0:
-                    # TODO hmm, it really doesn't work unless you zip into a dict first
-                    # maybe should return dicts from binder instead then?
+                    # TODO optimize this, we really don't need to make extra dicts here just to insert
                     chunk_dict = [
                         dict(zip(column_names, row))
                         for row in chunk
@@ -693,15 +702,17 @@ def cachew_wrapper(
                     chunk = []
 
             total_objects = 0
-            for d in datas:
+            for obj in datas:
                 try:
                     total_objects += 1
-                    yield d
+                    yield obj
                 except GeneratorExit:
                     early_exit = True
                     return
-                  
-                chunk.append(binder.to_row(d))
+
+                dct = marshall.dump(obj)
+                j = orjson_dumps(dct)
+                chunk.append((j,))
                 if len(chunk) >= chunk_by:
                     flush()
             flush()
@@ -731,6 +742,8 @@ def cachew_wrapper(
         cachew_error(e)
         yield from func(*args, **kwargs)
 
+
+from .legacy import NTBinder
 
 __all__ = [
     'cachew',
