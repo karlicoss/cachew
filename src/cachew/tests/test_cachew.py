@@ -275,16 +275,13 @@ def test_unsupported_class(tmp_path: Path) -> None:
         def fun() -> List[UBad]:
             return [UBad()]
 
-    # now something a bit nastier
-    # TODO hmm, should really throw at the definition time... but can fix later I suppose
-    @cachew(cache_path=tmp_path)
-    def fun2() -> Iterable[Union[UGood, UBad]]:
-        yield UGood(x=1)
-        yield UBad()
-        yield UGood(x=2)
+    with pytest.raises(CachewException, match=".*can't infer type from.*"):
 
-    with pytest.raises(CachewException, match=".*doesn't look like a supported type.*"):
-        list(fun2())
+        @cachew(cache_path=tmp_path)
+        def fun2() -> Iterable[Union[UGood, UBad]]:
+            yield UGood(x=1)
+            yield UBad()
+            yield UGood(x=2)
 
 
 class TE2(NamedTuple):

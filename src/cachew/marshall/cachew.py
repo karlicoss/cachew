@@ -28,7 +28,7 @@ from .common import (
     Json,
     T,
 )
-from ..utils import CachewException
+from ..utils import TypeNotSupported, is_namedtuple
 
 
 class CachewMarshall(AbstractMarshall[T]):
@@ -227,7 +227,7 @@ class SException(Schema):
 
 
 @dataclass(**SLOTS)
-class XDatetime(Schema):
+class SDatetime(Schema):
     def dump(self, obj: datetime) -> Json:
         iso = obj.isoformat()
         tz = obj.tzinfo
@@ -253,7 +253,7 @@ class XDatetime(Schema):
 
 
 @dataclass(**SLOTS)
-class XDate(Schema):
+class SDate(Schema):
     def dump(self, obj: date) -> Json:
         return obj.isoformat()
 
@@ -287,19 +287,6 @@ primitives_from = {
 }
 
 
-# TODO reuse in legacy?
-# https://stackoverflow.com/a/2166841/706389
-def is_namedtuple(t) -> bool:
-    b = t.__bases__
-    if len(b) != 1 or b[0] != tuple:
-        return False
-    f = getattr(t, '_fields', None)
-    if not isinstance(f, tuple):
-        return False
-    # pylint: disable=unidiomatic-typecheck
-    return all(type(n) == str for n in f)  # noqa: E721
-
-
 def build_schema(Type) -> Schema:
     prim = primitives_from.get(Type)
     if prim is not None:
@@ -313,15 +300,13 @@ def build_schema(Type) -> Schema:
             return SException(type=Type)
 
         if issubclass(Type, datetime):
-            return XDatetime(type=Type)
+            return SDatetime(type=Type)
 
         if issubclass(Type, date):
-            return XDate(type=Type)
+            return SDate(type=Type)
 
         if not (is_dataclass(Type) or is_namedtuple(Type)):
-            raise CachewException(
-                f"{Type} doesn't look like a supported type to cache. See https://github.com/karlicoss/cachew#features for the list of supported types."
-            )
+            raise TypeNotSupported(type_=Type)
         hints = get_type_hints(Type)
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return SDataclass(
@@ -362,6 +347,10 @@ def build_schema(Type) -> Schema:
     is_tuplish = origin is tuple or origin is abc.Sequence
     if is_tuplish:
         if origin is tuple:
+            # this is for Tuple[()], which is the way to represent empty tuple
+            # before python 3.11, get_args for that gives ((),) instead of an empty tuple () as one might expect
+            if args == ((),):
+                args = ()
             return STuple(
                 type=Type,
                 args=tuple(build_schema(a) for a in args),
@@ -419,6 +408,8 @@ def _test_identity(obj, Type_, expected=None):
 
 # TODO customise with cattrs
 def test_serialize_and_deserialize() -> None:
+    import pytest
+
     helper = _test_identity
 
     # primitives
@@ -524,6 +515,16 @@ def test_serialize_and_deserialize() -> None:
     assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None)
 
     assert helper(dwinter.date(), date)[0] == '2020-02-03'
+
+    # unsupported types
+    class NotSupported:
+        pass
+
+    with pytest.raises(RuntimeError, match=".*NotSupported.* isn't supported by cachew"):
+        helper([NotSupported()], List[NotSupported])
+
+    # edge cases
+    helper((), Tuple[()])
 
 
 # TODO test type aliases and such??
