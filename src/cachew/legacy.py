@@ -15,20 +15,80 @@ from typing import (
     Type,
     TypeVar,
     Tuple,
+    Union,
 )
 import warnings
 
 import sqlalchemy
 from sqlalchemy import Column
 
-from .utils import (
-    is_primitive,
-    get_union_args,
-    CachewException,
-    PRIMITIVE_TYPES,
-    Types,
-    Values,
-)
+from .utils import CachewException
+
+
+def get_union_args(cls) -> Optional[Tuple[Type]]:
+    if getattr(cls, '__origin__', None) != Union:
+        return None
+
+    args = cls.__args__
+    args = [e for e in args if e != type(None)]
+    assert len(args) > 0
+    return args
+
+
+def is_union(cls) -> bool:
+    return get_union_args(cls) is not None
+
+
+Types = Union[
+    Type[str],
+    Type[int],
+    Type[float],
+    Type[bool],
+    Type[datetime],
+    Type[date],
+    Type[dict],
+    Type[list],
+    Type[Exception],
+    Type[NamedTuple],
+]
+
+Values = Union[
+    str,
+    int,
+    float,
+    bool,
+    datetime,
+    date,
+    dict,
+    list,
+    Exception,
+    NamedTuple,
+]
+
+PRIMITIVE_TYPES = {
+    str,
+    int,
+    float,
+    bool,
+    datetime,
+    date,
+    dict,
+    list,
+    Exception,
+}
+
+
+def is_primitive(cls: Type) -> bool:
+    """
+    >>> from typing import Dict, Any
+    >>> is_primitive(int)
+    True
+    >>> is_primitive(set)
+    False
+    >>> is_primitive(dict)
+    True
+    """
+    return cls in PRIMITIVE_TYPES
 
 
 class IsoDateTime(sqlalchemy.TypeDecorator):
@@ -394,3 +454,19 @@ class NTBinder(Generic[NT]):
         yield (level, self)
         for f in self.fields:
             yield from f.flatten(level=level + 1)
+
+
+def test_mypy_annotations() -> None:
+    # mypy won't handle, so this has to be dynamic
+    vs = []
+    for t in Types.__args__:  # type: ignore
+        (arg,) = t.__args__
+        vs.append(arg)
+
+    def types(ts):
+        return list(sorted(ts, key=lambda t: str(t)))
+
+    assert types(vs) == types(Values.__args__)  # type: ignore
+
+    for p in PRIMITIVE_TYPES:
+        assert p in Values.__args__  # type: ignore
