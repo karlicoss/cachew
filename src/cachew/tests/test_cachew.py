@@ -94,6 +94,15 @@ def test_simple() -> None:
     list(fun())
 
 
+def test_string_annotation() -> None:
+    @cachew
+    def fun() -> Iterable['UUU']:
+        yield from []
+
+    # should properly infer UUU type
+    list(fun())
+
+
 def test_custom_hash(tmp_path: Path) -> None:
     """
     Demo of using argument's modification time to determine if underlying data changed
