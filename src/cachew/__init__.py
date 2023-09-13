@@ -25,6 +25,7 @@ from typing import (
     Sequence,
     cast,
     get_args,
+    get_type_hints,
     get_origin,
     overload,
     TYPE_CHECKING,
@@ -43,16 +44,8 @@ except:
     orjson_loads = json.loads
 
 import appdirs
-
 import sqlalchemy
 from sqlalchemy import Column, Table, event, text
-
-
-from .compat import fix_sqlalchemy_StatementError_str, get_annotations
-try:
-    fix_sqlalchemy_StatementError_str()
-except Exception as e:
-    logging.exception(e)
 
 from .logging_helper import makeLogger
 from .marshall.cachew import CachewMarshall, build_schema
@@ -263,9 +256,8 @@ def infer_return_type(func) -> Union[Failure, Inferred]:
     >>> infer_return_type(unsupported_list)
     "can't infer type from typing.List[cachew.Custom]: can't cache <class 'cachew.Custom'>"
     """
-    # TODO why not get_type_hints??
-    annots = get_annotations(func, eval_str=True)
-    rtype = annots.get('return', None)
+    hints = get_type_hints(func)
+    rtype = hints.get('return', None)
     if rtype is None:
         return f"no return type annotation on {func}"
 
