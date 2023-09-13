@@ -261,35 +261,20 @@ class SDate(Schema):
         return date.fromisoformat(dct)
 
 
-ident = lambda x: x
-
-
-# TODO unify these?
-primitives_to = {
-    int: ident,
-    str: ident,
-    type(None): ident,
-    float: ident,
-    bool: ident,
+PRIMITIVES = {
+    int,
+    str,
+    type(None),
+    float,
+    bool,
     # if type is Any, there isn't much we can do to dump it -- just dump into json and rely on the best
     # so in this sense it works exacly like primitives
-    Any: ident,
-}
-
-
-primitives_from = {
-    int: ident,
-    str: ident,
-    type(None): ident,
-    float: ident,
-    bool: ident,
-    Any: ident,
+    Any,
 }
 
 
 def build_schema(Type) -> Schema:
-    prim = primitives_from.get(Type)
-    if prim is not None:
+    if Type in PRIMITIVES:
         return SPrimitive(type=Type)
 
     origin = get_origin(Type)

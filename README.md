@@ -9,16 +9,20 @@ But it's okay to edit README.md too directly if you want to fix something -- I c
 TLDR: cachew lets you **cache function calls** into an sqlite database on your disk in a matter of **single decorator** (similar to [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache)). The difference from `functools.lru_cache` is that cached data is persisted between program runs, so next time you call your function, it will only be a matter of reading from the cache.
 Cache is **invalidated automatically** if your function's arguments change, so you don't have to think about maintaining it.
 
-In order to be cacheable, your function needs to return (an [Iterator](https://docs.python.org/3/library/typing.html#typing.Iterator), that is a generator, tuple or list) of simple data types:
+In order to be cacheable, your function needs to return a simple data type, or an [Iterator](https://docs.python.org/3/library/typing.html#typing.Iterator) over such types.
 
-- primitive types: `str`/`int`/`float`/`datetime`
-- JSON-like types
+A simple type is defined as:
+
+- primitive: `str`/`int`/`float`/`bool`
+- JSON-like types (`dict`/`list`/`tuple`)
+- `datetime`
 - `Exception` (useful for [error handling](https://beepb00p.xyz/mypy-error-handling.html#kiss) )
 - [NamedTuples](https://docs.python.org/3/library/typing.html#typing.NamedTuple)
 - [dataclasses](https://docs.python.org/3/library/dataclasses.html)
 
 
 That allows to **automatically infer schema from type hints** ([PEP 526](https://www.python.org/dev/peps/pep-0526)) and not think about serializing/deserializing.
+Thanks to type hints, you don't need to annotate your classes with any special decorators, inherit from some special base classes, etc., as it's often the case for serialization libraries.
 
 ## Motivation
 
@@ -120,10 +124,11 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 
 
 # How it works
-Basically, your data objects get [flattened out](src/cachew/__init__.py#L411)
-and python types are mapped [onto sqlite types and back](src/cachew/__init__.py#L483).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L868)
+- first your objects get [converted](src/cachew/marshall/cachew.py#L34) into a simpler JSON-like representation 
+- after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
+
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L503)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -135,39 +140,37 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L364), [2](src/cachew/tests/test_cachew.py#L378)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L349), [2](src/cachew/tests/test_cachew.py#L363)
 * supported types:    
 
-    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `dict`, `list`, `Exception`
+    * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L690), [tests.test_primitive](src/cachew/tests/test_cachew.py#L727), [tests.test_dates](src/cachew/tests/test_cachew.py#L644)
-    * [Optional](src/cachew/tests/test_cachew.py#L508) types
-    * [Union](src/cachew/tests/test_cachew.py#L805) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L424)
-    * [Exceptions](src/cachew/tests/test_cachew.py#L1054)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L675), [tests.test_primitive](src/cachew/tests/test_cachew.py#L709), [tests.test_dates](src/cachew/tests/test_cachew.py#L629), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1036)
+    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L591)
+    * [Optional](src/cachew/tests/test_cachew.py#L493) types
+    * [Union](src/cachew/tests/test_cachew.py#L787) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L409)
     
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L454) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L439) and discards old data automatically
 
 
 # Performance
 Updating cache takes certain overhead, but that would depend on how complicated your datatype in the first place, so I'd suggest measuring if you're not sure.
 
-During reading cache all that happens is reading rows from sqlite and mapping them onto your target datatype, so the only overhead would be from reading sqlite, which is quite fast.
+During reading cache all that happens is reading blobls from sqlite/decoding as JSON, and mapping them onto your target datatype, so the overhead depends on each of these steps.
 
-I haven't set up proper benchmarks/performance regressions yet, so don't want to make specific claims, however that would almost certainly make your programm faster if computations take more than several seconds.
+It would almost certainly make your program faster if your computations take more than several seconds.
 
-
-If you want to experiment for youself, check out [tests.test_many](src/cachew/tests/test_cachew.py#L297)
-
+You can find some of my performance tests in [benchmarks/](benchmarks) dir, and the tests themselves in [src/cachew/tests/marshall.py](src/cachew/tests/marshall.py).
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L695) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L328) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
     
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L401) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L386) and depends on function's arguments.
     
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
     
@@ -175,11 +178,11 @@ Some useful (but optional) arguments of `@cachew` decorator:
     
    By default it just uses string representation of the arguments, you can also specify a custom callable.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L95) if the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L89) if the input file was modified.
     
 * `cls` is the type that would be serialized.
 
-   By default, it is inferred from return type annotations, but can be specified if you don't control the code you want to cache.
+   By default, it is inferred from return type annotations, but can be specified explicitly if you don't control the code you want to cache.
 
 
 # Installing
@@ -192,10 +195,9 @@ I'm using [tox](tox.ini) to run tests, and [Github Actions](.github/workflows/ma
 
 # Implementation
 
-* why tuples and dataclasses?
+* why NamedTuples and dataclasses?
   
-  Tuples are natural in Python for quickly grouping together return results.
-  `NamedTuple` and `dataclass` specifically provide a very straightforward and self documenting way to represent data in Python.
+  `NamedTuple` and `dataclass` provide a very straightforward and self documenting way to represent data in Python.
   Very compact syntax makes it extremely convenient even for one-off means of communicating between couple of functions.
    
   If you want to find out more why you should use more dataclasses in your code I suggest these links:
@@ -203,34 +205,36 @@ I'm using [tox](tox.ini) to run tests, and [Github Actions](.github/workflows/ma
   - [What are data classes?](https://stackoverflow.com/questions/47955263/what-are-data-classes-and-how-are-they-different-from-common-classes)
   - [basic data classes](https://realpython.com/python-data-classes/#basic-data-classes)
    
-    
-* why not [pickle](https://docs.python.org/3/library/pickle.html)?
-
-  Pickling is a bit heavyweight for plain data class. There are many reports of pickle being slower than even JSON and it's also security risk. Lastly, it can only be loaded via Python, whereas sqlite has numerous bindings and tools to explore and interface.
-
-* why `sqlite` database for storage?
-
-  It's pretty efficient and sequence of namedtuples maps onto database rows in a very straightforward manner.
-
 * why not `pandas.DataFrame`?
 
   DataFrames are great and can be serialised to csv or pickled.
   They are good to have as one of the ways you can interface with your data, however hardly convenient to think about it abstractly due to their dynamic nature.
   They also can't be nested.
-  
+
 * why not [ORM](https://en.wikipedia.org/wiki/Object-relational_mapping)?
   
   ORMs tend to be pretty invasive, which might complicate your scripts or even ruin performance. It's also somewhat an overkill for such a specific purpose.
 
   * E.g. [SQLAlchemy](https://docs.sqlalchemy.org/en/13/orm/tutorial.html#declare-a-mapping) requires you using custom sqlalchemy specific types and inheriting a base class.
     Also it doesn't support nested types.
+    
+* why not [pickle](https://docs.python.org/3/library/pickle.html) or [`marshmallow`](https://marshmallow.readthedocs.io/en/3.0/nesting.html) or `pydantic`?
 
-* why not [marshmallow](https://marshmallow.readthedocs.io/en/3.0/nesting.html)?
-  
+  Pickling is kinda heavyweigh for plain data class, it's slower just using JSON. Lastly, it can only be loaded via Python, whereas JSON + sqlite has numerous bindings and tools to explore and interface.
+
   Marshmallow is a common way to map data into db-friendly format, but it requires explicit schema which is an overhead when you have it already in the form of type annotations. I've looked at existing projects to utilize type annotations, but didn't find them covering all I wanted:
   
   * https://marshmallow-annotations.readthedocs.io/en/latest/ext/namedtuple.html#namedtuple-type-api
   * https://pypi.org/project/marshmallow-dataclass
+ 
+  I wrote up an extensive review of alternatives I considered: see [doc/serialization.org](doc/serialization.org).
+  So far looks like only `cattrs` comes somewhere close to the feature set I need, but still not quite.
+
+* why `sqlite` database for storage?
+
+  It's pretty efficient and iterables (i.e. sequences) map onto database rows in a very straightforward manner.
+  That said it would be interesting to experiment with alternative storages, e.g. in-RAM or distributed like Redis.
+
 
 # Tips and tricks
 ## Optional dependency
@@ -260,9 +264,9 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 ## Settings
 
 
-[cachew.settings](src/cachew/__init__.py#L45) exposes some parameters that allow you to control `cachew` behaviour:
+[cachew.settings](src/cachew/__init__.py#L67) exposes some parameters that allow you to control `cachew` behaviour:
 - `ENABLE`: set to `False` if you want to disable caching for without removing the decorators (useful for testing and debugging).
-   You can also use [cachew.extra.disabled_cachew](src/cachew/__init__.py#L18) context manager to do it temporarily.
+   You can also use [cachew.extra.disabled_cachew](src/cachew/extra.py#L18) context manager to do it temporarily.
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [appdirs docs](https://github.com/ActiveState/appdirs#some-example-output)).
 - `THROW_ON_ERROR`: by default, cachew is defensive and simply attemps to cause the original function on caching issues.
    Set to `True` to catch errors earlier.

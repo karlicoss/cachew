@@ -22,7 +22,6 @@ import pytz
 import pytest
 
 from .. import cachew, get_logger, NTBinder, CachewException, settings
-from ..utils import PRIMITIVE_TYPES, Types, Values
 
 from .utils import running_on_ci
 
@@ -46,22 +45,6 @@ def restore_settings():
     finally:
         for k, v in orig.items():
             setattr(settings, k, v)
-
-
-def test_mypy_annotations() -> None:
-    # mypy won't handle, so this has to be dynamic
-    vs = []
-    for t in Types.__args__:  # type: ignore
-        (arg,) = t.__args__
-        vs.append(arg)
-
-    def types(ts):
-        return list(sorted(ts, key=lambda t: str(t)))
-
-    assert types(vs) == types(Values.__args__)  # type: ignore
-
-    for p in PRIMITIVE_TYPES:
-        assert p in Values.__args__  # type: ignore
 
 
 # fmt: off
@@ -690,9 +673,6 @@ class AllTypes:
 
 
 def test_types(tmp_path: Path) -> None:
-    # pylint: disable=no-member
-    assert len(AllTypes.__annotations__) == len(PRIMITIVE_TYPES)  # precondition so we don't forget to update test
-
     tz = pytz.timezone('Europe/Berlin')
     # fmt: off
     obj = AllTypes(
