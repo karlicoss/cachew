@@ -640,6 +640,7 @@ def cachew_wrapper(
                 # - ._generate_rows
                 # - ._row_getter
                 # by using this raw iterator we speed up reading the cache quite a bit
+                # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
                 raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
                 if raw_row_iterator is None:
                     warnings.warn(
