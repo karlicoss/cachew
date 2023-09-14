@@ -23,7 +23,7 @@ import pytest
 
 from .. import cachew, get_logger, NTBinder, CachewException, settings
 
-from .utils import running_on_ci
+from .utils import running_on_ci, gc_control
 
 
 logger = get_logger()
@@ -284,9 +284,10 @@ class TE2(NamedTuple):
 
 # you can run one specific test (e.g. to profile) by passing it as -k to pytest
 # e.g. -k 'test_many[500000-False]'
-@pytest.mark.parametrize('count', [100_000, 500_000, 1_000_000])
-def test_many(count: int, tmp_path: Path) -> None:
-    if count > 100_000 and running_on_ci:
+@pytest.mark.parametrize('count', [99, 500_000, 1_000_000])
+@pytest.mark.parametrize('gc_on', [True, False], ids=['gc_on', 'gc_off'])
+def test_many(count: int, tmp_path: Path, gc_control) -> None:
+    if count > 99 and running_on_ci:
         pytest.skip("test would be too slow on CI, only meant to run manually")
     # should be a parametrized test perhaps
     src = tmp_path / 'source'
