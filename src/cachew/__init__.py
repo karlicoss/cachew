@@ -46,6 +46,7 @@ except:
 import appdirs
 import sqlalchemy
 from sqlalchemy import Column, Table, event, text
+from sqlalchemy.dialects import sqlite
 
 from .logging_helper import makeLogger
 from .marshall.cachew import CachewMarshall, build_schema
@@ -630,8 +631,8 @@ def cachew_wrapper(
 
             def cached_items():
                 rows = conn.execute(table_cache.select())
-                for row in rows:
-                    j = orjson_loads(row[0])
+                for (blob,) in rows:
+                    j = orjson_loads(blob)
                     obj = marshall.load(j)
                     yield obj
 
@@ -730,19 +731,18 @@ def cachew_wrapper(
             # at this point we're guaranteed to have an exclusive write transaction
 
             datas = func(*args, **kwargs)
-            column_names = [c.name for c in table_cache_tmp.columns]
-            insert_into_table_cache_tmp = table_cache_tmp.insert()
+            # uhh. this gives a huge speedup for inserting
+            # since we don't have to create intermediate dictionaries
+            insert_into_table_cache_tmp_raw = str(table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark')))
+            # I also tried setting paramstyle='qmark' in create_engine, but it seems to be ignored :(
+            # idk what benefit sqlalchemy gives at this point, seems to just complicate things
 
             chunk: List[Any] = []
+
             def flush() -> None:
                 nonlocal chunk
                 if len(chunk) > 0:
-                    # TODO optimize this, we really don't need to make extra dicts here just to insert
-                    chunk_dict = [
-                        dict(zip(column_names, row))
-                        for row in chunk
-                    ]
-                    conn.execute(insert_into_table_cache_tmp, chunk_dict)
+                    conn.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
                     chunk = []
 
             total_objects = 0
@@ -755,8 +755,8 @@ def cachew_wrapper(
                     return
 
                 dct = marshall.dump(obj)
-                j = orjson_dumps(dct)
-                chunk.append((j,))
+                blob = orjson_dumps(dct)
+                chunk.append(blob)
                 if len(chunk) >= chunk_by:
                     flush()
             flush()
