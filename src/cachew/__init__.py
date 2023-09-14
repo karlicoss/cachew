@@ -618,8 +618,8 @@ def cachew_wrapper(
             else:
                 old_hashes = cursor.fetchall()
 
-
             assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
+
             old_hash: Optional[SourceHash]
             if len(old_hashes) == 0:
                 old_hash = None
@@ -628,10 +628,28 @@ def cachew_wrapper(
 
             logger.debug('old hash: %s', old_hash)
 
-
             def cached_items():
                 rows = conn.execute(table_cache.select())
-                for (blob,) in rows:
+
+                # by default, sqlalchemy wraps all results into Row object
+                # this can cause quite a lot of overhead if you're reading many rows
+                # it seems that in principle, sqlalchemy supports just returning bare underlying tuple from the dbapi
+                # but from browsing the code it doesn't seem like this functionality exposed
+                # if you're looking for cues, see
+                # - ._source_supports_scalars
+                # - ._generate_rows
+                # - ._row_getter
+                # by using this raw iterator we speed up reading the cache quite a bit
+                raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
+                if raw_row_iterator is None:
+                    warnings.warn(
+                        "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance."
+                    )
+                    row_iterator = rows
+                else:
+                    row_iterator = raw_row_iterator()
+
+                for (blob,) in row_iterator:
                     j = orjson_loads(blob)
                     obj = marshall.load(j)
                     yield obj
