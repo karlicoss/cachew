@@ -56,6 +56,10 @@ from .utils import (
 )
 
 
+import redis
+
+redis_ = redis.Redis(host='localhost', port=6379, db=0)
+
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
@@ -629,31 +633,41 @@ def cachew_wrapper(
             logger.debug('old hash: %s', old_hash)
 
             def cached_items():
-                rows = conn.execute(table_cache.select())
-
-                # by default, sqlalchemy wraps all results into Row object
-                # this can cause quite a lot of overhead if you're reading many rows
-                # it seems that in principle, sqlalchemy supports just returning bare underlying tuple from the dbapi
-                # but from browsing the code it doesn't seem like this functionality exposed
-                # if you're looking for cues, see
-                # - ._source_supports_scalars
-                # - ._generate_rows
-                # - ._row_getter
-                # by using this raw iterator we speed up reading the cache quite a bit
-                # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
-                raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
-                if raw_row_iterator is None:
-                    warnings.warn(
-                        "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance."
-                    )
-                    row_iterator = rows
-                else:
-                    row_iterator = raw_row_iterator()
-
-                for (blob,) in row_iterator:
+                # uuu = redis_.hgetall('cachew')
+                # print(uuu)
+                # rkeys = redis_.lrange('cachew', 0, -1)
+                rkeys = redis_.lpop('cachew', count=1_000_000)
+                for blob in rkeys:
+                    # breakpoint()
+                    # blob = redis_.hget(rkey, 'data')
                     j = orjson_loads(blob)
                     obj = marshall.load(j)
                     yield obj
+                # rows = conn.execute(table_cache.select())
+
+                # # by default, sqlalchemy wraps all results into Row object
+                # # this can cause quite a lot of overhead if you're reading many rows
+                # # it seems that in principle, sqlalchemy supports just returning bare underlying tuple from the dbapi
+                # # but from browsing the code it doesn't seem like this functionality exposed
+                # # if you're looking for cues, see
+                # # - ._source_supports_scalars
+                # # - ._generate_rows
+                # # - ._row_getter
+                # # by using this raw iterator we speed up reading the cache quite a bit
+                # # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
+                # raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
+                # if raw_row_iterator is None:
+                #     warnings.warn(
+                #         "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance."
+                #     )
+                #     row_iterator = rows
+                # else:
+                #     row_iterator = raw_row_iterator()
+
+                # for (blob,) in row_iterator:
+                #     j = orjson_loads(blob)
+                #     obj = marshall.load(j)
+                #     yield obj
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
@@ -727,7 +741,7 @@ def cachew_wrapper(
                 db.table_hash.create(conn, checkfirst=True)
 
                 # 'table' used to be old 'cache' table name, so we just delete it regardless
-                # otherwise it might overinfalte the cache db with stale values
+                # otherwise it might overinflate the cache db with stale values
                 conn.execute(text('DROP TABLE IF EXISTS `table`'))
 
                 # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
@@ -735,6 +749,9 @@ def cachew_wrapper(
                 # checkfirst=True because it might be the first time we're using cache
                 table_cache_tmp.drop(conn, checkfirst=True)
                 table_cache_tmp.create(conn)
+
+                redis_.delete('cachew')
+
             except sqlalchemy.exc.OperationalError as e:
                 if e.code == 'e3q8' and 'database is locked' in str(e):
                     # someone else must be have won the write lock
@@ -758,13 +775,15 @@ def cachew_wrapper(
 
             chunk: List[Any] = []
 
+            total_objects = 0
             def flush() -> None:
                 nonlocal chunk
                 if len(chunk) > 0:
-                    conn.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
+
+
+                    # conn.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
                     chunk = []
 
-            total_objects = 0
             for obj in datas:
                 try:
                     total_objects += 1
@@ -775,10 +794,14 @@ def cachew_wrapper(
 
                 dct = marshall.dump(obj)
                 blob = orjson_dumps(dct)
-                chunk.append(blob)
-                if len(chunk) >= chunk_by:
-                    flush()
-            flush()
+                # rkey = f'obj:{total_objects}'
+                # redis_.hset(rkey, 'data', blob)
+                redis_.lpush('cachew', blob)
+
+            #     chunk.append(blob)
+            #     if len(chunk) >= chunk_by:
+            #         flush()
+            # flush()
 
             # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
             # pylint: disable=no-value-for-parameter
