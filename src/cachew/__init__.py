@@ -314,6 +314,7 @@ def doublewrap(f):
 
 def cachew_error(e: Exception) -> None:
     if settings.THROW_ON_ERROR:
+        # TODO would be nice to throw from the original code line -- maybe mess with the stack here?
         raise e
     else:
         logger = get_logger()
@@ -444,7 +445,7 @@ def cachew_impl(
         synthetic_key=synthetic_key,
     )
 
-    # hack to avoid extra stack frame (see test_recursive, test_deep-recursive)
+    # hack to avoid extra stack frame (see test_recursive*)
     @functools.wraps(func)
     def binder(*args, **kwargs):
         kwargs['_cachew_context'] = ctx
@@ -558,7 +559,7 @@ def cachew_wrapper(
 
     # WARNING: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
-    # see test_recursive and test_deep_recursive
+    # see test_recursive*
     try:
         dbp: Path
         if callable(cache_path):
@@ -740,7 +741,7 @@ def cachew_wrapper(
                     # someone else must be have won the write lock
                     # not much we can do here
                     # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
-                    # see test_deep_recursive
+                    # see test_recursive_deep
                     # (normally connection is closed in DbHelper.__exit__)
                     conn.close()
                     yield from func(*args, **kwargs)
