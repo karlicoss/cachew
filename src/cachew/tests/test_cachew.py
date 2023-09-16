@@ -945,7 +945,7 @@ def test_defensive(restore_settings) -> None:
             assert list(fun()) == [123]
 
 
-def test_recursive(tmp_path: Path) -> None:
+def test_recursive_simple(tmp_path: Path) -> None:
     d0 = 0
     d1 = 1000
     calls = 0
@@ -988,13 +988,21 @@ def test_recursive(tmp_path: Path) -> None:
     assert calls == 10
 
 
-def test_deep_recursive(tmp_path: Path) -> None:
+def test_recursive_deep(tmp_path: Path) -> None:
     @cachew(tmp_path)
-    def rec(n: int) -> Iterable[int]:
+    def numbers(n: int) -> Iterable[int]:
         if n == 0:
             yield 0
             return
-        yield from rec(n - 1)
+        yield from numbers(n - 1)
+        yield n
+
+    @cachew(cache_path=None)
+    def numbers_cache_disabled(n: int) -> Iterable[int]:
+        if n == 0:
+            yield 0
+            return
+        yield from numbers(n - 1)
         yield n
 
     rlimit = sys.getrecursionlimit()
@@ -1002,10 +1010,15 @@ def test_deep_recursive(tmp_path: Path) -> None:
     # NOTE in reality it has to do with the number of file descriptors (ulimit -Sn, e.g. 1024?)
     # but it seems that during the error unrolling, pytest or something else actually hits the recursion limit somehow
     # pytest ends up with an internal error in such case... which is good enough as long as tests are concerned I guess.
+    sys.setrecursionlimit(2 * 800 + 100)
     try:
-        sys.setrecursionlimit(2000)
-        list(rec(800))
-        list(rec(800))
+        # at the moment each recursive call takes two frames (one for the original call, one for cachew_wrapper)
+        # + allow 100 calls for random constant overhead like pytest etc
+        list(numbers(800))
+        list(numbers(800))
+
+        list(numbers_cache_disabled(800))
+        list(numbers_cache_disabled(800))
     finally:
         sys.setrecursionlimit(rlimit)
 
