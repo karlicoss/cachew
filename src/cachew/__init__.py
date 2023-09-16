@@ -37,6 +37,7 @@ try:
     from orjson import loads as orjson_loads, dumps as orjson_dumps  # pylint: disable=no-name-in-module
 except:
     warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance")
+
     def orjson_dumps(*args, **kwargs):  # type: ignore[misc]
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
@@ -62,10 +63,12 @@ CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
 PathIsh = Union[Path, str]
 
-'''
-Global settings, you can override them after importing cachew
-'''
+
 class settings:
+    '''
+    Global settings, you can override them after importing cachew
+    '''
+
     '''
     Toggle to disable caching
     '''
@@ -108,7 +111,6 @@ class DbHelper:
                         raise CachewException(f'Error while setting WAL on {db_path}') from oe
                 time.sleep(0.1)
 
-
         self.connection = self.engine.connect()
 
         """
@@ -121,6 +123,7 @@ class DbHelper:
 
         test_transaction should check this behaviour
         """
+
         @event.listens_for(self.connection, 'begin')
         # pylint: disable=unused-variable
         def do_begin(conn):
@@ -130,10 +133,12 @@ class DbHelper:
         self.meta = sqlalchemy.MetaData()
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
 
+        # fmt: off
         # actual cache
         self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.BLOB))
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
         self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))
+        # fmt: on
 
     def __enter__(self) -> 'DbHelper':
         return self
@@ -167,7 +172,7 @@ F = TypeVar('F', bound=CC)
 def default_hash(*args, **kwargs) -> SourceHash:
     # TODO eh, demand hash? it's not safe either... ugh
     # can lead to werid consequences otherwise..
-    return str(args + tuple(sorted(kwargs.items()))) # good enough??
+    return str(args + tuple(sorted(kwargs.items())))  # good enough??
 
 
 # TODO give it as an example in docs
@@ -309,6 +314,7 @@ def doublewrap(f):
         else:
             # decorator arguments
             return lambda realf: f(realf, *args, **kwargs)
+
     return new_dec
 
 
@@ -329,21 +335,21 @@ use_default_path = cast(Path, object())
 # using cachew_impl here just to use different signatures during type checking (see below)
 @doublewrap
 def cachew_impl(
-        func=None,
-        cache_path: Optional[PathProvider[P]] = use_default_path,
-        force_file: bool = False,
-        cls: Optional[Type] = None,
-        depends_on: HashFunction[P] = default_hash,
-        logger: Optional[logging.Logger] = None,
-        chunk_by: int = 100,
-        # NOTE: allowed values for chunk_by depend on the system.
-        # some systems (to be more specific, sqlite builds), it might be too large and cause issues
-        # ideally this would be more defensive/autodetected, maybe with a warning?
-        # you can use 'test_many' to experiment
-        # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
-        # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
-        synthetic_key: Optional[str]=None,
-        **kwargs,
+    func=None,
+    cache_path: Optional[PathProvider[P]] = use_default_path,
+    force_file: bool = False,
+    cls: Optional[Type] = None,
+    depends_on: HashFunction[P] = default_hash,
+    logger: Optional[logging.Logger] = None,
+    chunk_by: int = 100,
+    # NOTE: allowed values for chunk_by depend on the system.
+    # some systems (to be more specific, sqlite builds), it might be too large and cause issues
+    # ideally this would be more defensive/autodetected, maybe with a warning?
+    # you can use 'test_many' to experiment
+    # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
+    # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
+    synthetic_key: Optional[str] = None,
+    **kwargs,
 ):
     r"""
     Database-backed cache decorator. TODO more description?
@@ -396,7 +402,6 @@ def cachew_impl(
             else:
                 logger = get_logger()
 
-
     hashf = kwargs.get('hashf', None)
     if hashf is not None:
         warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead")
@@ -435,6 +440,7 @@ def cachew_impl(
                 # TODO not sure if should be more serious error...
 
     ctx = Context(
+        # fmt: off
         func         =func,
         cache_path   =cache_path,
         force_file   =force_file,
@@ -443,6 +449,7 @@ def cachew_impl(
         logger       =logger,
         chunk_by     =chunk_by,
         synthetic_key=synthetic_key,
+        # fmt: on
     )
 
     # hack to avoid extra stack frame (see test_recursive*)
@@ -450,6 +457,7 @@ def cachew_impl(
     def binder(*args, **kwargs):
         kwargs['_cachew_context'] = ctx
         return cachew_wrapper(*args, **kwargs)
+
     return binder
 
 
@@ -465,16 +473,17 @@ if TYPE_CHECKING:
     # but at least it works for checking that cachew_path and depdns_on have the same args :shrug:
     @overload
     def cachew(
-            cache_path: Optional[PathProvider[P]] = ...,
-            *,
-            force_file: bool = ...,
-            cls: Optional[Type] = ...,
-            depends_on: HashFunction[P] = ...,
-            logger: Optional[logging.Logger] = ...,
-            chunk_by: int = ...,
-            synthetic_key: Optional[str] = ...,
+        cache_path: Optional[PathProvider[P]] = ...,
+        *,
+        force_file: bool = ...,
+        cls: Optional[Type] = ...,
+        depends_on: HashFunction[P] = ...,
+        logger: Optional[logging.Logger] = ...,
+        chunk_by: int = ...,
+        synthetic_key: Optional[str] = ...,
     ) -> Callable[[F], F]:
         ...
+
 else:
     cachew = cachew_impl
 
@@ -485,14 +494,17 @@ def callable_name(func: Callable) -> str:
     return f'{mod}:{func.__qualname__}'
 
 
+# fmt: off
 _CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs
 _SYNTHETIC_KEY       = 'synthetic_key'
 _SYNTHETIC_KEY_VALUE = 'synthetic_key_value'
 _DEPENDENCIES        = 'dependencies'
+# fmt: on
 
 
 @dataclass
 class Context(Generic[P]):
+    # fmt: off
     func         : Callable
     cache_path   : PathProvider[P]
     force_file   : bool
@@ -532,14 +544,16 @@ class Context(Generic[P]):
             # FIXME support positional args too? maybe extract the name from signature somehow? dunno
             # need to test it
         return hash_parts
+    # fmt: on
 
 
 def cachew_wrapper(
-        *args,
-        _cachew_context: Context[P],
-        **kwargs,
+    *args,
+    _cachew_context: Context[P],
+    **kwargs,
 ):
     C = _cachew_context
+    # fmt: off
     func          = C.func
     cache_path    = C.cache_path
     force_file    = C.force_file
@@ -548,254 +562,287 @@ def cachew_wrapper(
     logger        = C.logger
     chunk_by      = C.chunk_by
     synthetic_key = C.synthetic_key
+    # fmt: on
 
-    cn = callable_name(func)
+    func_name = callable_name(func)
     if not settings.ENABLE:
-        logger.debug('[%s]: cache explicitly disabled (settings.ENABLE is False)', cn)
+        logger.debug(f'[{func_name}]: cache explicitly disabled (settings.ENABLE is False)')
         yield from func(*args, **kwargs)
         return
 
+    def get_db_path() -> Optional[Path]:
+        db_path: Path
+        if callable(cache_path):
+            pp = cache_path(*args, **kwargs)
+            if pp is None:
+                logger.debug(f'[{func_name}]: cache explicitly disabled (cache_path is None)')
+                # early return, in this case we just yield the original items from the function
+                return None
+            else:
+                db_path = Path(pp)
+        else:
+            db_path = Path(cache_path)
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # need to be atomic here, hence calling stat() once and then just using the results
+        try:
+            # note: stat follows symlinks (which is what we want)
+            st = db_path.stat()
+        except FileNotFoundError:
+            # doesn't exist. then it's controlled by force_file
+            if force_file:
+                # just use db_path as is
+                pass
+            else:
+                db_path.mkdir(parents=True, exist_ok=True)
+                db_path = db_path / func_name
+        else:
+            # already exists, so just use callable name if it's a dir
+            if stat.S_ISDIR(st.st_mode):
+                db_path = db_path / func_name
+
+        logger.debug(f'[{func_name}]: using {db_path} for db cache')
+        return db_path
+
+    def get_old_hash(db: DbHelper) -> Optional[SourceHash]:
+        # first, try to do as much as possible read-only, benefiting from deferred transaction
+        old_hashes: Sequence
+        try:
+            # not sure if there is a better way...
+            cursor = conn.execute(db.table_hash.select())
+        except sqlalchemy.exc.OperationalError as e:
+            # meh. not sure if this is a good way to handle this..
+            if 'no such table: hash' in str(e):
+                old_hashes = []
+            else:
+                raise e
+        else:
+            old_hashes = cursor.fetchall()
+
+        assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
+
+        old_hash: Optional[SourceHash]
+        if len(old_hashes) == 0:
+            old_hash = None
+        else:
+            old_hash = old_hashes[0][0]  # returns a tuple...
+        return old_hash
+
+    def cached_items():
+        total = list(conn.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(table_cache)))[0][0]
+        logger.info(f'{func_name}: loading {total} objects from cachew (sqlite {db_path})')
+
+        rows = conn.execute(table_cache.select())
+        # by default, sqlalchemy wraps all results into Row object
+        # this can cause quite a lot of overhead if you're reading many rows
+        # it seems that in principle, sqlalchemy supports just returning bare underlying tuple from the dbapi
+        # but from browsing the code it doesn't seem like this functionality exposed
+        # if you're looking for cues, see
+        # - ._source_supports_scalars
+        # - ._generate_rows
+        # - ._row_getter
+        # by using this raw iterator we speed up reading the cache quite a bit
+        # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
+        raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
+        if raw_row_iterator is None:
+            warnings.warn("CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance.")
+            row_iterator = rows
+        else:
+            row_iterator = raw_row_iterator()
+
+        for (blob,) in row_iterator:
+            j = orjson_loads(blob)
+            obj = marshall.load(j)
+            yield obj
+
+    def try_use_synthetic_key() -> None:
+        if synthetic_key is None:
+            return
+        # attempt to use existing cache if possible, as a 'prefix'
+
+        old_hash_d: Dict[str, Any] = {}
+        if old_hash is not None:
+            try:
+                old_hash_d = json.loads(old_hash)
+            except json.JSONDecodeError:
+                # possible if we used old cachew version (<=0.8.1), hash wasn't json
+                pass
+
+        hash_diffs = {
+            k: new_hash_d.get(k) == old_hash_d.get(k)
+            for k in (*new_hash_d.keys(), *old_hash_d.keys())
+            # the only 'allowed' differences for hash, otherwise need to recompute (e.g. if schema changed)
+            if k not in {_SYNTHETIC_KEY_VALUE, _DEPENDENCIES}
+        }
+        cache_compatible = all(hash_diffs.values())
+        if not cache_compatible:
+            return
+
+        def missing_keys(cached: List[str], wanted: List[str]) -> Optional[List[str]]:
+            # FIXME assert both cached and wanted are sorted? since we rely on it
+            # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
+            # although in this case passing it into the function wouldn't make sense?
+
+            if len(cached) == 0:
+                # no point trying to reuse anything, cache should be empty?
+                return None
+            if len(wanted) == 0:
+                # similar, no way to reuse cache
+                return None
+            if cached[0] != wanted[0]:
+                # there is no common prefix, so no way to reuse cache really
+                return None
+            last_cached = cached[-1]
+            # ok, now actually figure out which items are missing
+            for i, k in enumerate(wanted):
+                if k > last_cached:
+                    # ok, rest of items are missing
+                    return wanted[i:]
+            # otherwise too many things are cached, and we seem to wante less
+            return None
+
+        new_values: List[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
+        old_values: List[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
+        missing = missing_keys(cached=old_values, wanted=new_values)
+        if missing is not None:
+            # can reuse cache
+            kwargs[_CACHEW_CACHED] = cached_items()
+            kwargs[synthetic_key] = missing
+
+    def get_exclusive_write_transaction() -> bool:
+        # returns whether it actually managed to get it
+
+        # NOTE on recursive calls
+        # somewhat magically, they should work as expected with no extra database inserts?
+        # the top level call 'wins' the write transaction and once it's gathered all data, will write it
+        # the 'intermediate' level calls fail to get it and will pass data through
+        # the cached 'bottom' level is read only and will be yielded without a write transaction
+        try:
+            # first 'write' statement will upgrade transaction to write transaction which might fail due to concurrency
+            # see https://www.sqlite.org/lang_transaction.html
+            # NOTE: because of 'checkfirst=True', only the last .create will guarantee the transaction upgrade to write transaction
+            db.table_hash.create(conn, checkfirst=True)
+
+            # 'table' used to be old 'cache' table name, so we just delete it regardless
+            # otherwise it might overinfalte the cache db with stale values
+            conn.execute(text('DROP TABLE IF EXISTS `table`'))
+
+            # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
+            # since it's possible to have schema changes inbetween calls
+            # checkfirst=True because it might be the first time we're using cache
+            table_cache_tmp.drop(conn, checkfirst=True)
+            table_cache_tmp.create(conn)
+        except sqlalchemy.exc.OperationalError as e:
+            if e.code == 'e3q8' and 'database is locked' in str(e):
+                # someone else must be have won the write lock
+                # not much we can do here
+                # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
+                # see test_recursive_deep
+                # (normally connection is closed in DbHelper.__exit__)
+                conn.close()
+                # in this case all the callee can do is just to call the actual function
+                return False
+            else:
+                raise e
+        return True
+
     early_exit = False
+
+    def written_to_cache():
+        nonlocal early_exit
+
+        datas = func(*args, **kwargs)
+
+        # uhh. this gives a huge speedup for inserting
+        # since we don't have to create intermediate dictionaries
+        insert_into_table_cache_tmp_raw = str(table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark')))
+        # I also tried setting paramstyle='qmark' in create_engine, but it seems to be ignored :(
+        # idk what benefit sqlalchemy gives at this point, seems to just complicate things
+
+        chunk: List[Any] = []
+
+        def flush() -> None:
+            nonlocal chunk
+            if len(chunk) > 0:
+                conn.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
+                chunk = []
+
+        total_objects = 0
+        for obj in datas:
+            try:
+                total_objects += 1
+                yield obj
+            except GeneratorExit:
+                early_exit = True
+                return
+
+            dct = marshall.dump(obj)
+            blob = orjson_dumps(dct)
+            chunk.append(blob)
+            if len(chunk) >= chunk_by:
+                flush()
+        flush()
+
+        # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
+        # pylint: disable=no-value-for-parameter
+        conn.execute(db.table_hash.delete())
+
+        # checkfirst is necessary since it might not have existed in the first place
+        # e.g. first time we use cache
+        table_cache.drop(conn, checkfirst=True)
+
+        # meh https://docs.sqlalchemy.org/en/14/faq/metadata_schema.html#does-sqlalchemy-support-alter-table-create-view-create-trigger-schema-upgrade-functionality
+        # also seems like sqlalchemy doesn't have any primitives to escape table names.. sigh
+        conn.execute(text(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`"))
+
+        # pylint: disable=no-value-for-parameter
+        conn.execute(db.table_hash.insert().values([{'value': new_hash}]))
+        logger.info(f'{func_name}: wrote   {total_objects} objects to   cachew (sqlite {db_path})')
 
     # WARNING: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
     # see test_recursive*
     try:
-        dbp: Path
-        if callable(cache_path):
-            pp = cache_path(*args, **kwargs)
-            if pp is None:
-                logger.debug('[%s]: cache explicitly disabled (cache_path is None)', cn)
-                yield from func(*args, **kwargs)
-                return
-            else:
-                dbp = Path(pp)
-        else:
-            dbp = Path(cache_path)
-
-        dbp.parent.mkdir(parents=True, exist_ok=True)
-
-        # need to be atomic here
-        try:
-            # note: stat follows symlinks (which is what we want)
-            st = dbp.stat()
-        except FileNotFoundError:
-            # doesn't exist. then it's controlled by force_file
-            if force_file:
-                dbp = dbp
-            else:
-                dbp.mkdir(parents=True, exist_ok=True)
-                dbp = dbp / cn
-        else:
-            # already exists, so just use callable name if it's a dir
-            if stat.S_ISDIR(st.st_mode):
-                dbp = dbp / cn
-
-        logger.debug('using %s for db cache', dbp)
+        db_path = get_db_path()
+        if db_path is None:
+            yield from func(*args, **kwargs)
+            return
 
         new_hash_d = C.composite_hash(*args, **kwargs)
         new_hash = json.dumps(new_hash_d)
         logger.debug('new hash: %s', new_hash)
 
-        with DbHelper(dbp, cls) as db, \
-             db.connection.begin():
+        marshall = CachewMarshall(Type_=cls)
+
+        with DbHelper(db_path, cls) as db, db.connection.begin():
             # NOTE: deferred transaction
             conn = db.connection
-            marshall = CachewMarshall(Type_=cls)
-            table_cache     = db.table_cache
+            table_cache = db.table_cache
             table_cache_tmp = db.table_cache_tmp
 
-            # first, try to do as much as possible read-only, benefiting from deferred transaction
-            old_hashes: Sequence
-            try:
-                # not sure if there is a better way...
-                cursor = conn.execute(db.table_hash.select())
-            except sqlalchemy.exc.OperationalError as e:
-                # meh. not sure if this is a good way to handle this..
-                if 'no such table: hash' in str(e):
-                    old_hashes = []
-                else:
-                    raise e
-            else:
-                old_hashes = cursor.fetchall()
-
-            assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
-
-            old_hash: Optional[SourceHash]
-            if len(old_hashes) == 0:
-                old_hash = None
-            else:
-                old_hash = old_hashes[0][0]  # returns a tuple...
-
+            old_hash = get_old_hash(db=db)
             logger.debug('old hash: %s', old_hash)
-
-            def cached_items():
-                rows = conn.execute(table_cache.select())
-
-                # by default, sqlalchemy wraps all results into Row object
-                # this can cause quite a lot of overhead if you're reading many rows
-                # it seems that in principle, sqlalchemy supports just returning bare underlying tuple from the dbapi
-                # but from browsing the code it doesn't seem like this functionality exposed
-                # if you're looking for cues, see
-                # - ._source_supports_scalars
-                # - ._generate_rows
-                # - ._row_getter
-                # by using this raw iterator we speed up reading the cache quite a bit
-                # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
-                raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
-                if raw_row_iterator is None:
-                    warnings.warn(
-                        "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance."
-                    )
-                    row_iterator = rows
-                else:
-                    row_iterator = raw_row_iterator()
-
-                for (blob,) in row_iterator:
-                    j = orjson_loads(blob)
-                    obj = marshall.load(j)
-                    yield obj
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
-                total = list(conn.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(table_cache)))[0][0]
-                logger.info(f'{cn}: loading {total} objects from cachew (sqlite {dbp})')
                 yield from cached_items()
                 return
 
             logger.debug('hash mismatch: computing data and writing to db')
 
-            if synthetic_key is not None:
-                # attempt to use existing cache if possible, as a 'prefix'
+            try_use_synthetic_key()
 
-                old_hash_d: Dict[str, Any] = {}
-                if old_hash is not None:
-                    try:
-                        old_hash_d = json.loads(old_hash)
-                    except json.JSONDecodeError:
-                        # possible if we used old cachew version (<=0.8.1), hash wasn't json
-                        pass
+            got_write = get_exclusive_write_transaction()
+            if not got_write:
+                # NOTE: this is the bit we really have to watch out for and not put in a helper function
+                # otherwise it's causing an extra stack frame on every call
+                # the rest (reading from cachew or writing to cachew) happens once per function call? so not a huge deal
+                yield from func(*args, **kwargs)
+                return
 
-                hash_diffs = {
-                    k: new_hash_d.get(k) == old_hash_d.get(k)
-                    for k in (*new_hash_d.keys(), *old_hash_d.keys())
-                    # the only 'allowed' differences for hash, otherwise need to recompute (e.g. if schema changed)
-                    if k not in {_SYNTHETIC_KEY_VALUE, _DEPENDENCIES}
-                }
-                cache_compatible = all(hash_diffs.values())
-                if cache_compatible:
-                    def missing_keys(cached: List[str], wanted: List[str]) -> Optional[List[str]]:
-                        # FIXME assert both cached and wanted are sorted? since we rely on it
-                        # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
-                        # although in this case passing it into the function wouldn't make sense?
-
-                        if len(cached) == 0:
-                            # no point trying to reuse anything, cache should be empty?
-                            return None
-                        if len(wanted) == 0:
-                            # similar, no way to reuse cache
-                            return None
-                        if cached[0] != wanted[0]:
-                            # there is no common prefix, so no way to reuse cache really
-                            return None
-                        last_cached = cached[-1]
-                        # ok, now actually figure out which items are missing
-                        for i, k in enumerate(wanted):
-                            if k > last_cached:
-                                # ok, rest of items are missing
-                                return wanted[i:]
-                        # otherwise too many things are cached, and we seem to wante less
-                        return None
-
-                    new_values: List[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
-                    old_values: List[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
-                    missing = missing_keys(cached=old_values, wanted=new_values)
-                    if missing is not None:
-                        # can reuse cache
-                        kwargs[_CACHEW_CACHED] = cached_items()
-                        kwargs[synthetic_key] = missing
-
-
-            # NOTE on recursive calls
-            # somewhat magically, they should work as expected with no extra database inserts?
-            # the top level call 'wins' the write transaction and once it's gathered all data, will write it
-            # the 'intermediate' level calls fail to get it and will pass data through
-            # the cached 'bottom' level is read only and will be yielded without a write transaction
-            try:
-                # first 'write' statement will upgrade transaction to write transaction which might fail due to concurrency
-                # see https://www.sqlite.org/lang_transaction.html
-                # NOTE: because of 'checkfirst=True', only the last .create will guarantee the transaction upgrade to write transaction
-                db.table_hash.create(conn, checkfirst=True)
-
-                # 'table' used to be old 'cache' table name, so we just delete it regardless
-                # otherwise it might overinfalte the cache db with stale values
-                conn.execute(text('DROP TABLE IF EXISTS `table`'))
-
-                # NOTE: we have to use .drop and then .create (e.g. instead of some sort of replace)
-                # since it's possible to have schema changes inbetween calls
-                # checkfirst=True because it might be the first time we're using cache
-                table_cache_tmp.drop(conn, checkfirst=True)
-                table_cache_tmp.create(conn)
-            except sqlalchemy.exc.OperationalError as e:
-                if e.code == 'e3q8' and 'database is locked' in str(e):
-                    # someone else must be have won the write lock
-                    # not much we can do here
-                    # NOTE: important to close early, otherwise we might hold onto too many file descriptors during yielding
-                    # see test_recursive_deep
-                    # (normally connection is closed in DbHelper.__exit__)
-                    conn.close()
-                    yield from func(*args, **kwargs)
-                    return
-                else:
-                    raise e
             # at this point we're guaranteed to have an exclusive write transaction
-
-            datas = func(*args, **kwargs)
-            # uhh. this gives a huge speedup for inserting
-            # since we don't have to create intermediate dictionaries
-            insert_into_table_cache_tmp_raw = str(table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark')))
-            # I also tried setting paramstyle='qmark' in create_engine, but it seems to be ignored :(
-            # idk what benefit sqlalchemy gives at this point, seems to just complicate things
-
-            chunk: List[Any] = []
-
-            def flush() -> None:
-                nonlocal chunk
-                if len(chunk) > 0:
-                    conn.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
-                    chunk = []
-
-            total_objects = 0
-            for obj in datas:
-                try:
-                    total_objects += 1
-                    yield obj
-                except GeneratorExit:
-                    early_exit = True
-                    return
-
-                dct = marshall.dump(obj)
-                blob = orjson_dumps(dct)
-                chunk.append(blob)
-                if len(chunk) >= chunk_by:
-                    flush()
-            flush()
-
-            # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
-            # pylint: disable=no-value-for-parameter
-            conn.execute(db.table_hash.delete())
-
-            # checkfirst is necessary since it might not have existed in the first place
-            # e.g. first time we use cache
-            table_cache.drop(conn, checkfirst=True)
-
-            # meh https://docs.sqlalchemy.org/en/14/faq/metadata_schema.html#does-sqlalchemy-support-alter-table-create-view-create-trigger-schema-upgrade-functionality
-            # also seems like sqlalchemy doesn't have any primitives to escape table names.. sigh
-            conn.execute(text(f"ALTER TABLE `{table_cache_tmp.name}` RENAME TO `{table_cache.name}`"))
-
-            # pylint: disable=no-value-for-parameter
-            conn.execute(db.table_hash.insert().values([{'value': new_hash}]))
-            logger.info(f'{cn}: wrote   {total_objects} objects to   cachew (sqlite {dbp})')
+            yield from written_to_cache()
     except Exception as e:
         # sigh... see test_early_exit_shutdown...
         if early_exit and 'Cannot operate on a closed database' in str(e):
