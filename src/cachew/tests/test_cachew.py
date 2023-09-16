@@ -301,7 +301,6 @@ def test_many(count: int, tmp_path: Path, gc_control) -> None:
             # TODO also profile datetimes?
             yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
 
-
     a = time.time()
     assert ilen(iter_data()) == count  # initial
     b = time.time()

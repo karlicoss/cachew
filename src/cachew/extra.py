@@ -8,6 +8,7 @@ def mcachew(*args, **kwargs):
         import cachew
     except ModuleNotFoundError:
         import warnings
+
         warnings.warn('cachew library not found. You might want to install it to speed things up. See https://github.com/karlicoss/cachew')
         return lambda orig_func: orig_func
     else:
@@ -15,9 +16,12 @@ def mcachew(*args, **kwargs):
 
 
 from contextlib import contextmanager
+
+
 @contextmanager
 def disabled_cachew():
     from . import settings
+
     orig = settings.ENABLE
     try:
         settings.ENABLE = False

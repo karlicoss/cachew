@@ -202,6 +202,7 @@ def makeLogger(name: str, *, level: LevelIsh = None) -> logging.Logger:
 def get_enlighten():
     # TODO could add env variable to disable enlighten for a module?
     from unittest.mock import Mock
+
     # Mock to return stub so cients don't have to think about it
 
     # for now hidden behind the flag since it's a little experimental
