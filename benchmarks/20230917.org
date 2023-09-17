@@ -1,0 +1,18 @@
+Running on @karlicoss desktop PC, =python3.10=
+
+Just a comparison of =sqlite= and =file= backends.
+
+#+begin_example
+$ pytest --pyargs -k 'test_many and gc_off and 3000000' -s
+src/cachew/tests/test_cachew.py::test_many[sqlite-gc_off-3000000] [INFO    2023-09-17 02:02:09,946 cachew __init__.py:657 ] cachew.tests.test_cachew:test_many.<locals>.iter_data: wrote   3000000 objects to   cachew (sqlite:/tmp/pytest-of-karlicos/pytest-129/test_many_sqlite_gc_off_3000000/test_many)
+test_many: initial write to cache took 13.6s
+test_many: cache size is 229.220352Mb
+[INFO    2023-09-17 02:02:10,780 cachew __init__.py:662 ] cachew.tests.test_cachew:test_many.<locals>.iter_data: loading 3000000 objects from cachew (sqlite:/tmp/pytest-of-karlicos/pytest-129/test_many_sqlite_gc_off_3000000/test_many)
+test_many: reading from cache took 7.0s
+PASSED
+src/cachew/tests/test_cachew.py::test_many[file-gc_off-3000000] [INFO    2023-09-17 02:02:23,944 cachew __init__.py:657 ] cachew.tests.test_cachew:test_many.<locals>.iter_data: wrote   3000000 objects to   cachew (file:/tmp/pytest-of-karlicos/pytest-129/test_many_file_gc_off_3000000_0/test_many)
+test_many: initial write to cache took 6.1s
+test_many: cache size is 202.555667Mb
+[INFO    2023-09-17 02:02:23,945 cachew __init__.py:662 ] cachew.tests.test_cachew:test_many.<locals>.iter_data: loading objects from cachew (file:/tmp/pytest-of-karlicos/pytest-129/test_many_file_gc_off_3000000_0/test_many)
+test_many: reading from cache took 5.4s
+#+end_example
