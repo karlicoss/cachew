@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, asdict
 from datetime import datetime, date, timezone
+import hashlib
 import inspect
 from itertools import islice, chain
 from pathlib import Path
@@ -21,7 +22,7 @@ import pytz
 
 import pytest
 
-from .. import cachew, get_logger, NTBinder, CachewException, settings
+from .. import cachew, get_logger, NTBinder, CachewException, settings, Backend
 
 from .utils import running_on_ci, gc_control
 
@@ -30,10 +31,23 @@ logger = get_logger()
 
 
 @pytest.fixture(autouse=True)
+def set_default_cachew_dir(tmp_path: Path):
+    tpath = tmp_path / 'cachew_default'
+    settings.DEFAULT_CACHEW_DIR = tpath
+
+
+@pytest.fixture(autouse=True)
 def throw_on_errors():
     # NOTE: in tests we always throw on errors, it's a more reasonable default for testing.
     # we still check defensive behaviour in test_defensive
     settings.THROW_ON_ERROR = True
+    yield
+
+
+@pytest.fixture(autouse=True, params=['sqlite', 'file'])
+def set_backend(restore_settings, request):
+    backend = request.param
+    settings.DEFAULT_BACKEND = backend
     yield
 
 
@@ -100,10 +114,18 @@ def test_custom_hash(tmp_path: Path) -> None:
     ]
     calls = 0
 
+    def get_path_version(path: Path):
+        ns = path.stat().st_mtime_ns
+        # hmm, this might be unreliable, sometimes mtime doesn't change even after modifications?
+        # I suppose it takes some time for them to sync or something...
+        # so let's compute md5 or something in addition..
+        md5 = hashlib.md5(path.read_bytes()).digest()
+        return str((ns, md5))
+
     # fmt: off
     @cachew(
         cache_path=tmp_path,
-        depends_on=lambda path: path.stat().st_mtime  # when path is update, underlying cache would be discarded
+        depends_on=get_path_version,  # when path is updated, underlying cache would be discarded
     )
     # fmt: on
     def data(path: Path) -> Iterable[UUU]:
@@ -809,8 +831,10 @@ def test_union_with_dataclass(tmp_path: Path) -> None:
     assert list(fun()) == [123, DD(456)]
 
 
-def _concurrent_helper(cache_path: Path, count: int, sleep_s=0.1):
-    @cachew(cache_path)
+# ugh. we need to pass backend here explicitly since it might not get picked up from the fixture
+# that sets it in settings. due to multiprocess stuff
+def _concurrent_helper(cache_path: Path, count: int, backend: Backend, sleep_s=0.1):
+    @cachew(cache_path, backend=backend)
     def test(count: int) -> Iterator[int]:
         for i in range(count):
             print(f"{count}: GENERATING {i}")
@@ -828,9 +852,9 @@ def fuzz_cachew_impl():
     from .. import cachew_wrapper
 
     patch = '''\
-@@ -740,6 +740,11 @@
-
-             logger.debug('old hash: %s', old_hash)
+@@ -189,6 +189,11 @@
+             old_hash = backend.get_old_hash()
+             logger.debug(f'old hash: {old_hash}')
 
 +            from random import random
 +            rs = random() * 2
@@ -839,7 +863,7 @@ def fuzz_cachew_impl():
 +
              if new_hash == old_hash:
                  logger.debug('hash matched: loading from cache')
-                 rows = conn.execute(values_table.select())
+                 yield from cached_items()
 '''
     patchy.patch(cachew_wrapper, patch)
     yield
@@ -855,11 +879,11 @@ def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl) -> None:
 
     # warm up to create the database
     # FIXME ok, that will be fixed separately with atomic move I suppose
-    _concurrent_helper(cache_path, 1)
+    _concurrent_helper(cache_path, 1, settings.DEFAULT_BACKEND)
 
     processes = 5
     with ProcessPoolExecutor() as pool:
-        futures = [pool.submit(_concurrent_helper, cache_path, count) for count in range(processes)]
+        futures = [pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND) for count in range(processes)]
 
         for count, f in enumerate(futures):
             assert f.result() == [i * i for i in range(count)]
@@ -873,13 +897,13 @@ def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
 
     count = 10
     # warm up
-    _concurrent_helper(cache_path, count, sleep_s=0)
+    _concurrent_helper(cache_path, count, settings.DEFAULT_BACKEND, sleep_s=0)
 
     processes = 4
 
     start = time.time()
     with ProcessPoolExecutor() as pool:
-        futures = [pool.submit(_concurrent_helper, cache_path, count, 1) for _ in range(processes)]
+        futures = [pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND, 1) for _ in range(processes)]
 
         for f in futures:
             print(f.result())
@@ -1131,6 +1155,9 @@ def dump_old_cache(tmp_path: Path) -> None:
 
 
 def test_old_cache_v0_6_3(tmp_path: Path) -> None:
+    if settings.DEFAULT_BACKEND != 'sqlite':
+        pytest.skip('this test only makes sense for sqlite backend')
+
     sql = '''
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
@@ -1181,7 +1208,7 @@ def test_disabled(tmp_path: Path) -> None:
         assert calls == 3
 
 
-def test_early_exit(tmp_path: Path) -> None:
+def test_early_exit_simple(tmp_path: Path) -> None:
     # cachew works on iterators and we'd prefer not to cache if the iterator hasn't been exhausted
     calls_f = 0
 
