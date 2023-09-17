@@ -10,6 +10,7 @@ install_requires = [
     'appdirs'        ,  # default cache dir
     'sqlalchemy>=1.0',  # cache DB interaction
     'orjson',           # fast json serialization
+    'pytz',             # used to properly marshall pytz datatimes
 ]
 
 
