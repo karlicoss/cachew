@@ -128,7 +128,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 - first your objects get [converted](src/cachew/marshall/cachew.py#L34) into a simpler JSON-like representation 
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L504)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L466)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -140,18 +140,18 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L350), [2](src/cachew/tests/test_cachew.py#L364)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L371), [2](src/cachew/tests/test_cachew.py#L385)
 * supported types:    
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L676), [tests.test_primitive](src/cachew/tests/test_cachew.py#L710), [tests.test_dates](src/cachew/tests/test_cachew.py#L630), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1037)
-    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L592)
-    * [Optional](src/cachew/tests/test_cachew.py#L494) types
-    * [Union](src/cachew/tests/test_cachew.py#L788) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L410)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L697), [tests.test_primitive](src/cachew/tests/test_cachew.py#L731), [tests.test_dates](src/cachew/tests/test_cachew.py#L651), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1073)
+    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L613)
+    * [Optional](src/cachew/tests/test_cachew.py#L515) types
+    * [Union](src/cachew/tests/test_cachew.py#L809) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L431)
     
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L440) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L461) and discards old data automatically
 
 
 # Performance
@@ -165,12 +165,12 @@ You can find some of my performance tests in [benchmarks/](benchmarks) dir, and 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L329) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L281) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
     
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L387) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L408) and depends on function's arguments.
     
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
     
@@ -178,7 +178,7 @@ Some useful (but optional) arguments of `@cachew` decorator:
     
    By default it just uses string representation of the arguments, you can also specify a custom callable.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L89) if the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L103) if the input file was modified.
     
 * `cls` is the type that would be serialized.
 
@@ -251,6 +251,7 @@ def mcachew(*args, **kwargs):
         import cachew
     except ModuleNotFoundError:
         import warnings
+
         warnings.warn('cachew library not found. You might want to install it to speed things up. See https://github.com/karlicoss/cachew')
         return lambda orig_func: orig_func
     else:
@@ -264,9 +265,9 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 ## Settings
 
 
-[cachew.settings](src/cachew/__init__.py#L68) exposes some parameters that allow you to control `cachew` behaviour:
+[cachew.settings](src/cachew/__init__.py#L66) exposes some parameters that allow you to control `cachew` behaviour:
 - `ENABLE`: set to `False` if you want to disable caching for without removing the decorators (useful for testing and debugging).
-   You can also use [cachew.extra.disabled_cachew](src/cachew/extra.py#L18) context manager to do it temporarily.
+   You can also use [cachew.extra.disabled_cachew](src/cachew/extra.py#L21) context manager to do it temporarily.
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [appdirs docs](https://github.com/ActiveState/appdirs#some-example-output)).
 - `THROW_ON_ERROR`: by default, cachew is defensive and simply attemps to cause the original function on caching issues.
    Set to `True` to catch errors earlier.
