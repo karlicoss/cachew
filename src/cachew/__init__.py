@@ -263,14 +263,12 @@ def doublewrap(f):
     return new_dec
 
 
-def cachew_error(e: Exception) -> None:
+def cachew_error(e: Exception, *, logger: logging.Logger) -> None:
     if settings.THROW_ON_ERROR:
         # TODO would be nice to throw from the original code line -- maybe mess with the stack here?
         raise e
     else:
-        logger = get_logger()
-        # todo add func name?
-        logger.error("cachew: error while setting up cache, falling back to non-cached version")
+        logger.error("error while setting up cache, falling back to non-cached version")
         logger.exception(e)
 
 
@@ -338,30 +336,37 @@ def cachew_impl(
     """
     if logger is None:
         module_name = getattr(func, '__module__', None)
-        if module_name is None:
+        if module_name is not None and module_name in logging.Logger.manager.loggerDict:
+            # if logger for the function's module already exists, reuse it
+            logger = logging.getLogger(module_name)
+        else:
             # rely on default cachew logger
             logger = get_logger()
-        else:
-            # if logger for the function's module already exists, reuse it
-            if module_name in logging.Logger.manager.loggerDict:
-                logger = logging.getLogger(module_name)
-            else:
-                logger = get_logger()
+
+    class AddFuncName(logging.LoggerAdapter):
+        def process(self, msg, kwargs):
+            extra = self.extra
+            assert extra is not None
+            func_name = extra['func_name']
+            return f'[{func_name}] {msg}', kwargs
+
+    func_name = callable_name(func)
+    adapter = AddFuncName(logger, {'func_name': func_name})
+    logger = cast(logging.Logger, adapter)
 
     hashf = kwargs.get('hashf', None)
     if hashf is not None:
         warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead")
         depends_on = hashf
 
-    cn = callable_name(func)
     # todo not very nice that ENABLE check is scattered across two places
     if not settings.ENABLE or cache_path is None:
-        logger.debug('[%s]: cache explicitly disabled (settings.ENABLE is False or cache_path is None)', cn)
+        logger.debug('cache explicitly disabled (settings.ENABLE is False or cache_path is None)')
         return func
 
     if cache_path is use_default_path:
         cache_path = settings.DEFAULT_CACHEW_DIR
-        logger.debug('[%s]: no cache_path specified, using the default %s', cn, cache_path)
+        logger.debug(f'no cache_path specified, using the default {cache_path}')
 
     # TODO fuzz infer_return_type, should never crash?
     inference_res = infer_return_type(func)
@@ -369,7 +374,7 @@ def cachew_impl(
         msg = f"failed to infer cache type: {inference_res}. See https://github.com/karlicoss/cachew#features for the list of supported types."
         if cls is None:
             ex = CachewException(msg)
-            cachew_error(ex)
+            cachew_error(ex, logger=logger)
             return func
         else:
             # it's ok, assuming user knows better
@@ -378,11 +383,11 @@ def cachew_impl(
         (kind, inferred) = inference_res
         assert kind == 'multiple'  # TODO implement later
         if cls is None:
-            logger.debug('[%s] using inferred type %s', cn, inferred)
+            logger.debug(f'using inferred type {inferred}')
             cls = inferred
         else:
             if cls != inferred:
-                logger.warning("inferred type %s mismatches specified type %s", inferred, cls)
+                logger.warning(f"inferred type {inferred} mismatches specified type {cls}")
                 # TODO not sure if should be more serious error...
 
     ctx = Context(
@@ -518,7 +523,7 @@ def cachew_wrapper(
 
     func_name = callable_name(func)
     if not settings.ENABLE:
-        logger.debug(f'[{func_name}]: cache explicitly disabled (settings.ENABLE is False)')
+        logger.debug('cache explicitly disabled (settings.ENABLE is False)')
         yield from func(*args, **kwargs)
         return
 
@@ -527,7 +532,7 @@ def cachew_wrapper(
         if callable(cache_path):
             pp = cache_path(*args, **kwargs)
             if pp is None:
-                logger.debug(f'[{func_name}]: cache explicitly disabled (cache_path is None)')
+                logger.debug('cache explicitly disabled (cache_path is None)')
                 # early return, in this case we just yield the original items from the function
                 return None
             else:
@@ -554,7 +559,7 @@ def cachew_wrapper(
             if stat.S_ISDIR(st.st_mode):
                 db_path = db_path / func_name
 
-        logger.debug(f'[{func_name}]: using {used_backend}:{db_path} for cache')
+        logger.debug(f'using {used_backend}:{db_path} for cache')
         return db_path
 
     def try_use_synthetic_key() -> None:
@@ -654,12 +659,12 @@ def cachew_wrapper(
         flush()
 
         backend.finalize(new_hash)
-        logger.info(f'{func_name}: wrote   {total_objects} objects to   cachew ({used_backend}:{db_path})')
+        logger.info(f'wrote   {total_objects} objects to   cachew ({used_backend}:{db_path})')
 
     def cached_items():
         total_cached = backend.cached_blobs_total()
         total_cached_s = '' if total_cached is None else f'{total_cached} '
-        logger.info(f'{func_name}: loading {total_cached_s}objects from cachew ({used_backend}:{db_path})')
+        logger.info(f'loading {total_cached_s}objects from cachew ({used_backend}:{db_path})')
 
         for blob in backend.cached_blobs():
             j = orjson_loads(blob)
@@ -679,7 +684,7 @@ def cachew_wrapper(
 
         new_hash_d = C.composite_hash(*args, **kwargs)
         new_hash: SourceHash = json.dumps(new_hash_d)
-        logger.debug('new hash: %s', new_hash)
+        logger.debug(f'new hash: {new_hash}')
 
         marshall = CachewMarshall(Type_=cls)
 
@@ -713,7 +718,7 @@ def cachew_wrapper(
 
         # todo hmm, kinda annoying that it tries calling the function twice?
         # but gonna require some sophisticated cooperation with the cached wrapper otherwise
-        cachew_error(e)
+        cachew_error(e, logger=logger)
         yield from func(*args, **kwargs)
 
 
