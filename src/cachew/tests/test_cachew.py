@@ -728,7 +728,7 @@ def test_types(tmp_path: Path) -> None:
 # TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
 
-def test_primitive(tmp_path: Path):
+def test_primitive(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun() -> Iterator[str]:
         yield 'aba'
@@ -736,6 +736,34 @@ def test_primitive(tmp_path: Path):
 
     assert list(fun()) == ['aba', 'caba']
     assert list(fun()) == ['aba', 'caba']
+
+
+def test_single_value(tmp_path: Path) -> None:
+    @cachew(tmp_path)
+    def fun_int() -> int:
+        return 123
+
+    assert fun_int() == 123
+    assert fun_int() == 123
+
+    @cachew(tmp_path, cls=('single', str))
+    def fun_str():
+        return 'whatever'
+
+    assert fun_str() == 'whatever'
+    assert fun_str() == 'whatever'
+
+    @cachew(tmp_path)
+    def fun_opt_namedtuple(none: bool) -> Optional[UUU]:
+        if none:
+            return None
+        else:
+            return UUU(xx=1, yy=2)
+
+    assert fun_opt_namedtuple(none=False) == UUU(xx=1, yy=2)
+    assert fun_opt_namedtuple(none=False) == UUU(xx=1, yy=2)
+    assert fun_opt_namedtuple(none=True) is None
+    assert fun_opt_namedtuple(none=True) is None
 
 
 class O(NamedTuple):
