@@ -128,7 +128,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 - first your objects get [converted](src/cachew/marshall/cachew.py#L34) into a simpler JSON-like representation 
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L466)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L511)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -145,10 +145,10 @@ and compares it against the previously stored hash value.
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L697), [tests.test_primitive](src/cachew/tests/test_cachew.py#L731), [tests.test_dates](src/cachew/tests/test_cachew.py#L651), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1073)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L697), [tests.test_primitive](src/cachew/tests/test_cachew.py#L731), [tests.test_dates](src/cachew/tests/test_cachew.py#L651), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1101)
     * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L613)
     * [Optional](src/cachew/tests/test_cachew.py#L515) types
-    * [Union](src/cachew/tests/test_cachew.py#L809) types
+    * [Union](src/cachew/tests/test_cachew.py#L837) types
     * [nested datatypes](src/cachew/tests/test_cachew.py#L431)
     
 * detects [datatype schema changes](src/cachew/tests/test_cachew.py#L461) and discards old data automatically
@@ -165,7 +165,7 @@ You can find some of my performance tests in [benchmarks/](benchmarks) dir, and 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L281) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L290) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
@@ -232,8 +232,14 @@ I'm using [tox](tox.ini) to run tests, and [Github Actions](.github/workflows/ma
 
 * why `sqlite` database for storage?
 
-  It's pretty efficient and iterables (i.e. sequences) map onto database rows in a very straightforward manner.
-  That said it would be interesting to experiment with alternative storages, e.g. in-RAM or distributed like Redis.
+  It's pretty efficient and iterables (i.e. sequences) map onto database rows in a very straightforward manner, plus we get some concurrency guarantees.
+
+  There is also a somewhat experimental backend which uses a simple file (jsonl-like) for storage, you can use it via `@cache(backend='file')`, or via `settings.DEFAULT_BACKEND`.
+  It's slightly faster than sqlite judging by benchmarks, but unless you're caching millions of items this shouldn't really be noticeable.
+  
+  It would also be interesting to experiment with in-RAM storages.
+
+  I had [a go](https://github.com/karlicoss/cachew/issues/9) at Redis as well, but performance for writing to cache was pretty bad. That said it could still be interesting for distributed caching if you don't care too much about performance.
 
 
 # Tips and tricks
@@ -271,6 +277,7 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [appdirs docs](https://github.com/ActiveState/appdirs#some-example-output)).
 - `THROW_ON_ERROR`: by default, cachew is defensive and simply attemps to cause the original function on caching issues.
    Set to `True` to catch errors earlier.
+- `DEFAULT_BACKEND`: currently supported are `sqlite` and `file` (file is somewhat experimental, although should work too).
 
 
 ## Updating this readme
