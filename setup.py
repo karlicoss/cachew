@@ -33,7 +33,7 @@ def main() -> None:
         author_email=author_email,
         description=description,
 
-        packages=[pkg],
+        packages=pkgs,
         package_dir={'': 'src'},
         package_data={pkg: ['py.typed']},
 
