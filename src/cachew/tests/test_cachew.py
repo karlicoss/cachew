@@ -1296,7 +1296,7 @@ e = next(g)
 
 print("FINISHED")
     '''
-    r = run(['python3', '-c', prog], cwd=tmp_path, stderr=PIPE, stdout=PIPE, check=True)
+    r = run([sys.executable, '-c', prog], cwd=tmp_path, stderr=PIPE, stdout=PIPE, check=True)
     assert r.stdout.strip() == b'FINISHED'
     assert b'Traceback' not in r.stderr
 

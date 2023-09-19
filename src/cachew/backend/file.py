@@ -35,10 +35,12 @@ class FileBackend(AbstractBackend):
 
     def __exit__(self, *args) -> None:
         if self.jsonl_tmp_fw is not None:
-            self.jsonl_tmp_fw.close()
-
             # might still exist in case of early exit
             self.jsonl_tmp.unlink(missing_ok=True)
+
+            # NOTE: need to unlink first
+            # otherwise possible that someone else might open the file before we unlink it
+            self.jsonl_tmp_fw.close()
 
         if self.jsonl_fr is not None:
             self.jsonl_fr.close()
