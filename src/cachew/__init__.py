@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 from pathlib import Path
+import os
 import stat
 import sys
 from typing import (
@@ -486,6 +487,66 @@ def callable_name(func: Callable) -> str:
     mod = getattr(func, '__module__', None) or ''
     return f'{mod}:{func.__qualname__}'
 
+def callable_module_name(func: Callable) -> Optional[str]:
+    return getattr(func, '__module__', None)
+
+# could cache this, but might be worth not to, so the user can change it on the fly?
+def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> List[str]:
+    # e.g. CACHEW_DISABLE=my.browser:my.reddit
+    if 'CACHEW_DISABLE' not in os.environ:
+        return []
+    disabled = os.environ['CACHEW_DISABLE']
+    if disabled.strip() == '':
+        return []
+    if ',' in disabled and logger:
+        logger.warning('CACHEW_DISABLE contains a comma, but this expects a $PATH-like, colon-separated list; '
+                       f'try something like CACHEW_DISABLE={disabled.replace(",", ":")}')
+    return disabled.split(':')
+
+
+def _matches_disabled_module(module_name: str, pattern: str) -> bool:
+    '''
+    >>> _matches_disabled_module('my.browser', 'my.browser')
+    True
+    >>> _matches_disabled_module('my.browser', 'my.*')
+    True
+    >>> _matches_disabled_module('my.browser', 'my')
+    True
+    >>> _matches_disabled_module('my.browser', 'my.browse*')
+    True
+    >>> _matches_disabled_module('my.browser.export', 'my.browser')
+    True
+    >>> _matches_disabled_module('mysomething.else', '*')  # CACHEW_DISABLE='*' disables everything
+    True
+    >>> _matches_disabled_module('my.browser', 'my.browse')
+    False
+    >>> _matches_disabled_module('mysomething.else', 'my')  # since not at '.' boundary, doesn't match
+    False
+    >>> _matches_disabled_module('mysomething.else', '')
+    False
+    '''
+    import fnmatch
+
+    if module_name == pattern:
+        return True
+
+    for mp, pp in zip(module_name.split('.'), pattern.split('.')):
+        if fnmatch.fnmatch(mp, pp):
+            continue
+        else:
+            return False
+    return True
+
+def _module_is_disabled(module_name: str, logger: Optional[logging.Logger] = None) -> bool:
+
+    disabled_modules = _parse_disabled_modules(logger)
+    for pat in disabled_modules:
+        if _matches_disabled_module(module_name, pat):
+            if logger:
+                logger.debug(f'caching disabled for {module_name} '
+                             f"(matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
+            return True
+    return False
 
 # fmt: off
 _CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs
@@ -564,6 +625,11 @@ def cachew_wrapper(
     func_name = callable_name(func)
     if not settings.ENABLE:
         logger.debug('cache explicitly disabled (settings.ENABLE is False)')
+        yield from func(*args, **kwargs)
+        return
+
+    mod_name = callable_module_name(func)
+    if mod_name is not None and _module_is_disabled(mod_name, logger):
         yield from func(*args, **kwargs)
         return
 
