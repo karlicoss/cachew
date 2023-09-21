@@ -518,6 +518,8 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
     True
     >>> _matches_disabled_module('mysomething.else', '*')  # CACHEW_DISABLE='*' disables everything
     True
+    >>> _matches_disabled_module('my.browser', 'my.br?????')  # fnmatch supports unix-like patterns
+    True
     >>> _matches_disabled_module('my.browser', 'my.browse')
     False
     >>> _matches_disabled_module('mysomething.else', 'my')  # since not at '.' boundary, doesn't match
