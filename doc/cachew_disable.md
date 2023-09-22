@@ -20,7 +20,7 @@ my/reddit
 └── rexport.py
 ```
 
-To disable cachew in all of these files: `export CACHEW_DISABLE=my.browser:my.reddit` (disables for all submodules)
+To disable `cachew` in all of these files: `export CACHEW_DISABLE=my.browser:my.reddit` (disables for all submodules)
 
 To disable just for a particular module: `export CACHEW_DISABLE="my.browser.export`
 
