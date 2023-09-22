@@ -28,7 +28,6 @@ Similarly to `$PATH` manipulations, you can do this in your shell configuration 
 
 ```
 CACHEW_DISABLE='my.reddit.rexport'
-#
 if some condition...; then
     CACHEW_DISABLE="my.browser.export:$CACHEW_DISABLE"
 fi
