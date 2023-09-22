@@ -501,7 +501,8 @@ def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> List[str
     if ',' in disabled and logger:
         logger.warning('CACHEW_DISABLE contains a comma, but this expects a $PATH-like, colon-separated list; '
                        f'try something like CACHEW_DISABLE={disabled.replace(",", ":")}')
-    return disabled.split(':')
+    # remove any empty strings incase did something like CACHEW_DISABLE=my.module:$CACHEW_DISABLE
+    return [p for p in disabled.split(':') if p.strip() != '']
 
 
 def _matches_disabled_module(module_name: str, pattern: str) -> bool:
@@ -526,27 +527,36 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
     False
     >>> _matches_disabled_module('mysomething.else', '')
     False
+    >>> _matches_disabled_module('my.browser', 'my.browser.export')
+    False
     '''
     import fnmatch
 
     if module_name == pattern:
         return True
 
-    for mp, pp in zip(module_name.split('.'), pattern.split('.')):
+    module_parts = module_name.split('.')
+    pattern_parts = pattern.split('.')
+
+    # e.g. if pattern is 'module.submod.inner_module' and module is just 'module.submod'
+    # theres no possible way for it to match
+    if len(module_parts) < len(pattern_parts):
+        return False
+
+    for mp, pp in zip(module_parts, pattern_parts):
         if fnmatch.fnmatch(mp, pp):
             continue
         else:
             return False
     return True
 
-def _module_is_disabled(module_name: str, logger: Optional[logging.Logger] = None) -> bool:
+def _module_is_disabled(module_name: str, logger: logging.Logger) -> bool:
 
     disabled_modules = _parse_disabled_modules(logger)
     for pat in disabled_modules:
         if _matches_disabled_module(module_name, pat):
-            if logger:
-                logger.debug(f'caching disabled for {module_name} '
-                             f"(matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
+            logger.debug(f'caching disabled for {module_name} '
+                         f"(matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
             return True
     return False
 
