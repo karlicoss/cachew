@@ -22,7 +22,7 @@ my/reddit
 
 To disable `cachew` in all of these files: `export CACHEW_DISABLE=my.browser:my.reddit` (disables for all submodules)
 
-To disable just for a particular module: `export CACHEW_DISABLE="my.browser.export`
+To disable just for a particular module: `export CACHEW_DISABLE='my.browser.export'`
 
 Similarly to `$PATH` manipulations, you can do this in your shell configuration incrementally:
 
