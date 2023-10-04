@@ -1,0 +1,59 @@
+# see https://github.com/karlicoss/pymplate for up-to-date reference
+[project]
+dynamic = ["version"]  # version is managed by setuptools_scm
+name = "cachew"
+dependencies = [
+    "appdirs"        ,  # default cache dir
+    "sqlalchemy>=1.0",  # cache DB interaction
+    "orjson",           # fast json serialization
+    "pytz",             # used to properly marshall pytz datatimes
+]
+requires-python = ">=3.8"
+
+## these need to be set if you're planning to upload to pypi
+# description = "TODO"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"},
+]
+maintainers = [
+    {name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"},
+]
+# keywords = []
+# # see: http://pypi.python.org/pypi?%3Aaction=list_classifiers
+# classifiers = [
+# ]
+
+
+[project.urls]
+Homepage = "https://github.com/karlicoss/cachew"
+##
+
+
+[project.optional-dependencies]
+testing = [
+    "pytest",
+    "more-itertools",
+    "patchy",  # for injecting sleeps and testing concurrent behaviour
+    "enlighten",  # used in logging helper, but not really required
+    "cattrs",  # benchmarking alternative marshalling implementation
+    "pyinstrument",  # for profiling from within tests
+    "codetiming", # Timer context manager
+
+    "ruff",
+
+    "mypy",
+    "lxml",  # for mypy html coverage
+]
+optional = [
+    "colorlog",
+]
+
+
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_scheme = "python-simplified-semver"
+local_scheme = "dirty-tag"
