@@ -996,6 +996,32 @@ def test_defensive(restore_settings) -> None:
             assert list(fun()) == [123]
 
 
+@pytest.mark.parametrize('throw', [False, True])
+def test_future_annotations(tmp_path: Path, throw: bool) -> None:
+    """
+    this will work in runtime without cachew if from __future__ import annotations is used
+    so should work with cachew decorator as well
+    """
+    src = tmp_path / 'src.py'
+    src.write_text(f'''
+from __future__ import annotations
+
+from cachew import settings, cachew
+settings.THROW_ON_ERROR = {throw}
+
+@cachew
+def fun() -> BadType:
+    print("called!")
+    return 0
+
+fun()
+'''.lstrip())
+
+    ctx = pytest.raises(Exception) if throw else nullcontext()
+    with ctx:
+        assert check_output([sys.executable, src], text=True).strip() == "called!"
+
+
 def test_recursive_simple(tmp_path: Path) -> None:
     d0 = 0
     d1 = 1000

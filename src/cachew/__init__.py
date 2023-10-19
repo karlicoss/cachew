@@ -213,7 +213,12 @@ def infer_return_type(func) -> Union[Failure, Inferred]:
     >>> infer_return_type(unsupported_list)
     "can't infer type from typing.List[cachew.Custom]: can't cache <class 'cachew.Custom'>"
     """
-    hints = get_type_hints(func)
+    try:
+        hints = get_type_hints(func)
+    except Exception as ne:
+        # get_type_hints might fail if types are forward defined or missing
+        # see test_future_annotation for an example
+        return str(ne)
     rtype = hints.get('return', None)
     if rtype is None:
         return f"no return type annotation on {func}"

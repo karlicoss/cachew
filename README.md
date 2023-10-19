@@ -128,7 +128,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 - first your objects get [converted](src/cachew/marshall/cachew.py#L34) into a simpler JSON-like representation 
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L511)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L589)
 and compares it against the previously stored hash value.
     
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -145,7 +145,7 @@ and compares it against the previously stored hash value.
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L697), [tests.test_primitive](src/cachew/tests/test_cachew.py#L731), [tests.test_dates](src/cachew/tests/test_cachew.py#L651), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1101)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L697), [tests.test_primitive](src/cachew/tests/test_cachew.py#L731), [tests.test_dates](src/cachew/tests/test_cachew.py#L651), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1127)
     * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L613)
     * [Optional](src/cachew/tests/test_cachew.py#L515) types
     * [Union](src/cachew/tests/test_cachew.py#L837) types
@@ -165,7 +165,7 @@ You can find some of my performance tests in [benchmarks/](benchmarks) dir, and 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L290) for up-to-date documentation on parameters and return types. 
+See [docstring](src/cachew/__init__.py#L296) for up-to-date documentation on parameters and return types. 
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a reference.
     
 Some useful (but optional) arguments of `@cachew` decorator:
@@ -271,7 +271,7 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 ## Settings
 
 
-[cachew.settings](src/cachew/__init__.py#L66) exposes some parameters that allow you to control `cachew` behaviour:
+[cachew.settings](src/cachew/__init__.py#L67) exposes some parameters that allow you to control `cachew` behaviour:
 - `ENABLE`: set to `False` if you want to disable caching for without removing the decorators (useful for testing and debugging).
    You can also use [cachew.extra.disabled_cachew](src/cachew/extra.py#L21) context manager to do it temporarily.
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [appdirs docs](https://github.com/ActiveState/appdirs#some-example-output)).
