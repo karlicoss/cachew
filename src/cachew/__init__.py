@@ -48,7 +48,7 @@ from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
 from .common import SourceHash
-from .logging_helper import makeLogger
+from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall, build_schema
 from .utils import (
     CachewException,
@@ -85,7 +85,7 @@ class settings:
 
 
 def get_logger() -> logging.Logger:
-    return makeLogger(__name__)
+    return make_logger(__name__)
 
 
 BACKENDS: Dict[Backend, Type[AbstractBackend]] = {
