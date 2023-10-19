@@ -31,9 +31,9 @@ def test() -> None:
     M("\n   Also exception logging is kinda lame, doesn't print traceback by default unless you remember to pass exc_info:")
     l.exception(ex)  # type: ignore[possibly-undefined]  # pylint: disable=used-before-assignment
 
-    M("\n\n    With makeLogger you get a reasonable logging format, colours (via colorlog library) and other neat things:")
+    M("\n\n    With make_logger you get a reasonable logging format, colours (via colorlog library) and other neat things:")
 
-    ll = makeLogger('test')  # No need for basicConfig!
+    ll = make_logger('test')  # No need for basicConfig!
     ll.info("default level is INFO")
     ll.debug("... so this shouldn't be displayed")
     ll.warning("warnings are easy to spot!")
@@ -105,6 +105,14 @@ def setup_logger(logger: str | logging.Logger, *, level: LevelIsh = None) -> Non
         # if it's already set, the user requested a different logging level, let's respect that
         logger.setLevel(lvl)
 
+    _setup_handlers_and_formatters(name=logger.name)
+
+
+# cached since this should only be done once per logger instance
+@lru_cache(None)
+def _setup_handlers_and_formatters(name: str) -> None:
+    logger = logging.getLogger(name)
+
     logger.addFilter(AddExceptionTraceback())
 
     ch = logging.StreamHandler()
@@ -128,10 +136,12 @@ def setup_logger(logger: str | logging.Logger, *, level: LevelIsh = None) -> Non
     else:
         # log_color/reset are specific to colorlog
         FORMAT_COLOR = FORMAT.format(start='%(log_color)s', end='%(reset)s')
-        fmt = FORMAT_COLOR if ch.stream.isatty() else FORMAT_NOCOLOR
         # colorlog should detect tty in principle, but doesn't handle everything for some reason
         # see https://github.com/borntyping/python-colorlog/issues/71
-        formatter = colorlog.ColoredFormatter(fmt)
+        if ch.stream.isatty():
+            formatter = colorlog.ColoredFormatter(FORMAT_COLOR)
+        else:
+            formatter = logging.Formatter(FORMAT_NOCOLOR)
 
     ch.setFormatter(formatter)
 
@@ -142,16 +152,13 @@ def setup_logger(logger: str | logging.Logger, *, level: LevelIsh = None) -> Non
 # todo also amend by post about defensive error handling?
 class AddExceptionTraceback(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        s = super().filter(record)
-        if s is False:
-            return False
         if record.levelname == 'ERROR':
             exc = record.msg
             if isinstance(exc, BaseException):
                 if record.exc_info is None or record.exc_info == (None, None, None):
                     exc_info = (type(exc), exc, exc.__traceback__)
                     record.exc_info = exc_info
-        return s
+        return True
 
 
 # todo also save full log in a file?
@@ -189,8 +196,7 @@ class CollapseLogsHandler(logging.StreamHandler):
             self.handleError(record)
 
 
-@lru_cache(None)  # cache so it's only initialized once
-def makeLogger(name: str, *, level: LevelIsh = None) -> logging.Logger:
+def make_logger(name: str, *, level: LevelIsh = None) -> logging.Logger:
     logger = logging.getLogger(name)
     setup_logger(logger, level=level)
     return logger
@@ -201,9 +207,7 @@ def makeLogger(name: str, *, level: LevelIsh = None) -> logging.Logger:
 # OK, when stdout is not a tty, enlighten doesn't log anything, good
 def get_enlighten():
     # TODO could add env variable to disable enlighten for a module?
-    from unittest.mock import Mock
-
-    # Mock to return stub so cients don't have to think about it
+    from unittest.mock import Mock  # Mock to return stub so cients don't have to think about it
 
     # for now hidden behind the flag since it's a little experimental
     if os.environ.get('ENLIGHTEN_ENABLE', None) is None:
@@ -230,6 +234,6 @@ if __name__ == '__main__':
 
 
 ## legacy/deprecated methods for backwards compatilibity
-LazyLogger = makeLogger
-logger = makeLogger
+LazyLogger = make_logger
+logger = make_logger
 ##
