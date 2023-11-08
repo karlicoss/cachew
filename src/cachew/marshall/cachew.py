@@ -4,6 +4,7 @@ from abc import abstractmethod
 from collections import abc
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timezone
+from numbers import Real
 import sys
 import types
 from typing import (
@@ -119,6 +120,10 @@ class SUnion(Schema):
     args: tuple[tuple[int, Schema], ...]
 
     def dump(self, obj):
+        if obj is None:
+            # if it's a None, then doesn't really matter how to serialize and deserialize it
+            return (0, None)
+
         # TODO could do a bit of magic here and remember the last index that worked?
         # that way if some objects dominate the Union, the first isinstance would always work
         for tidx, a in self.args:
@@ -134,13 +139,17 @@ class SUnion(Schema):
                 #     '__value__': jj,
                 # }
         else:
-            assert False, "shouldn't happen!"
+            assert False, f"shouldn't happen: {self.args} {obj}"
 
     def load(self, dct):
         # tidx = d['__union_index__']
         # s = self.args[tidx]
         # return s.load(d['__value__'])
         tidx, val = dct
+        if val is None:
+            # counterpart for None handling in .dump method
+            return None
+
         _, s = self.args[tidx]
         return s.load(val)
 
@@ -262,20 +271,25 @@ class SDate(Schema):
 
 
 PRIMITIVES = {
-    int,
-    str,
-    type(None),
-    float,
-    bool,
+    # int and float are handled a bit differently to allow implicit casts
+    # isinstance(.., Real) works both for int and for float
+    # Real can't be serialized back, but if you look in SPrimitive, it leaves the values intact anyway
+    # since the actual serialization of primitives is handled by orjson
+    int: Real,
+    float: Real,
+    str: str,
+    type(None): type(None),
+    bool: bool,
     # if type is Any, there isn't much we can do to dump it -- just dump into json and rely on the best
     # so in this sense it works exacly like primitives
-    Any,
+    Any: Any,
 }
 
 
 def build_schema(Type) -> Schema:
-    if Type in PRIMITIVES:
-        return SPrimitive(type=Type)
+    ptype = PRIMITIVES.get(Type)
+    if ptype is not None:
+        return SPrimitive(type=ptype)
 
     origin = get_origin(Type)
 
@@ -403,10 +417,27 @@ def test_serialize_and_deserialize() -> None:
     helper(None, type(None))
     # TODO emit other value as none type? not sure what should happen
 
+    # implicit casts, simple version
+    helper(None, int)
+    helper(None, str)
+    helper(1, float)
+
     # unions
     helper(1, Union[str, int])
     if sys.version_info[:2] >= (3, 10):
         helper('aaa', str | int)
+
+    # implicit casts, inside other types
+    # technically not type safe, but might happen in practice
+    # doesn't matter how to deserialize None anyway so let's allow this
+    helper(None, Union[str, int])
+
+    # even though 1 is not isinstance(float), often it ends up as float in data
+    # see https://github.com/karlicoss/cachew/issues/54
+    helper(1, Union[float, str])
+    helper(2, Union[float, int])
+    helper(2.0, Union[float, int])
+    helper((1, 2), Tuple[int, float])
 
     # optionals
     helper('aaa', Optional[str])
