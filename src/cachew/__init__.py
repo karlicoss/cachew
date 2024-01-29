@@ -42,7 +42,7 @@ except:
 
     orjson_loads = json.loads
 
-import appdirs
+import appdirs  # type: ignore[import-untyped]
 
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
