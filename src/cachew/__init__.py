@@ -424,6 +424,7 @@ def cachew_impl(
 
     if use_kind == 'single':
         # pretend it's an iterable, this is just simpler for cachew_wrapper
+        @functools.wraps(func)
         def _func(*args, **kwargs):
             return [func(*args, **kwargs)]
 

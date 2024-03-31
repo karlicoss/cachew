@@ -22,7 +22,7 @@ import pytz
 
 import pytest
 
-from .. import cachew, get_logger, NTBinder, CachewException, settings, Backend
+from .. import cachew, get_logger, NTBinder, CachewException, settings, Backend, callable_name
 
 from .utils import running_on_ci, gc_control
 
@@ -1419,3 +1419,23 @@ def test_synthetic_keyset(tmp_path: Path, use_synthetic: bool) -> None:
     # FIXME make sure this thing works if len(keys) > chunk size?
     # TODO check what happens when we forget to set 'cachew_cached' argument
     # TODO check what happens when keys are not str but e.g. Path
+
+
+def test_db_path_matches_fun_name(tmp_path: Path) -> None:
+    @cachew(tmp_path)
+    def fun_single() -> int:
+        return 123
+
+    @cachew(tmp_path)
+    def fun_multiple() -> Iterable[int]:
+        return [123]
+
+    # write to cache
+    fun_single()
+    list(fun_multiple())
+
+    try:
+        _ = (tmp_path / callable_name(fun_single)).stat()
+        _ = (tmp_path / callable_name(fun_multiple)).stat()
+    except FileNotFoundError:
+        raise RuntimeError('expected db path to exist after writes')
