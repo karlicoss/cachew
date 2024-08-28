@@ -19,7 +19,7 @@ def is_namedtuple(t) -> bool:
     b = getattr(t, '__bases__', None)
     if b is None:
         return False
-    if len(b) != 1 or b[0] != tuple:
+    if len(b) != 1 or b[0] is not tuple:
         return False
     f = getattr(t, '_fields', None)
     if not isinstance(f, tuple):
