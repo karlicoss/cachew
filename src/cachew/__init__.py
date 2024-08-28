@@ -1,14 +1,17 @@
-from dataclasses import dataclass
+import fnmatch
 import functools
 import importlib.metadata
 import inspect
 import json
 import logging
-from pathlib import Path
 import os
 import stat
 import sys
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -23,16 +26,15 @@ from typing import (
     Union,
     cast,
     get_args,
-    get_type_hints,
     get_origin,
+    get_type_hints,
     overload,
-    TYPE_CHECKING,
 )
-import warnings
 
 try:
     # orjson might not be available on some architectures, so let's make it defensive just in case
-    from orjson import loads as orjson_loads, dumps as orjson_dumps  # pylint: disable=no-name-in-module
+    from orjson import dumps as orjson_dumps
+    from orjson import loads as orjson_loads
 except:
     warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance")
 
@@ -54,7 +56,6 @@ from .utils import (
     CachewException,
     TypeNotSupported,
 )
-
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
@@ -284,9 +285,8 @@ def cachew_error(e: Exception, *, logger: logging.Logger) -> None:
     if settings.THROW_ON_ERROR:
         # TODO would be nice to throw from the original code line -- maybe mess with the stack here?
         raise e
-    else:
-        logger.error("error while setting up cache, falling back to non-cached version")
-        logger.exception(e)
+    logger.error("error while setting up cache, falling back to non-cached version")
+    logger.exception(e)
 
 
 use_default_path = cast(Path, object())
@@ -297,6 +297,7 @@ use_default_path = cast(Path, object())
 def cachew_impl(
     func=None,
     cache_path: Optional[PathProvider[P]] = use_default_path,
+    *,
     force_file: bool = False,
     cls: Optional[Union[Type, Tuple[Kind, Type]]] = None,
     depends_on: HashFunction[P] = default_hash,
@@ -464,8 +465,7 @@ if TYPE_CHECKING:
     # we need two versions due to @doublewrap
     # this is when we just annotate as @cachew without any args
     @overload  # type: ignore[no-overload-impl]
-    def cachew(fun: F) -> F:
-        ...
+    def cachew(fun: F) -> F: ...
 
     # NOTE: we won't really be able to make sure the args of cache_path are the same as args of the wrapped function
     # because when cachew() is called, we don't know anything about the wrapped function yet
@@ -481,8 +481,7 @@ if TYPE_CHECKING:
         chunk_by: int = ...,
         synthetic_key: Optional[str] = ...,
         backend: Optional[Backend] = ...,
-    ) -> Callable[[F], F]:
-        ...
+    ) -> Callable[[F], F]: ...
 
 else:
     cachew = cachew_impl
@@ -493,8 +492,10 @@ def callable_name(func: Callable) -> str:
     mod = getattr(func, '__module__', None) or ''
     return f'{mod}:{func.__qualname__}'
 
+
 def callable_module_name(func: Callable) -> Optional[str]:
     return getattr(func, '__module__', None)
+
 
 # could cache this, but might be worth not to, so the user can change it on the fly?
 def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> List[str]:
@@ -505,8 +506,10 @@ def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> List[str
     if disabled.strip() == '':
         return []
     if ',' in disabled and logger:
-        logger.warning('CACHEW_DISABLE contains a comma, but this expects a $PATH-like, colon-separated list; '
-                       f'try something like CACHEW_DISABLE={disabled.replace(",", ":")}')
+        logger.warning(
+            'CACHEW_DISABLE contains a comma, but this expects a $PATH-like, colon-separated list; '
+            f'try something like CACHEW_DISABLE={disabled.replace(",", ":")}'
+        )
     # remove any empty strings incase did something like CACHEW_DISABLE=my.module:$CACHEW_DISABLE
     return [p for p in disabled.split(':') if p.strip() != '']
 
@@ -536,7 +539,6 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
     >>> _matches_disabled_module('my.browser', 'my.browser.export')
     False
     '''
-    import fnmatch
 
     if module_name == pattern:
         return True
@@ -552,19 +554,19 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
     for mp, pp in zip(module_parts, pattern_parts):
         if fnmatch.fnmatch(mp, pp):
             continue
-        else:
-            return False
+        return False
     return True
+
 
 def _module_is_disabled(module_name: str, logger: logging.Logger) -> bool:
 
     disabled_modules = _parse_disabled_modules(logger)
     for pat in disabled_modules:
         if _matches_disabled_module(module_name, pat):
-            logger.debug(f'caching disabled for {module_name} '
-                         f"(matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
+            logger.debug(f"caching disabled for {module_name} (matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
             return True
     return False
+
 
 # fmt: off
 _CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs

@@ -1,5 +1,5 @@
-from abc import abstractmethod
 import logging
+from abc import abstractmethod
 from pathlib import Path
 from typing import (
     Iterator,

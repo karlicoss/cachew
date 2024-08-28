@@ -1,31 +1,48 @@
-from contextlib import nullcontext
-from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, asdict
-from datetime import datetime, date, timezone
 import hashlib
 import inspect
-from itertools import islice, chain
-from pathlib import Path
-from random import Random
-from subprocess import check_call, check_output, run, PIPE
 import string
 import sys
 import time
-from time import sleep
 import timeit
-from typing import NamedTuple, Iterator, Optional, List, Set, Tuple, cast, Iterable, Dict, Any, Union, Sequence
-
-from more_itertools import one, ilen, last, unique_everseen
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
+from itertools import chain, islice
+from pathlib import Path
+from random import Random
+from subprocess import PIPE, check_call, check_output, run
+from time import sleep
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 
 import patchy
-import pytz
-
 import pytest
+import pytz
+from more_itertools import ilen, last, one, unique_everseen
 
-from .. import cachew, get_logger, NTBinder, CachewException, settings, Backend, callable_name
-
-from .utils import running_on_ci, gc_control
-
+from .. import (
+    Backend,
+    CachewException,
+    NTBinder,
+    cachew,
+    callable_name,
+    get_logger,
+    settings,
+)
+from .utils import gc_control, running_on_ci
 
 logger = get_logger()
 
@@ -41,14 +58,14 @@ def throw_on_errors():
     # NOTE: in tests we always throw on errors, it's a more reasonable default for testing.
     # we still check defensive behaviour in test_defensive
     settings.THROW_ON_ERROR = True
-    yield
+    # TODO restore it?
 
 
 @pytest.fixture(autouse=True, params=['sqlite', 'file'])
 def set_backend(restore_settings, request):
     backend = request.param
     settings.DEFAULT_BACKEND = backend
-    yield
+    # TODO restore it??
 
 
 @pytest.fixture
@@ -62,7 +79,7 @@ def restore_settings():
 
 
 # fmt: off
-@pytest.mark.parametrize('tp, val', [
+@pytest.mark.parametrize(('tp', 'val'), [
     (int, 22),
     (bool, False),
     (Optional[str], 'abacaba'),
@@ -754,7 +771,7 @@ def test_single_value(tmp_path: Path) -> None:
     assert fun_str() == 'whatever'
 
     @cachew(tmp_path)
-    def fun_opt_namedtuple(none: bool) -> Optional[UUU]:
+    def fun_opt_namedtuple(none: bool) -> Optional[UUU]:  # noqa: FBT001
         if none:
             return None
         else:
@@ -997,7 +1014,7 @@ def test_defensive(restore_settings) -> None:
 
 
 @pytest.mark.parametrize('throw', [False, True])
-def test_future_annotations(tmp_path: Path, throw: bool) -> None:
+def test_future_annotations(*, tmp_path: Path, throw: bool) -> None:
     """
     this will work in runtime without cachew if from __future__ import annotations is used
     so should work with cachew decorator as well
@@ -1322,14 +1339,14 @@ e = next(g)
 
 print("FINISHED")
     '''
-    r = run([sys.executable, '-c', prog], cwd=tmp_path, stderr=PIPE, stdout=PIPE, check=True)
+    r = run([sys.executable, '-c', prog], cwd=tmp_path, capture_output=True, check=True)
     assert r.stdout.strip() == b'FINISHED'
     assert b'Traceback' not in r.stderr
 
 
 # tests both modes side by side to demonstrate the difference
 @pytest.mark.parametrize('use_synthetic', ['False', 'True'])
-def test_synthetic_keyset(tmp_path: Path, use_synthetic: bool) -> None:
+def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     # just to keep track of which data we had to compute from scratch
     _recomputed: List[str] = []
 
@@ -1434,8 +1451,5 @@ def test_db_path_matches_fun_name(tmp_path: Path) -> None:
     fun_single()
     list(fun_multiple())
 
-    try:
-        _ = (tmp_path / callable_name(fun_single)).stat()
-        _ = (tmp_path / callable_name(fun_multiple)).stat()
-    except FileNotFoundError:
-        raise RuntimeError('expected db path to exist after writes')
+    assert (tmp_path / callable_name(fun_single)).exists()
+    assert (tmp_path / callable_name(fun_multiple)).exists()
