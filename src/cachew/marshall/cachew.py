@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import sys
+import types
 from abc import abstractmethod
 from collections import abc
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timezone
 from numbers import Real
-import sys
-import types
 from typing import (
     Any,
     Dict,
@@ -24,12 +24,12 @@ from typing import (
 
 import pytz
 
+from ..utils import TypeNotSupported, is_namedtuple
 from .common import (
     AbstractMarshall,
     Json,
     T,
 )
-from ..utils import TypeNotSupported, is_namedtuple
 
 
 class CachewMarshall(AbstractMarshall[T]):
@@ -51,10 +51,10 @@ class CachewMarshall(AbstractMarshall[T]):
 
 SLOTS: Dict[str, bool]
 if sys.version_info[:2] >= (3, 10):
-    SLOTS = dict(slots=True)
+    SLOTS = {'slots': True}
 else:
     # not available :(
-    SLOTS = dict()
+    SLOTS = {}
 
 
 @dataclass(**SLOTS)
@@ -138,8 +138,7 @@ class SUnion(Schema):
                 #     '__union_index__': tidx,
                 #     '__value__': jj,
                 # }
-        else:
-            assert False, f"shouldn't happen: {self.args} {obj}"
+        raise RuntimeError(f"shouldn't happen: {self.args} {obj}")
 
     def load(self, dct):
         # tidx = d['__union_index__']
@@ -373,7 +372,7 @@ def build_schema(Type) -> Schema:
             tt=tts,
         )
 
-    assert False, f"unsupported: {Type} {origin} {args}"
+    raise RuntimeError(f"unsupported: {Type} {origin} {args}")
 
 
 ######### tests
@@ -483,7 +482,7 @@ def test_serialize_and_deserialize() -> None:
 
     # json-ish stuff
     helper({}, Dict[str, Any])
-    helper(WithJson(id=123, raw_data=dict(payload='whatever', tags=['a', 'b', 'c'])), WithJson)
+    helper(WithJson(id=123, raw_data={'payload': 'whatever', 'tags': ['a', 'b', 'c']}), WithJson)
     helper([], List[Any])
 
     # exceptions

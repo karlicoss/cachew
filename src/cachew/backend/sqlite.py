@@ -1,13 +1,13 @@
 import logging
-from pathlib import Path
 import sqlite3
 import time
+import warnings
+from pathlib import Path
 from typing import (
     Iterator,
     Optional,
     Sequence,
 )
-import warnings
 
 import sqlalchemy
 from sqlalchemy import Column, Table, event, text
@@ -105,7 +105,8 @@ class SqliteBackend(AbstractBackend):
         return old_hash
 
     def cached_blobs_total(self) -> Optional[int]:
-        return list(self.connection.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(self.table_cache)))[0][0]
+        [(total,)] = self.connection.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(self.table_cache))
+        return total
 
     def cached_blobs(self) -> Iterator[bytes]:
         rows = self.connection.execute(self.table_cache.select())

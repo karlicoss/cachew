@@ -1,11 +1,10 @@
-from contextlib import contextmanager
-import os
 import gc
-from pathlib import Path
+import os
 import sys
+from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
-
 
 PROFILES = Path(__file__).absolute().parent / 'profiles'
 
@@ -38,7 +37,7 @@ def timer(name: str):
 
 
 @pytest.fixture
-def gc_control(gc_on: bool):
+def gc_control(*, gc_on: bool):
     if gc_on:
         # no need to do anything, should be on by default
         yield

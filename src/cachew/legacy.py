@@ -1,7 +1,8 @@
+import typing
+import warnings
 from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import chain, islice
-import typing
 from typing import (
     Any,
     Generic,
@@ -12,12 +13,11 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     Type,
     TypeVar,
-    Tuple,
     Union,
 )
-import warnings
 
 import sqlalchemy
 from sqlalchemy import Column
@@ -464,7 +464,7 @@ def test_mypy_annotations() -> None:
         vs.append(arg)
 
     def types(ts):
-        return list(sorted(ts, key=lambda t: str(t)))
+        return sorted(ts, key=lambda t: str(t))
 
     assert types(vs) == types(Values.__args__)  # type: ignore
 

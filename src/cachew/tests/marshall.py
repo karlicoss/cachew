@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import shutil
 import sqlite3
 import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import (
     Any,
     List,
@@ -15,16 +15,15 @@ import orjson
 import pytest
 import pytz
 
-from ..marshall.common import Json
-from ..marshall.cachew import CachewMarshall
 from ..legacy import NTBinder
+from ..marshall.cachew import CachewMarshall
+from ..marshall.common import Json
 from .utils import (
     gc_control,
     profile,
     running_on_ci,
     timer,
 )
-
 
 Impl = Literal[
     'cachew',  # our custom deserialization
@@ -61,9 +60,8 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
 
         converter = Converter()
 
-        from typing import get_args, get_origin
-        from typing import Union
         import types
+        from typing import Union, get_args, get_origin
 
         # TODO use later
         # def is_union(type_) -> bool:
@@ -80,10 +78,10 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
                 for t in args:
                     try:
                         res = converter.structure(data, t)
-                        print("YAY", data, t)
-                        return res
                     except Exception:
                         continue
+                    else:
+                        return res
                 raise ValueError(f"Could not cast {data} to {type_}")
 
             return union_hook
@@ -106,9 +104,9 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         # todo would be nice to use partial? but how do we bind a positional arg?
         from_json = lambda x: struct_func(x, Type)
     else:
-        assert False
+        raise RuntimeError(impl)
 
-    print('', file=sys.stderr)  # kinda annoying, pytest starts printing on the same line as test name
+    print(file=sys.stderr)  # kinda annoying, pytest starts printing on the same line as test name
 
     with profile(test_name + ':baseline'), timer(f'building      {count} objects of type {Type}'):
         objects = list(factory(count=count))
