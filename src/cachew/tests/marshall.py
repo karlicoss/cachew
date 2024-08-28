@@ -98,8 +98,8 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         # )
         # NOTE: this seems to give a bit of speedup... maybe raise an issue or something?
         # fmt: off
-        unstruct_func = converter._unstructure_func.dispatch(Type)  # about 20% speedup
-        struct_func   = converter._structure_func  .dispatch(Type)  # TODO speedup
+        unstruct_func = converter._unstructure_func.dispatch(Type)  # type: ignore[call-arg, misc]  # about 20% speedup
+        struct_func   = converter._structure_func  .dispatch(Type)  # type: ignore[call-arg, misc]  # TODO speedup
         # fmt: on
 
         to_json = unstruct_func

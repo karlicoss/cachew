@@ -30,7 +30,7 @@ def get_union_args(cls) -> Optional[Tuple[Type]]:
         return None
 
     args = cls.__args__
-    args = [e for e in args if e != type(None)]
+    args = [e for e in args if e is not type(None)]
     assert len(args) > 0
     return args
 

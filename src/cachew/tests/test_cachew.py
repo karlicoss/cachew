@@ -1137,7 +1137,7 @@ def test_exceptions(tmp_path: Path) -> None:
     list(fun())
     [e] = fun()
     # not sure if there is anything that can be done to preserve type information?
-    assert type(e) == Exception
+    assert type(e) is Exception
     assert e.args == ('whatever', 123, '2020-01-02T03:04:05', 'X(a=123)')
 
 
