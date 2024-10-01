@@ -11,6 +11,8 @@ if ! command -v sudo; then
     }
 fi
 
+# --parallel-live to show outputs while it's running
+tox_cmd='run-parallel --parallel-live'
 if [ -n "${CI-}" ]; then
     # install OS specific stuff here
     case "$OSTYPE" in
@@ -21,6 +23,8 @@ if [ -n "${CI-}" ]; then
     cygwin* | msys* | win*)
         # windows
         :
+        # ugh. parallel stuff seems super flaky under windows, some random failures, "file used by other process" and crap like that
+        tox_cmd='run'
         ;;
     *)
         # must be linux?
@@ -37,4 +41,4 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 "$PY_BIN" -m pip install --user tox
-"$PY_BIN" -m tox --parallel --parallel-live "$@"
+"$PY_BIN" -m tox $tox_cmd "$@"

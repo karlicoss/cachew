@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from itertools import chain, islice
 from pathlib import Path
 from random import Random
-from subprocess import PIPE, check_call, check_output, run
+from subprocess import check_call, check_output, run
 from time import sleep
 from typing import (
     Any,
