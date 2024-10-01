@@ -45,6 +45,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         from_json = marshall.load
     elif impl == 'legacy':
         from ..legacy import NTBinder
+
         # NOTE: legacy binder emits a tuple which can be inserted directly into the database
         # so 'json dump' and 'json load' should really be disregarded for this flavor
         # if you're comparing with <other> implementation, you should compare
