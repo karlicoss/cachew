@@ -22,6 +22,7 @@ from typing import (
 import sqlalchemy
 from sqlalchemy import Column
 
+from .pytest import parametrize
 from .utils import CachewException
 
 
@@ -470,3 +471,19 @@ def test_mypy_annotations() -> None:
 
     for p in PRIMITIVE_TYPES:
         assert p in Values.__args__  # type: ignore
+
+
+@parametrize(
+    ('tp', 'val'),
+    [
+        (int, 22),
+        (bool, False),
+        (Optional[str], 'abacaba'),
+        (Union[str, int], 1),
+    ],
+)
+def test_ntbinder_primitive(tp, val) -> None:
+    b = NTBinder.make(tp, name='x')
+    row = b.to_row(val)
+    vv = b.from_row(list(row))
+    assert vv == val

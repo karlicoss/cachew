@@ -15,7 +15,6 @@ import orjson
 import pytest
 import pytz
 
-from ..legacy import NTBinder
 from ..marshall.cachew import CachewMarshall
 from ..marshall.common import Json
 from .utils import (
@@ -45,6 +44,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         to_json = marshall.dump
         from_json = marshall.load
     elif impl == 'legacy':
+        from ..legacy import NTBinder
         # NOTE: legacy binder emits a tuple which can be inserted directly into the database
         # so 'json dump' and 'json load' should really be disregarded for this flavor
         # if you're comparing with <other> implementation, you should compare
