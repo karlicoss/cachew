@@ -1,6 +1,7 @@
 """
 Helpers to prevent depending on pytest in runtime
 """
+
 import sys
 import typing
 

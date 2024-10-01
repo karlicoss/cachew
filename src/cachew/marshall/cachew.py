@@ -116,7 +116,7 @@ class SDataclass(Schema):
 
 @dataclass(**SLOTS)
 class SUnion(Schema):
-    # it's a bit faster to cache indixes here, gives about 15% speedup
+    # it's a bit faster to cache indices here, gives about 15% speedup
     args: tuple[tuple[int, Schema], ...]
 
     def dump(self, obj):
@@ -442,18 +442,24 @@ def test_serialize_and_deserialize() -> None:
     helper('aaa', Optional[str])
     helper('aaa', Union[str, None])
     helper(None, Union[str, None])
+    if sys.version_info[:2] >= (3, 10):
+        helper('aaa', str | None)
 
-    # lists
-    helper([1, 2, 3], List[int])
+    # lists/tuples/sequences
     helper([1, 2, 3], List[int])
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
     helper((1, 2, 3), Tuple[int, int, int])
-    helper((1, 2, 3), Tuple[int, int, int])
+    if sys.version_info[:2] >= (3, 9):
+        # TODO test with from __future__ import annotations..
+        helper([1, 2, 3], list[int])
+        helper((1, 2, 3), tuple[int, int, int])
 
     # dicts
     helper({'a': 'aa', 'b': 'bb'}, Dict[str, str])
     helper({'a': None, 'b': 'bb'}, Dict[str, Optional[str]])
+    if sys.version_info[:2] >= (3, 9):
+        helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
 
     # compounds of simple types
     helper(['1', 2, '3'], List[Union[str, int]])
