@@ -848,13 +848,10 @@ def cachew_wrapper(
         yield from func(*args, **kwargs)
 
 
-from .legacy import NTBinder
-
 __all__ = [
     'cachew',
     'CachewException',
     'SourceHash',
     'HashFunction',
     'get_logger',
-    'NTBinder',  # NOTE: we need to keep this here for now because it's used in promnesia
 ]

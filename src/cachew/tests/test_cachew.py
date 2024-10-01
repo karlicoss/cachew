@@ -38,7 +38,6 @@ from more_itertools import ilen, last, one, unique_everseen
 from .. import (
     Backend,
     CachewException,
-    NTBinder,
     cachew,
     callable_name,
     get_logger,
@@ -78,22 +77,6 @@ def restore_settings():
     finally:
         for k, v in orig.items():
             setattr(settings, k, v)
-
-
-# fmt: off
-@pytest.mark.parametrize(('tp', 'val'), [
-    (int, 22),
-    (bool, False),
-    (Optional[str], 'abacaba'),
-    (Union[str, int], 1),
-])
-# fmt: on
-def test_ntbinder_primitive(tp, val) -> None:
-    # TODO good candidate for property tests...
-    b = NTBinder.make(tp, name='x')
-    row = b.to_row(val)
-    vv = b.from_row(list(row))
-    assert vv == val
 
 
 class UUU(NamedTuple):
@@ -582,12 +565,14 @@ def make_people_data(count: int) -> Iterator[Person]:
         )
 
 
-class Breaky(NamedTuple):
-    job_title: int
-    job: Optional[Job]
+def test_unique_columns(tmp_path: Path) -> None:
+    # TODO remove this test? it's for legacy stuff..
+    from ..legacy import NTBinder
 
+    class Breaky(NamedTuple):
+        job_title: int
+        job: Optional[Job]
 
-def test_unique(tmp_path: Path) -> None:
     assert [c.name for c in NTBinder.make(Breaky).columns] == [
         'job_title',
         '_job_is_null',
@@ -698,31 +683,38 @@ def test_dates(tmp_path: Path) -> None:
 # fmt: off
 @dataclass
 class AllTypes:
-    an_int : int
-    a_bool : bool
-    a_float: float
-    a_str  : str
-    a_dt   : datetime
-    a_date : date
-    a_json : Dict[str, Any]
-    a_list : List[Any]
-    an_exc : Exception
+    a_str   : str
+    an_int  : int
+    a_float : float
+    a_bool  : bool
+    a_dt    : datetime
+    a_date  : date
+    a_dict  : Dict[str, Any]
+    a_list  : List[Any]
+    a_tuple : Tuple[float, str]
+    an_exc  : Exception
+    an_opt  : Optional[str]
 # fmt: on
+
+# TODO test new style list/tuple/union/optional
+# TODO support vararg tuples?
 
 
 def test_types(tmp_path: Path) -> None:
     tz = pytz.timezone('Europe/Berlin')
     # fmt: off
     obj = AllTypes(
-        an_int =1123,
-        a_bool =True,
-        a_float=3.131,
-        a_str  ='abac',
-        a_dt   =datetime.now(tz=tz),
-        a_date =datetime.now().replace(year=2000).date(),
-        a_json ={'a': True, 'x': {'whatever': 3.14}},
-        a_list =['aba', 123, None],
-        an_exc =RuntimeError('error!', 123),
+        a_str   = 'abac',
+        an_int  = 1123,
+        a_float = 3.131,
+        a_bool  = True,
+        a_dt    = datetime.now(tz=tz),
+        a_date  = datetime.now().replace(year=2000).date(),
+        a_dict  = {'a': True, 'x': {'whatever': 3.14}},
+        a_list  = ['aba', 123, None],
+        a_tuple = (1.23, '3.2.1'),
+        an_exc  = RuntimeError('error!', 123),
+        an_opt  = 'hello',
     )
     # fmt: on
 
@@ -730,14 +722,14 @@ def test_types(tmp_path: Path) -> None:
     def get() -> Iterator[AllTypes]:
         yield obj
 
-    def H(t: AllTypes):
+    def helper(t: AllTypes):
         # Exceptions can't be directly compared.. so this kinda helps
         d = asdict(t)
         d['an_exc'] = d['an_exc'].args
         return d
 
-    assert H(one(get())) == H(obj)
-    assert H(one(get())) == H(obj)
+    assert helper(one(get())) == helper(obj)
+    assert helper(one(get())) == helper(obj)
 
 
 # TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
@@ -786,24 +778,25 @@ class O(NamedTuple):
     x: int
 
 
+class _HackHash:
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+    def __repr__(self):
+        return repr(self.x)
+
+
 def test_default_arguments(tmp_path: Path) -> None:
-    class HackHash:
-        def __init__(self, x: int) -> None:
-            self.x = x
-
-        def __repr__(self):
-            return repr(self.x)
-
-    hh = HackHash(1)
+    hh = _HackHash(1)
 
     calls = 0
 
-    def orig(a: int, param: HackHash = hh) -> Iterator[O]:
+    def orig(a: int, param: _HackHash = hh) -> Iterator[O]:
         yield O(hh.x)
         nonlocal calls
         calls += 1
 
-    def depends_on(a: int, param: HackHash) -> str:
+    def depends_on(a: int, param: _HackHash) -> str:
         # hmm. in principle this should be str according to typing
         # on practice though we always convert hash to str, so maybe type should be changed to Any?
         return (a, param.x)  # type: ignore[return-value]
@@ -820,7 +813,7 @@ def test_default_arguments(tmp_path: Path) -> None:
     assert calls == 2
 
     # should be ok with explicitly passing
-    assert list(fun(123, param=HackHash(2))) == [O(2)]
+    assert list(fun(123, param=_HackHash(2))) == [O(2)]
     assert calls == 2
 
     # we don't have to handle the default param in the default hash key
