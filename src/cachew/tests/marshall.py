@@ -60,10 +60,11 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
 
         converter = Converter()
 
-        import types
-        from typing import Union, get_args, get_origin
+        from typing import get_args
 
         # TODO use later
+        # from typing import Union, get_origin
+        # import types
         # def is_union(type_) -> bool:
         #     origin = get_origin(type_)
         #     return origin is Union or origin is types.UnionType

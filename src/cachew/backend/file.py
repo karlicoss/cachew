@@ -83,4 +83,4 @@ class FileBackend(AbstractBackend):
 
     def finalize(self, new_hash: SourceHash) -> None:
         # TODO defensive??
-        os.rename(self.jsonl_tmp, self.jsonl)
+        self.jsonl_tmp.rename(self.jsonl)

@@ -53,6 +53,7 @@ jobs:
     - if: matrix.platform == 'ubuntu-latest'  # no need to compute coverage for other platforms
       uses: actions/upload-artifact@v4
       with:
+        include-hidden-files: true
         name: .coverage.mypy_${{ matrix.platform }}_${{ matrix.python-version }}
         path: .coverage.mypy/
 

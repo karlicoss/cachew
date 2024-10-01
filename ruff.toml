@@ -1,5 +1,3 @@
-target-version = "py38"  # NOTE: inferred from pyproject.toml if present
-
 lint.extend-select = [
     "F",    # flakes rules -- default, but extend just in case
     "E",    # pycodestyle  -- default, but extend just in case
@@ -26,10 +24,10 @@ lint.extend-select = [
     "TID",  # various imports suggestions
     "TRY",  # various exception handling rules
     "UP",   # detect deprecated python stdlib stuff
-    # "FA",  # TODO enable later after we make sure cachew works?
-    # "PTH", # pathlib migration -- TODO enable later
+    # "FA",   # suggest using from __future__ import annotations
+    "PTH",  # pathlib migration
     # "ARG", # TODO useful, but results in some false positives in pytest fixtures... maybe later
-    # "A",   # TODO builtin shadowing -- handle later
+    "A",    # builtin shadowing
     # "EM",  # TODO hmm could be helpful to prevent duplicate err msg in traceback.. but kinda annoying
 
     # "ALL", # uncomment this to check for new rules!
@@ -63,8 +61,8 @@ lint.ignore = [
     "E402",  # Module level import not at top of file
 
 ### maybe consider these soon
-# sometimes it's useful to give a variable a name even if we don't use it as a documentation
-# on the other hand, often is a sign of error
+    # sometimes it's useful to give a variable a name even if we don't use it as a documentation
+    # on the other hand, often is a sign of error
     "F841",  # Local variable `count` is assigned to but never used
     "F401",  # imported but unused
 ###
@@ -131,6 +129,8 @@ lint.ignore = [
     "PGH",  # TODO force error code in mypy instead
 
     "TID252",  # Prefer absolute imports over relative imports from parent modules
+
+    "UP038",  # suggests using | (union) in isisntance checks.. but it results in slower code
 
     ## too annoying
     "T20",     # just complains about prints and pprints
