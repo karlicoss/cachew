@@ -671,10 +671,8 @@ def test_dates(tmp_path: Path) -> None:
 
     # make sure the actuall tzinfo is preserved... otherwise we might end up with raw offsets and lose some info
     r = one(fun())
-    # attempting to preserve pytz zone names is a bit arbitrary
-    # but on the other hand, they will be in python 3.9, so I guess it's ok
-    assert r.d1.tzinfo.zone == x.d1.tzinfo.zone  # type: ignore
-    assert r.d2.tzinfo.zone == x.d2.tzinfo.zone  # type: ignore
+    assert str(r.d1.tzinfo) == str(x.d1.tzinfo)
+    assert str(r.d2.tzinfo) == str(x.d2.tzinfo)
     assert r.d3.tzname() is None
     assert r.d4.tzname() is None
     assert r.d5.tzinfo is timezone.utc

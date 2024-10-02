@@ -22,8 +22,6 @@ from typing import (
     get_type_hints,
 )
 
-import pytz
-
 from ..utils import TypeNotSupported, is_namedtuple
 from .common import (
     AbstractMarshall,
@@ -234,6 +232,30 @@ class SException(Schema):
         return self.type(*dct)
 
 
+try:
+    # defensive to avoid dependency on pytz when we switch to python >= 3.9
+    import pytz
+except ModuleNotFoundError:
+    # dummy, this is only needed for isinstance check below
+    class pytz_BaseTzInfo:
+        zone: str
+
+else:
+    pytz_BaseTzInfo = pytz.BaseTzInfo  # type: ignore[misc,assignment]
+    make_tz = pytz.timezone
+
+
+if sys.version_info[:2] >= (3, 9):
+    import zoneinfo
+
+    ZoneInfo = zoneinfo.ZoneInfo
+    make_tz = ZoneInfo  # type: ignore[assignment]
+else:
+    # dummy, this is only needed for isinstance check below
+    class ZoneInfo:
+        key: str
+
+
 @dataclass(**SLOTS)
 class SDatetime(Schema):
     def dump(self, obj: datetime) -> Json:
@@ -242,7 +264,9 @@ class SDatetime(Schema):
         if tz is None:
             return (iso, None)
 
-        if isinstance(tz, pytz.BaseTzInfo):
+        if isinstance(tz, ZoneInfo):
+            return (iso, tz.key)
+        elif isinstance(tz, pytz_BaseTzInfo):
             zone = tz.zone
             # should be present: https://github.com/python/typeshed/blame/968fd6d01d23470e0c8368e7ee7c43f54aaedc0e/stubs/pytz/pytz/tzinfo.pyi#L6
             assert zone is not None, (obj, tz)
@@ -256,7 +280,7 @@ class SDatetime(Schema):
         if zone is None:
             return dt
 
-        tz = pytz.timezone(zone)
+        tz = make_tz(zone)
         return dt.astimezone(tz)
 
 
@@ -508,32 +532,54 @@ def test_serialize_and_deserialize() -> None:
     # fmt: on
 
     # datetimes
-    tz = pytz.timezone('Europe/London')
+    import pytz
+
+    tz_london = pytz.timezone('Europe/London')
     dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
     dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
-    dwinter_tz = tz.localize(dwinter)
-    dsummer_tz = tz.localize(dsummer)
+    dwinter_tz = tz_london.localize(dwinter)
+    dsummer_tz = tz_london.localize(dsummer)
 
-    dates_pytz = [
+    dates_tz = [
         dwinter_tz,
         dsummer_tz,
     ]
+
+    if sys.version_info[:2] >= (3, 9):
+        from zoneinfo import ZoneInfo
+
+        tz_sydney = ZoneInfo('Australia/Sydney')
+        ## these will have same local time (2025-04-06 02:01:00) in Sydney due to DST shift!
+        ## the second one will have fold=1 set to disambiguate
+        utc_before_shift = datetime.fromisoformat('2025-04-05T15:01:00+00:00')
+        utc_after__shift = datetime.fromisoformat('2025-04-05T16:01:00+00:00')
+        ##
+        sydney_before = utc_before_shift.astimezone(tz_sydney)
+        sydney__after = utc_after__shift.astimezone(tz_sydney)
+
+        dates_tz.extend([sydney_before, sydney__after])
+
     dates = [
-        *dates_pytz,
+        *dates_tz,
         dwinter,
         dsummer,
         dsummer.replace(tzinfo=timezone.utc),
     ]
     for d in dates:
         jj, dd = helper(d, datetime)
-        assert d.tzinfo == dd.tzinfo
+        assert str(d) == str(dd)
 
-        # test that we preserve pytz zone names
-        if d in dates_pytz:
-            assert getattr(d.tzinfo, 'zone') == getattr(dd.tzinfo, 'zone')
+        # test that we preserve zone names
+        if d in dates_tz:
+            # this works both with pytz and zoneinfo without getting .zone or .key attributes
+            assert str(d.tzinfo) == str(dd.tzinfo)
 
     assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London')
     assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None)
+
+    if sys.version_info[:2] >= (3, 9):
+        assert helper(sydney_before, datetime)[0] == ('2025-04-06T02:01:00+11:00', 'Australia/Sydney')
+        assert helper(sydney__after, datetime)[0] == ('2025-04-06T02:01:00+10:00', 'Australia/Sydney')
 
     assert helper(dwinter.date(), date)[0] == '2020-02-03'
 
