@@ -240,20 +240,33 @@ except ModuleNotFoundError:
     class pytz_BaseTzInfo:
         zone: str
 
+    def make_tz_pytz(zone: str):
+        raise RuntimeError(f"Install pytz to deserialize {zone}")
+
 else:
     pytz_BaseTzInfo = pytz.BaseTzInfo  # type: ignore[misc,assignment]
-    make_tz = pytz.timezone
+
+    make_tz_pytz = pytz.timezone
 
 
 if sys.version_info[:2] >= (3, 9):
     import zoneinfo
 
     ZoneInfo = zoneinfo.ZoneInfo
-    make_tz = ZoneInfo  # type: ignore[assignment]
+    make_tz_zoneinfo = ZoneInfo
 else:
     # dummy, this is only needed for isinstance check below
     class ZoneInfo:
         key: str
+
+    def make_tz_zoneinfo(zone: str):
+        raise RuntimeError(f"Need to use python3.9+ to deserialize {zone}")
+
+
+# just ints to avoid inflating db size
+# for now, we try to preserve actual timezone object just in case since they do have somewhat incompatible apis
+_TZTAG_ZONEINFO = 1
+_TZTAG_PYTZ = 2
 
 
 @dataclass(**SLOTS)
@@ -262,24 +275,25 @@ class SDatetime(Schema):
         iso = obj.isoformat()
         tz = obj.tzinfo
         if tz is None:
-            return (iso, None)
+            return (iso, None, None)
 
         if isinstance(tz, ZoneInfo):
-            return (iso, tz.key)
+            return (iso, tz.key, _TZTAG_ZONEINFO)
         elif isinstance(tz, pytz_BaseTzInfo):
             zone = tz.zone
             # should be present: https://github.com/python/typeshed/blame/968fd6d01d23470e0c8368e7ee7c43f54aaedc0e/stubs/pytz/pytz/tzinfo.pyi#L6
             assert zone is not None, (obj, tz)
-            return (iso, zone)
+            return (iso, zone, _TZTAG_PYTZ)
         else:
-            return (iso, None)
+            return (iso, None, None)
 
     def load(self, dct: tuple):
-        iso, zone = dct
+        iso, zone, zone_tag = dct
         dt = datetime.fromisoformat(iso)
         if zone is None:
             return dt
 
+        make_tz = make_tz_zoneinfo if zone_tag == _TZTAG_ZONEINFO else make_tz_pytz
         tz = make_tz(zone)
         return dt.astimezone(tz)
 
@@ -574,12 +588,12 @@ def test_serialize_and_deserialize() -> None:
             # this works both with pytz and zoneinfo without getting .zone or .key attributes
             assert str(d.tzinfo) == str(dd.tzinfo)
 
-    assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London')
-    assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None)
+    assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London', _TZTAG_PYTZ)
+    assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None, None)
 
     if sys.version_info[:2] >= (3, 9):
-        assert helper(sydney_before, datetime)[0] == ('2025-04-06T02:01:00+11:00', 'Australia/Sydney')
-        assert helper(sydney__after, datetime)[0] == ('2025-04-06T02:01:00+10:00', 'Australia/Sydney')
+        assert helper(sydney_before, datetime)[0] == ('2025-04-06T02:01:00+11:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
+        assert helper(sydney__after, datetime)[0] == ('2025-04-06T02:01:00+10:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
 
     assert helper(dwinter.date(), date)[0] == '2020-02-03'
 
