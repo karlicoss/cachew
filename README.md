@@ -125,7 +125,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 
 # How it works
 
-- first your objects get [converted](src/cachew/marshall/cachew.py#L35) into a simpler JSON-like representation 
+- first your objects get [converted](src/cachew/marshall/cachew.py#L33) into a simpler JSON-like representation 
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
 When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L592)
@@ -140,18 +140,18 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L390), [2](src/cachew/tests/test_cachew.py#L404)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L371), [2](src/cachew/tests/test_cachew.py#L385)
 * supported types:    
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
     
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L713), [tests.test_primitive](src/cachew/tests/test_cachew.py#L747), [tests.test_dates](src/cachew/tests/test_cachew.py#L667), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1145)
-    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L632)
-    * [Optional](src/cachew/tests/test_cachew.py#L534) types
-    * [Union](src/cachew/tests/test_cachew.py#L853) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L450)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L698), [tests.test_primitive](src/cachew/tests/test_cachew.py#L734), [tests.test_dates](src/cachew/tests/test_cachew.py#L650), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1133)
+    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L615)
+    * [Optional](src/cachew/tests/test_cachew.py#L515) types
+    * [Union](src/cachew/tests/test_cachew.py#L841) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L431)
     
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L480) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L461) and discards old data automatically
 
 
 # Performance
@@ -170,7 +170,7 @@ You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a re
     
 Some useful (but optional) arguments of `@cachew` decorator:
     
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L427) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L408) and depends on function's arguments.
     
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
     
@@ -178,7 +178,7 @@ Some useful (but optional) arguments of `@cachew` decorator:
     
    By default it just uses string representation of the arguments, you can also specify a custom callable.
     
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L122) if the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L103) if the input file was modified.
     
 * `cls` is the type that would be serialized.
 
