@@ -13,7 +13,6 @@ from typing import (
 
 import orjson
 import pytest
-import pytz
 
 from ..marshall.cachew import CachewMarshall
 from ..marshall.common import Json
@@ -214,6 +213,8 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
 def test_datetimes(impl: Impl, count: int, gc_control, request) -> None:
     if impl == 'cattrs':
         pytest.skip('TODO support datetime with pytz for cattrs')
+
+    import pytz
 
     def factory(*, count: int):
         tzs = [
