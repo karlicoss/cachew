@@ -3,6 +3,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import chain, islice
+from pathlib import Path
 from typing import (
     Any,
     Generic,
@@ -487,3 +488,20 @@ def test_ntbinder_primitive(tp, val) -> None:
     row = b.to_row(val)
     vv = b.from_row(list(row))
     assert vv == val
+
+
+def test_unique_columns(tmp_path: Path) -> None:
+    class Job(NamedTuple):
+        company: str
+        title: Optional[str]
+
+    class Breaky(NamedTuple):
+        job_title: int
+        job: Optional[Job]
+
+    assert [c.name for c in NTBinder.make(Breaky).columns] == [
+        'job_title',
+        '_job_is_null',
+        'job_company',
+        '_job_title',
+    ]

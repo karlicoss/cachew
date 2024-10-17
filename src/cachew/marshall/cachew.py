@@ -22,6 +22,8 @@ from typing import (
     get_type_hints,
 )
 
+from zoneinfo import ZoneInfo
+
 from ..utils import TypeNotSupported, is_namedtuple
 from .common import (
     AbstractMarshall,
@@ -249,20 +251,6 @@ else:
     make_tz_pytz = pytz.timezone
 
 
-if sys.version_info[:2] >= (3, 9):
-    import zoneinfo
-
-    ZoneInfo = zoneinfo.ZoneInfo
-    make_tz_zoneinfo = ZoneInfo
-else:
-    # dummy, this is only needed for isinstance check below
-    class ZoneInfo:
-        key: str
-
-    def make_tz_zoneinfo(zone: str):
-        raise RuntimeError(f"Need to use python3.9+ to deserialize {zone}")
-
-
 # just ints to avoid inflating db size
 # for now, we try to preserve actual timezone object just in case since they do have somewhat incompatible apis
 _TZTAG_ZONEINFO = 1
@@ -293,7 +281,7 @@ class SDatetime(Schema):
         if zone is None:
             return dt
 
-        make_tz = make_tz_zoneinfo if zone_tag == _TZTAG_ZONEINFO else make_tz_pytz
+        make_tz = ZoneInfo if zone_tag == _TZTAG_ZONEINFO else make_tz_pytz
         tz = make_tz(zone)
         return dt.astimezone(tz)
 
@@ -488,16 +476,14 @@ def test_serialize_and_deserialize() -> None:
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
     helper((1, 2, 3), Tuple[int, int, int])
-    if sys.version_info[:2] >= (3, 9):
-        # TODO test with from __future__ import annotations..
-        helper([1, 2, 3], list[int])
-        helper((1, 2, 3), tuple[int, int, int])
+    # TODO test with from __future__ import annotations..
+    helper([1, 2, 3], list[int])
+    helper((1, 2, 3), tuple[int, int, int])
 
     # dicts
     helper({'a': 'aa', 'b': 'bb'}, Dict[str, str])
     helper({'a': None, 'b': 'bb'}, Dict[str, Optional[str]])
-    if sys.version_info[:2] >= (3, 9):
-        helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
+    helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
 
     # compounds of simple types
     helper(['1', 2, '3'], List[Union[str, int]])
@@ -559,19 +545,16 @@ def test_serialize_and_deserialize() -> None:
         dsummer_tz,
     ]
 
-    if sys.version_info[:2] >= (3, 9):
-        from zoneinfo import ZoneInfo
+    tz_sydney = ZoneInfo('Australia/Sydney')
+    ## these will have same local time (2025-04-06 02:01:00) in Sydney due to DST shift!
+    ## the second one will have fold=1 set to disambiguate
+    utc_before_shift = datetime.fromisoformat('2025-04-05T15:01:00+00:00')
+    utc_after__shift = datetime.fromisoformat('2025-04-05T16:01:00+00:00')
+    ##
+    sydney_before = utc_before_shift.astimezone(tz_sydney)
+    sydney__after = utc_after__shift.astimezone(tz_sydney)
 
-        tz_sydney = ZoneInfo('Australia/Sydney')
-        ## these will have same local time (2025-04-06 02:01:00) in Sydney due to DST shift!
-        ## the second one will have fold=1 set to disambiguate
-        utc_before_shift = datetime.fromisoformat('2025-04-05T15:01:00+00:00')
-        utc_after__shift = datetime.fromisoformat('2025-04-05T16:01:00+00:00')
-        ##
-        sydney_before = utc_before_shift.astimezone(tz_sydney)
-        sydney__after = utc_after__shift.astimezone(tz_sydney)
-
-        dates_tz.extend([sydney_before, sydney__after])
+    dates_tz.extend([sydney_before, sydney__after])
 
     dates = [
         *dates_tz,
@@ -591,9 +574,8 @@ def test_serialize_and_deserialize() -> None:
     assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London', _TZTAG_PYTZ)
     assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None, None)
 
-    if sys.version_info[:2] >= (3, 9):
-        assert helper(sydney_before, datetime)[0] == ('2025-04-06T02:01:00+11:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
-        assert helper(sydney__after, datetime)[0] == ('2025-04-06T02:01:00+10:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
+    assert helper(sydney_before, datetime)[0] == ('2025-04-06T02:01:00+11:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
+    assert helper(sydney__after, datetime)[0] == ('2025-04-06T02:01:00+10:00', 'Australia/Sydney', _TZTAG_ZONEINFO)
 
     assert helper(dwinter.date(), date)[0] == '2020-02-03'
 

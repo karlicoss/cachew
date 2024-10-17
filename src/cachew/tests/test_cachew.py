@@ -30,7 +30,6 @@ from typing import (
 
 import patchy
 import pytest
-import pytz
 from more_itertools import ilen, last, one, unique_everseen
 
 from .. import (
@@ -563,35 +562,6 @@ def make_people_data(count: int) -> Iterator[Person]:
         )
 
 
-def test_unique_columns(tmp_path: Path) -> None:
-    # TODO remove this test? it's for legacy stuff..
-    from ..legacy import NTBinder
-
-    class Breaky(NamedTuple):
-        job_title: int
-        job: Optional[Job]
-
-    assert [c.name for c in NTBinder.make(Breaky).columns] == [
-        'job_title',
-        '_job_is_null',
-        'job_company',
-        '_job_title',
-    ]
-
-    b = Breaky(
-        job_title=123,
-        job=Job(company='123', title='whatever'),
-    )
-
-    @cachew(cache_path=tmp_path)
-    def iter_breaky() -> Iterator[Breaky]:
-        yield b
-        yield b
-
-    assert list(iter_breaky()) == [b, b]
-    assert list(iter_breaky()) == [b, b]
-
-
 def test_stats(tmp_path: Path) -> None:
     cache_file = tmp_path / 'cache'
 
@@ -648,13 +618,15 @@ class Dates:
 
 
 def test_dates(tmp_path: Path) -> None:
-    tz = pytz.timezone('Europe/London')
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo('Europe/London')
     dwinter = datetime.strptime('20200203 01:02:03', '%Y%m%d %H:%M:%S')
     dsummer = datetime.strptime('20200803 01:02:03', '%Y%m%d %H:%M:%S')
 
     x = Dates(
-        d1=tz.localize(dwinter),
-        d2=tz.localize(dsummer),
+        d1=dwinter.replace(tzinfo=tz),
+        d2=dsummer.replace(tzinfo=tz),
         d3=dwinter,
         d4=dsummer,
         d5=dsummer.replace(tzinfo=timezone.utc),
@@ -696,6 +668,8 @@ class AllTypes:
 
 
 def test_types(tmp_path: Path) -> None:
+    import pytz
+
     tz = pytz.timezone('Europe/Berlin')
     # fmt: off
     obj = AllTypes(

@@ -6,9 +6,8 @@ dependencies = [
     "appdirs"        ,  # default cache dir
     "sqlalchemy>=1.0",  # cache DB interaction
     "orjson",           # fast json serialization
-    "pytz",             # used to properly marshall pytz datatimes
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 ## these need to be set if you're planning to upload to pypi
 # description = "TODO"
@@ -32,6 +31,8 @@ Homepage = "https://github.com/karlicoss/cachew"
 
 [project.optional-dependencies]
 testing = [
+    "pytz", "types-pytz",  # optional runtime only dependency
+
     "pytest",
     "more-itertools",
     "patchy",  # for injecting sleeps and testing concurrent behaviour

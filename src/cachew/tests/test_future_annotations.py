@@ -25,9 +25,6 @@ class NewStyleTypes1:
 
 
 def test_types1(tmp_path: Path) -> None:
-    if sys.version_info[:2] <= (3, 8):
-        pytest.skip("too annoying to adjust for 3.8 and it's EOL soon anyway")
-
     # fmt: off
     obj = NewStyleTypes1(
         a_str   = 'abac',
@@ -85,9 +82,6 @@ def test_future_annotations(
     """
     Checks handling of postponed evaluation of annotations (from __future__ import annotations)
     """
-
-    if sys.version_info[:2] <= (3, 8):
-        pytest.skip("too annoying to adjust for 3.8 and it's EOL soon anyway")
 
     # NOTE: to avoid weird interactions with existing interpreter in which pytest is running
     #  , we compose a program and running in python directly instead
