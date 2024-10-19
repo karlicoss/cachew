@@ -331,7 +331,12 @@ def build_schema(Type) -> Schema:
 
         if not (is_dataclass(Type) or is_namedtuple(Type)):
             raise TypeNotSupported(type_=Type)
-        hints = get_type_hints(Type)
+        try:
+            hints = get_type_hints(Type)
+        except TypeError as te:
+            # this can happen for instance on 3.9 if pipe syntax was used for Union types
+            # would be nice to provide a friendlier error though
+            raise TypeNotSupported(type_=Type) from te
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return SDataclass(
             type=Type,
