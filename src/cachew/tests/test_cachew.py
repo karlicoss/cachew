@@ -4,6 +4,7 @@ import string
 import sys
 import time
 import timeit
+from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
@@ -15,15 +16,8 @@ from subprocess import check_call, check_output, run
 from time import sleep
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
     NamedTuple,
     Optional,
-    Sequence,
-    Set,
-    Tuple,
     Union,
     cast,
 )
@@ -40,7 +34,10 @@ from .. import (
     get_logger,
     settings,
 )
-from .utils import gc_control, running_on_ci
+from .utils import (
+    gc_control,  # noqa: F401
+    running_on_ci,
+)
 
 logger = get_logger()
 
@@ -90,7 +87,27 @@ def test_simple() -> None:
     list(fun())
 
 
-def test_string_annotation() -> None:
+def test_string_annotation_old() -> None:
+    """
+    For some reason collections.abc.Iterable doesn't seem to work here on python <= 3.11
+     , it only sees 'UUU' as a string
+    Keeping this just as a demonstration, probably not worth trying to support as it's fairly esoteric combo.
+    """
+    from typing import Iterable as typing_Iterable  # noqa: UP035
+
+    @cachew
+    def fun() -> typing_Iterable['UUU']:
+        yield from []
+
+    # should properly infer UUU type
+    list(fun())
+
+
+def test_string_annotation_new() -> None:
+
+    if sys.version_info[:2] <= (3, 10):
+        pytest.skip("collections.abc.Iterable doesn't work with string annotations on python <= 3.10")
+
     @cachew
     def fun() -> Iterable['UUU']:
         yield from []
@@ -172,11 +189,11 @@ def inner(_it, _timer{init}):
     timeit.template = template  # type: ignore
 
     timer = timeit.Timer(lambda: len(list(data())))
-    t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
+    t, cnt = cast(tuple[float, int], timer.timeit(number=1))
     assert cnt == 5
     assert t > 5.0, 'should take at least 5 seconds'
 
-    t, cnt = cast(Tuple[float, int], timer.timeit(number=1))
+    t, cnt = cast(tuple[float, int], timer.timeit(number=1))
     assert cnt == 5
     assert t < 2.0, 'should be pretty much instantaneous'
 
@@ -285,7 +302,7 @@ def test_unsupported_class(tmp_path: Path) -> None:
     with pytest.raises(CachewException, match='.*failed to infer cache type.*'):
 
         @cachew(cache_path=tmp_path)
-        def fun() -> List[UBad]:
+        def fun() -> list[UBad]:
             return [UBad()]
 
     with pytest.raises(CachewException, match=".*can't infer type from.*"):
@@ -384,7 +401,7 @@ def test_return_type_inference(tmp_path: Path) -> None:
 def test_return_type_mismatch(tmp_path: Path) -> None:
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
     @cachew(tmp_path, cls=AA)
-    def data2() -> List[BB]:
+    def data2() -> list[BB]:
         return [
             AA(value=1, b=None, value2=123),  # type: ignore[list-item]
         ]
@@ -408,7 +425,7 @@ def test_callable_cache_path(tmp_path: Path) -> None:
     """
     Cache path can be function dependent on wrapped function's arguments
     """
-    called: Set[str] = set()
+    called: set[str] = set()
 
     @cachew(cache_path=lambda kind: tmp_path / f'{kind}.cache')
     def get_data(kind: str) -> Iterator[BB]:
@@ -657,9 +674,9 @@ class AllTypes:
     a_bool  : bool
     a_dt    : datetime
     a_date  : date
-    a_dict  : Dict[str, Any]
-    a_list  : List[Any]
-    a_tuple : Tuple[float, str]
+    a_dict  : dict[str, Any]
+    a_list  : list[Any]
+    a_tuple : tuple[float, str]
     an_exc  : Exception
     an_opt  : Optional[str]
 # fmt: on
@@ -1311,7 +1328,7 @@ print("FINISHED")
 @pytest.mark.parametrize('use_synthetic', ['False', 'True'])
 def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     # just to keep track of which data we had to compute from scratch
-    _recomputed: List[str] = []
+    _recomputed: list[str] = []
 
     # assume key i is responsible for numbers i and i-1
     # in reality this could be some slow function we'd like to avoid calling if its results is already cached
@@ -1335,7 +1352,7 @@ def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     keys5689        = [          '5', '6',      '8', '9']
     # fmt: on
 
-    def recomputed() -> List[str]:
+    def recomputed() -> list[str]:
         r = list(_recomputed)
         _recomputed.clear()
         return r
@@ -1350,7 +1367,7 @@ def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
             )
         )
 
-    def fun(keys: Sequence[str]) -> Set[str]:
+    def fun(keys: Sequence[str]) -> set[str]:
         return set(fun_aux(keys=keys))
 
     ##

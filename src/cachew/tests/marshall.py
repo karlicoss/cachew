@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
     Any,
-    List,
     Literal,
     Union,
 )
@@ -17,7 +16,7 @@ import pytest
 from ..marshall.cachew import CachewMarshall
 from ..marshall.common import Json
 from .utils import (
-    gc_control,
+    gc_control,  # noqa: F401
     profile,
     running_on_ci,
     timer,
@@ -29,7 +28,7 @@ Impl = Literal[
     'legacy',  # our legacy deserialization
 ]
 # don't include legacy by default, it's only here just for the sake of comparing once before switch
-Impls: List[Impl] = ['cachew', 'cattrs']
+Impls: list[Impl] = ['cachew', 'cattrs']
 
 
 def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew') -> None:
@@ -56,7 +55,6 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         from_json = binder.from_row
     elif impl == 'cattrs':
         from cattrs import Converter
-        from cattrs.strategies import configure_tagged_union
 
         converter = Converter()
 
@@ -112,12 +110,12 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     with profile(test_name + ':baseline'), timer(f'building      {count} objects of type {Type}'):
         objects = list(factory(count=count))
 
-    jsons: List[Json] = [None for _ in range(count)]
+    jsons: list[Json] = [None for _ in range(count)]
     with profile(test_name + ':serialize'), timer(f'serializing   {count} objects of type {Type}'):
         for i in range(count):
             jsons[i] = to_json(objects[i])
 
-    strs: List[bytes] = [None for _ in range(count)]  # type: ignore
+    strs: list[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':json_dump'), timer(f'json dump     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
@@ -134,7 +132,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             conn.executemany('INSERT INTO data (value) VALUES (?)', [(s,) for s in strs])
         conn.close()
 
-    strs2: List[bytes] = [None for _ in range(count)]  # type: ignore
+    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':sqlite_load'), timer(f'sqlite load   {count} objects of type {Type}'):
         with sqlite3.connect(db) as conn:
             i = 0
@@ -150,7 +148,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             for s in strs:
                 fw.write(s + b'\n')
 
-    strs3: List[bytes] = [None for _ in range(count)]  # type: ignore
+    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore
     with profile(test_name + ':jsonl_load'), timer(f'jsonl load    {count} objects of type {Type}'):
         i = 0
         with cache.open('rb') as fr:
@@ -161,7 +159,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
 
     assert strs2[:100] + strs2[-100:] == strs3[:100] + strs3[-100:]  # just in case
 
-    jsons2: List[Json] = [None for _ in range(count)]
+    jsons2: list[Json] = [None for _ in range(count)]
     with profile(test_name + ':json_load'), timer(f'json load     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
@@ -192,7 +190,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
         pytest.skip('TODO need to adjust the handling of Union types..')
 
     def factory(count: int):
-        objects: List[Union[str, Name]] = []
+        objects: list[Union[str, Name]] = []
         for i in range(count):
             if i % 2 == 0:
                 objects.append(str(i))

@@ -4,24 +4,19 @@ import sys
 import types
 from abc import abstractmethod
 from collections import abc
+from collections.abc import Sequence
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timezone
 from numbers import Real
 from typing import (
     Any,
-    Dict,
-    List,
     NamedTuple,
     Optional,
-    Sequence,
-    Tuple,
-    Type,
     Union,
     get_args,
     get_origin,
     get_type_hints,
 )
-
 from zoneinfo import ZoneInfo
 
 from ..utils import TypeNotSupported, is_namedtuple
@@ -33,7 +28,7 @@ from .common import (
 
 
 class CachewMarshall(AbstractMarshall[T]):
-    def __init__(self, Type_: Type[T]) -> None:
+    def __init__(self, Type_: type[T]) -> None:
         self.schema = build_schema(Type_)
 
     def dump(self, obj: T) -> Json:
@@ -49,7 +44,7 @@ class CachewMarshall(AbstractMarshall[T]):
 # NOTE: using slots gives a small speedup (maybe 5%?)
 # I suppose faster access to fields or something..
 
-SLOTS: Dict[str, bool]
+SLOTS: dict[str, bool]
 if sys.version_info[:2] >= (3, 10):
     SLOTS = {'slots': True}
 else:
@@ -312,6 +307,8 @@ PRIMITIVES = {
 
 
 def build_schema(Type) -> Schema:
+    assert not isinstance(Type, str), Type  # just to avoid confusion in case of weirdness with stringish type annotations
+
     ptype = PRIMITIVES.get(Type)
     if ptype is not None:
         return SPrimitive(type=ptype)
@@ -467,7 +464,7 @@ def test_serialize_and_deserialize() -> None:
     helper(1, Union[float, str])
     helper(2, Union[float, int])
     helper(2.0, Union[float, int])
-    helper((1, 2), Tuple[int, float])
+    helper((1, 2), tuple[int, float])
 
     # optionals
     helper('aaa', Optional[str])
@@ -477,21 +474,21 @@ def test_serialize_and_deserialize() -> None:
         helper('aaa', str | None)
 
     # lists/tuples/sequences
-    helper([1, 2, 3], List[int])
+    helper([1, 2, 3], list[int])
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
-    helper((1, 2, 3), Tuple[int, int, int])
+    helper((1, 2, 3), tuple[int, int, int])
     # TODO test with from __future__ import annotations..
     helper([1, 2, 3], list[int])
     helper((1, 2, 3), tuple[int, int, int])
 
     # dicts
-    helper({'a': 'aa', 'b': 'bb'}, Dict[str, str])
-    helper({'a': None, 'b': 'bb'}, Dict[str, Optional[str]])
+    helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
+    helper({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
     helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
 
     # compounds of simple types
-    helper(['1', 2, '3'], List[Union[str, int]])
+    helper(['1', 2, '3'], list[Union[str, int]])
 
     # TODO need to add test for equivalent dataclasses
 
@@ -513,12 +510,12 @@ def test_serialize_and_deserialize() -> None:
     @dataclass
     class WithJson:
         id: int
-        raw_data: Dict[str, Any]
+        raw_data: dict[str, Any]
 
     # json-ish stuff
-    helper({}, Dict[str, Any])
+    helper({}, dict[str, Any])
     helper(WithJson(id=123, raw_data={'payload': 'whatever', 'tags': ['a', 'b', 'c']}), WithJson)
-    helper([], List[Any])
+    helper([], list[Any])
 
     # exceptions
     helper(RuntimeError('whatever!'), RuntimeError)
@@ -529,7 +526,7 @@ def test_serialize_and_deserialize() -> None:
         Point(x=11, y=22),
         RuntimeError('more stuff'),
         RuntimeError(),
-    ], List[Union[RuntimeError, Point]])
+    ], list[Union[RuntimeError, Point]])
 
     exc_with_datetime     = Exception('I happenned on', datetime.fromisoformat('2021-04-03T10:11:12'))
     exc_with_datetime_exp = Exception('I happenned on', '2021-04-03T10:11:12')
@@ -589,10 +586,10 @@ def test_serialize_and_deserialize() -> None:
         pass
 
     with pytest.raises(RuntimeError, match=".*NotSupported.* isn't supported by cachew"):
-        helper([NotSupported()], List[NotSupported])
+        helper([NotSupported()], list[NotSupported])
 
     # edge cases
-    helper((), Tuple[()])
+    helper((), tuple[()])
 
 
 # TODO test type aliases and such??

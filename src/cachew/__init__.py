@@ -8,20 +8,16 @@ import os
 import stat
 import sys
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Generic,
-    Iterable,
-    List,
     Literal,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -89,7 +85,7 @@ def get_logger() -> logging.Logger:
     return make_logger(__name__)
 
 
-BACKENDS: Dict[Backend, Type[AbstractBackend]] = {
+BACKENDS: dict[Backend, type[AbstractBackend]] = {
     'file': FileBackend,
     'sqlite': SqliteBackend,
 }
@@ -130,7 +126,7 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
 
 Failure = str
 Kind = Literal['single', 'multiple']
-Inferred = Tuple[Kind, Type[Any]]
+Inferred = tuple[Kind, type[Any]]
 
 
 def infer_return_type(func) -> Union[Failure, Inferred]:
@@ -299,7 +295,7 @@ def cachew_impl(
     cache_path: Optional[PathProvider[P]] = use_default_path,
     *,
     force_file: bool = False,
-    cls: Optional[Union[Type, Tuple[Kind, Type]]] = None,
+    cls: Optional[Union[type, tuple[Kind, type]]] = None,
     depends_on: HashFunction[P] = default_hash,
     logger: Optional[logging.Logger] = None,
     chunk_by: int = 100,
@@ -387,7 +383,7 @@ def cachew_impl(
         logger.debug(f'no cache_path specified, using the default {cache_path}')
 
     use_kind: Optional[Kind] = None
-    use_cls: Optional[Type] = None
+    use_cls: Optional[type] = None
     if cls is not None:
         # defensive here since typing. objects passed as cls might fail on isinstance
         try:
@@ -475,7 +471,7 @@ if TYPE_CHECKING:
         cache_path: Optional[PathProvider[P]] = ...,
         *,
         force_file: bool = ...,
-        cls: Optional[Union[Type, Tuple[Kind, Type]]] = ...,
+        cls: Optional[Union[type, tuple[Kind, type]]] = ...,
         depends_on: HashFunction[P] = ...,
         logger: Optional[logging.Logger] = ...,
         chunk_by: int = ...,
@@ -498,7 +494,7 @@ def callable_module_name(func: Callable) -> Optional[str]:
 
 
 # could cache this, but might be worth not to, so the user can change it on the fly?
-def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> List[str]:
+def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> list[str]:
     # e.g. CACHEW_DISABLE=my.browser:my.reddit
     if 'CACHEW_DISABLE' not in os.environ:
         return []
@@ -582,14 +578,14 @@ class Context(Generic[P]):
     func         : Callable
     cache_path   : PathProvider[P]
     force_file   : bool
-    cls_         : Type
+    cls_         : type
     depends_on   : HashFunction[P]
     logger       : logging.Logger
     chunk_by     : int
     synthetic_key: Optional[str]
     backend      : Optional[Backend]
 
-    def composite_hash(self, *args, **kwargs) -> Dict[str, Any]:
+    def composite_hash(self, *args, **kwargs) -> dict[str, Any]:
         fsig = inspect.signature(self.func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
@@ -693,7 +689,7 @@ def cachew_wrapper(
             return
         # attempt to use existing cache if possible, as a 'prefix'
 
-        old_hash_d: Dict[str, Any] = {}
+        old_hash_d: dict[str, Any] = {}
         if old_hash is not None:
             try:
                 old_hash_d = json.loads(old_hash)
@@ -711,7 +707,7 @@ def cachew_wrapper(
         if not cache_compatible:
             return
 
-        def missing_keys(cached: List[str], wanted: List[str]) -> Optional[List[str]]:
+        def missing_keys(cached: list[str], wanted: list[str]) -> Optional[list[str]]:
             # FIXME assert both cached and wanted are sorted? since we rely on it
             # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
             # although in this case passing it into the function wouldn't make sense?
@@ -734,8 +730,8 @@ def cachew_wrapper(
             # otherwise too many things are cached, and we seem to wante less
             return None
 
-        new_values: List[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
-        old_values: List[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
+        new_values: list[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
+        old_values: list[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
         missing = missing_keys(cached=old_values, wanted=new_values)
         if missing is not None:
             # can reuse cache
@@ -760,7 +756,7 @@ def cachew_wrapper(
 
         flush_blobs = backend.flush_blobs
 
-        chunk: List[Any] = []
+        chunk: list[Any] = []
 
         def flush() -> None:
             nonlocal chunk
@@ -849,9 +845,9 @@ def cachew_wrapper(
 
 
 __all__ = [
-    'cachew',
     'CachewException',
-    'SourceHash',
     'HashFunction',
+    'SourceHash',
+    'cachew',
     'get_logger',
 ]

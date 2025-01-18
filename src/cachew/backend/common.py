@@ -1,10 +1,9 @@
 import logging
 from abc import abstractmethod
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import (
-    Iterator,
     Optional,
-    Sequence,
 )
 
 from ..common import SourceHash

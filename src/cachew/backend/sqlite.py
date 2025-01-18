@@ -2,11 +2,10 @@ import logging
 import sqlite3
 import time
 import warnings
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import (
-    Iterator,
     Optional,
-    Sequence,
 )
 
 import sqlalchemy

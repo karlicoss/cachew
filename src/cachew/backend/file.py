@@ -1,11 +1,9 @@
 import logging
-import os
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import (
     BinaryIO,
-    Iterator,
     Optional,
-    Sequence,
 )
 
 from ..common import SourceHash
