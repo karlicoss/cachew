@@ -158,7 +158,7 @@ class IsoDate(IsoDateTime):
     def process_literal_param(self, value, dialect):
         raise NotImplementedError()  # make pylint happy
 
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[date]:  # type: ignore
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[date]:  # type: ignore[explicit-override,override]
         res = super().process_result_value(value, dialect)
         if res is None:
             return None
@@ -246,6 +246,7 @@ def strip_optional(cls) -> tuple[type, bool]:
 
 def strip_generic(tp):
     """
+    >>> from typing import List
     >>> strip_generic(List[int])
     <class 'list'>
     >>> strip_generic(str)
@@ -345,7 +346,7 @@ class NTBinder(Generic[NT]):
                 span = sum(f.span for f in fields) + (1 if optional else 0)
         return NTBinder(
             name=name,
-            type_=tp,
+            type_=tp,  # type: ignore[arg-type]
             span=span,
             primitive=primitive,
             optional=optional,
@@ -455,17 +456,17 @@ class NTBinder(Generic[NT]):
 def test_mypy_annotations() -> None:
     # mypy won't handle, so this has to be dynamic
     vs = []
-    for t in Types.__args__:  # type: ignore
+    for t in Types.__args__:  # type: ignore[attr-defined]
         (arg,) = t.__args__
         vs.append(arg)
 
     def types(ts):
         return sorted(ts, key=lambda t: str(t))
 
-    assert types(vs) == types(Values.__args__)  # type: ignore
+    assert types(vs) == types(Values.__args__)  # type: ignore[attr-defined]
 
     for p in PRIMITIVE_TYPES:
-        assert p in Values.__args__  # type: ignore
+        assert p in Values.__args__  # type: ignore[attr-defined]
 
 
 @parametrize(
