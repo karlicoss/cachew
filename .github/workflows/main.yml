@@ -40,6 +40,8 @@ jobs:
         python-version: ${{ matrix.python-version }}
       
     - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: false  # we don't have lock files, so can't use them as cache key
 
     - uses: actions/checkout@v4
       with:
@@ -75,6 +77,8 @@ jobs:
         python-version: '3.10'
 
     - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: false  # we don't have lock files, so can't use them as cache key
 
     - uses: actions/checkout@v4
       with:
