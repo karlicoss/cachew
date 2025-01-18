@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Type
 
 
 class CachewException(RuntimeError):
@@ -8,7 +7,7 @@ class CachewException(RuntimeError):
 
 @dataclass
 class TypeNotSupported(CachewException):
-    type_: Type
+    type_: type
 
     def __str__(self) -> str:
         return f"{self.type_} isn't supported by cachew. See https://github.com/karlicoss/cachew#features for the list of supported types."

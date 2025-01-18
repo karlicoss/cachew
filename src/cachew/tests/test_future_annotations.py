@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import sys
 import textwrap
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 from more_itertools import one

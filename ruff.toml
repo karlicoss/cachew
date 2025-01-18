@@ -28,6 +28,7 @@ lint.extend-select = [
     "PTH",  # pathlib migration
     # "ARG", # TODO useful, but results in some false positives in pytest fixtures... maybe later
     "A",    # builtin shadowing
+    "G",    # logging stuff
     # "EM",  # TODO hmm could be helpful to prevent duplicate err msg in traceback.. but kinda annoying
 
     # "ALL", # uncomment this to check for new rules!
@@ -64,14 +65,8 @@ lint.ignore = [
     # sometimes it's useful to give a variable a name even if we don't use it as a documentation
     # on the other hand, often is a sign of error
     "F841",  # Local variable `count` is assigned to but never used
-    "F401",  # imported but unused
 ###
 
-### TODO should be fine to use these with from __future__ import annotations?
-### there was some issue with cachew though... double check this?
-    "UP006",  # use type instead of Type
-    "UP007",  # use X | Y instead of Union
-###
     "RUF100",  # unused noqa -- handle later
     "RUF012",  # mutable class attrs should be annotated with ClassVar... ugh pretty annoying for user configs
 
@@ -112,7 +107,6 @@ lint.ignore = [
     "PLW0603",  # global variable update.. we usually know why we are doing this
     "PLW2901",  # for loop variable overwritten, usually this is intentional
 
-    "PT004",  # deprecated rule, will be removed later
     "PT011",  # pytest raises should is too broad
     "PT012",  # pytest raises should contain a single statement
 

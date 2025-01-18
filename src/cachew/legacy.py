@@ -1,5 +1,6 @@
 import typing
 import warnings
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import chain, islice
@@ -7,15 +8,8 @@ from pathlib import Path
 from typing import (
     Any,
     Generic,
-    Iterable,
-    Iterator,
-    List,
     NamedTuple,
     Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -27,7 +21,7 @@ from .pytest import parametrize
 from .utils import CachewException
 
 
-def get_union_args(cls) -> Optional[Tuple[Type]]:
+def get_union_args(cls) -> Optional[tuple[type]]:
     if getattr(cls, '__origin__', None) != Union:
         return None
 
@@ -42,16 +36,16 @@ def is_union(cls) -> bool:
 
 
 Types = Union[
-    Type[str],
-    Type[int],
-    Type[float],
-    Type[bool],
-    Type[datetime],
-    Type[date],
-    Type[dict],
-    Type[list],
-    Type[Exception],
-    Type[NamedTuple],
+    type[str],
+    type[int],
+    type[float],
+    type[bool],
+    type[datetime],
+    type[date],
+    type[dict],
+    type[list],
+    type[Exception],
+    type[NamedTuple],
 ]
 
 Values = Union[
@@ -80,7 +74,7 @@ PRIMITIVE_TYPES = {
 }
 
 
-def is_primitive(cls: Type) -> bool:
+def is_primitive(cls: type) -> bool:
     """
     >>> from typing import Dict, Any
     >>> is_primitive(int)
@@ -194,10 +188,10 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
     def process_literal_param(self, value, dialect):
         raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[List[Any]]:
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[list[Any]]:
         if value is None:
             return None
-        sargs: List[Any] = []
+        sargs: list[Any] = []
         for a in value.args:
             if any(isinstance(a, t) for t in jtypes):
                 sargs.append(a)
@@ -230,7 +224,7 @@ PRIMITIVES = {
 assert set(PRIMITIVES.keys()) == PRIMITIVE_TYPES
 
 
-def strip_optional(cls) -> Tuple[Type, bool]:
+def strip_optional(cls) -> tuple[type, bool]:
     """
     >>> from typing import Optional, NamedTuple
     >>> strip_optional(Optional[int])
@@ -313,14 +307,14 @@ class NTBinder(Generic[NT]):
     span: int  # not sure if span should include optional col?
     primitive: bool
     optional: bool
-    union: Optional[Type]  # helper, which isn't None if type is Union
+    union: Optional[type]  # helper, which isn't None if type is Union
     fields: Sequence[Any]  # mypy can't handle cyclic definition at this point :(
 
     @staticmethod
-    def make(tp: Type[NT], name: Optional[str] = None) -> 'NTBinder[NT]':
+    def make(tp: type[NT], name: Optional[str] = None) -> 'NTBinder[NT]':
         tp, optional = strip_optional(tp)
-        union: Optional[Type]
-        fields: Tuple[Any, ...]
+        union: Optional[type]
+        fields: tuple[Any, ...]
         primitive: bool
 
         union_args = get_union_args(tp)
@@ -360,11 +354,11 @@ class NTBinder(Generic[NT]):
         )
 
     @property
-    def columns(self) -> List[Column]:
+    def columns(self) -> list[Column]:
         return list(self.iter_columns())
 
     # TODO not necessarily namedtuple? could be primitive type
-    def to_row(self, obj: NT) -> Tuple[Optional[Values], ...]:
+    def to_row(self, obj: NT) -> tuple[Optional[Values], ...]:
         return tuple(self._to_row(obj))
 
     def from_row(self, row: Iterable[Any]) -> NT:
@@ -425,7 +419,7 @@ class NTBinder(Generic[NT]):
 
     # TODO not sure if we want to allow optionals on top level?
     def iter_columns(self) -> Iterator[Column]:
-        used_names: Set[str] = set()
+        used_names: set[str] = set()
 
         def col(name: str, tp) -> Column:
             while name in used_names:
