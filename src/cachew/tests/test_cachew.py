@@ -186,7 +186,7 @@ def inner(_it, _timer{init}):
     _t1 = _timer()
     return _t1 - _t0, retval
 """
-    timeit.template = template  # type: ignore
+    timeit.template = template  # type: ignore[attr-defined]
 
     timer = timeit.Timer(lambda: len(list(data())))
     t, cnt = cast(tuple[float, int], timer.timeit(number=1))
@@ -973,7 +973,7 @@ def test_defensive(restore_settings) -> None:
         settings.THROW_ON_ERROR = throw
 
         with ctx:
-            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig)  # type: ignore
+            fun = cachew(cache_path=lambda: 1 + 'bad_path_provider')(orig)  # type: ignore[arg-type,misc,operator]
             assert list(fun()) == [123]
             assert list(fun()) == [123]
 

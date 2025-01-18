@@ -115,11 +115,11 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         for i in range(count):
             jsons[i] = to_json(objects[i])
 
-    strs: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
     with profile(test_name + ':json_dump'), timer(f'json dump     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
-            strs[i] = orjson.dumps(jsons[i])  # pylint: disable=no-member
+            strs[i] = orjson.dumps(jsons[i])
 
     db = Path('/tmp/cachew_test/db.sqlite')
     if db.parent.exists():
@@ -132,7 +132,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             conn.executemany('INSERT INTO data (value) VALUES (?)', [(s,) for s in strs])
         conn.close()
 
-    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
     with profile(test_name + ':sqlite_load'), timer(f'sqlite load   {count} objects of type {Type}'):
         with sqlite3.connect(db) as conn:
             i = 0
@@ -148,7 +148,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             for s in strs:
                 fw.write(s + b'\n')
 
-    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore
+    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
     with profile(test_name + ':jsonl_load'), timer(f'jsonl load    {count} objects of type {Type}'):
         i = 0
         with cache.open('rb') as fr:
@@ -163,7 +163,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     with profile(test_name + ':json_load'), timer(f'json load     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
-            jsons2[i] = orjson.loads(strs2[i])  # pylint: disable=no-member
+            jsons2[i] = orjson.loads(strs2[i])
 
     objects2 = [None for _ in range(count)]
     with profile(test_name + ':deserialize'), timer(f'deserializing {count} objects of type {Type}'):

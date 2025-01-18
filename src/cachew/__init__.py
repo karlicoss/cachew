@@ -808,7 +808,7 @@ def cachew_wrapper(
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
 
-        marshall = CachewMarshall(Type_=cls)
+        marshall: CachewMarshall[Any] = CachewMarshall(Type_=cls)
 
         with BackendCls(cache_path=db_path, logger=logger) as backend:
             old_hash = backend.get_old_hash()
