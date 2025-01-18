@@ -3,7 +3,7 @@
 dynamic = ["version"]  # version is managed by setuptools_scm
 name = "cachew"
 dependencies = [
-    "appdirs"        ,  # default cache dir
+    "platformdirs",     # default cache dir
     "sqlalchemy>=1.0",  # cache DB interaction
     "orjson",           # fast json serialization
 ]

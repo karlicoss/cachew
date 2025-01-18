@@ -40,7 +40,7 @@ except:
 
     orjson_loads = json.loads
 
-import appdirs  # type: ignore[import-untyped]
+import platformdirs
 
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
@@ -71,7 +71,7 @@ class settings:
     '''
     ENABLE: bool = True
 
-    DEFAULT_CACHEW_DIR: PathIsh = Path(appdirs.user_cache_dir('cachew'))
+    DEFAULT_CACHEW_DIR: PathIsh = Path(platformdirs.user_cache_dir('cachew'))
 
     '''
     Set to true if you want to fail early. Otherwise falls back to non-cached version
