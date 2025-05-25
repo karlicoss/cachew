@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-from cachew import cachew
-from pathlib import Path
-import shutil
 import sqlite3
-from time import time
-from typing import Iterator
+from collections.abc import Iterator
+from pathlib import Path
 
-import click
+import sqlalchemy
 from codetiming import Timer
 from more_itertools import ilen
-import sqlalchemy
 
+from cachew import cachew
 
 # todo not sure it really helps much?
-import gc
+import gc  # isort: skip
+
 gc.disable()
 
 
@@ -22,7 +20,6 @@ def timer(name: str) -> Timer:
 
 
 def test_ints() -> None:
-
     N = 5_000_000
 
     base = Path('/tmp/cachew_profiling/')
@@ -48,7 +45,7 @@ def test_ints() -> None:
     with timer('reading directly via sqlite'):
         total = 0
         with sqlite3.connect(cache_path) as conn:
-            for (x,) in conn.execute('SELECT * FROM cache'):
+            for (_x,) in conn.execute('SELECT * FROM cache'):
                 total += 1
         assert total == N  # just in case
 
@@ -56,18 +53,19 @@ def test_ints() -> None:
         total = 0
         engine = sqlalchemy.create_engine(f'sqlite:///{cache_path}')
 
-        from sqlalchemy import Table, MetaData, Column
+        from sqlalchemy import Column, MetaData, Table
+
         meta = MetaData()
-        table_cache     = Table('cache'    , meta, Column('_cachew_primitive', sqlalchemy.Integer))
+        table_cache = Table('cache', meta, Column('_cachew_primitive', sqlalchemy.Integer))
         with engine.connect() as conn:
             with timer('sqlalchemy querying'):
                 rows = conn.execute(table_cache.select())
-                for (x,) in rows:
+                for (_x,) in rows:
                     total += 1
         engine.dispose()
         assert total == N  # just in case
 
-    cache_size_mb = cache_path.stat().st_size / 10 ** 6
+    cache_size_mb = cache_path.stat().st_size / 10**6
     print(f'cache size: {cache_size_mb:.1f} Mb')
 
     with timer('subsequent call'):

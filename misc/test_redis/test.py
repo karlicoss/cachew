@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 from time import time
 
+import redis
 from loguru import logger
 from more_itertools import ilen
-import redis
 
 r = redis.Redis(host='localhost', port=6379, db=0)
 
 
 N = 1_000_000
+
 
 def items():
     yield from map(str, range(N))
@@ -27,11 +28,10 @@ def write():
         r.hset(key, 'data', obj)
         r.lpush(TAG, key)
 
+
 def read():
     keys = r.lrange(TAG, 0, -1)
-    result = (
-        r.hget(key, 'data') for key in keys
-    )
+    result = (r.hget(key, 'data') for key in keys)
     print('total', ilen(result))
 
 

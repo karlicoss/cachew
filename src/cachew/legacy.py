@@ -101,7 +101,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
     def process_literal_param(self, value, dialect):
         raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[str]:
+    def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[str]:  # noqa: ARG002
         if value is None:
             return None
         # ok, it's a bit hacky... attempt to preserve pytz infromation
@@ -123,7 +123,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             else:
                 return iso
 
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[datetime]:
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[datetime]:  # noqa: ARG002
         if value is None:
             return None
         spl = value.split(' ')
@@ -188,7 +188,7 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
     def process_literal_param(self, value, dialect):
         raise NotImplementedError()  # make pylint happy
 
-    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[list[Any]]:
+    def process_bind_param(self, value: Optional[Exception], dialect) -> Optional[list[Any]]:  # noqa: ARG002
         if value is None:
             return None
         sargs: list[Any] = []
@@ -201,7 +201,7 @@ class ExceptionAdapter(sqlalchemy.TypeDecorator):
                 sargs.append(str(a))
         return sargs
 
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[Exception]:
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[Exception]:  # noqa: ARG002
         if value is None:
             return None
         # sadly, can't do much to convert back from the strings? Unless I serialize the type info as well?
@@ -398,7 +398,7 @@ class NTBinder(Generic[NT]):
         if self.primitive:
             return next(row_iter)
         elif self.union is not None:
-            CachewUnion = self.union
+            CachewUnion = self.union  # noqa: F841
             (uf,) = self.fields
             # TODO assert only one of them is not None?
             union_params = [r for r in uf._from_row(row_iter) if r is not None]
@@ -485,7 +485,7 @@ def test_ntbinder_primitive(tp, val) -> None:
     assert vv == val
 
 
-def test_unique_columns(tmp_path: Path) -> None:
+def test_unique_columns(tmp_path: Path) -> None:  # noqa: ARG001
     class Job(NamedTuple):
         company: str
         title: Optional[str]

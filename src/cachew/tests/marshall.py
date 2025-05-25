@@ -1,3 +1,4 @@
+# ruff: noqa: ARG001  # ruff thinks pytest fixtures are unused arguments
 import shutil
 import sqlite3
 import sys

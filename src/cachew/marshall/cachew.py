@@ -350,15 +350,15 @@ def build_schema(Type) -> Schema:
     is_union = origin is Union or is_uniontype
 
     if is_union:
+        # fmt: off
         return SUnion(
             type=Type,
-            # fmt: off
             args=tuple(
                 (tidx, build_schema(a))
                 for tidx, a in enumerate(args)
             ),
-            # fmt: on
         )
+        # fmt: on
 
     is_listish = origin is list
     if is_listish:

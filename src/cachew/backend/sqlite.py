@@ -24,7 +24,7 @@ class SqliteBackend(AbstractBackend):
         # by default, it's several seconds? you'd see 'test_recursive' test performance degrade
 
         @event.listens_for(self.engine, 'connect')
-        def set_sqlite_pragma(dbapi_connection, connection_record):
+        def set_sqlite_pragma(dbapi_connection, connection_record):  # noqa: ARG001
             # without wal, concurrent reading/writing is not gonna work
 
             # ugh. that's odd, how are we supposed to set WAL if the very fact of setting wal might lock the db?

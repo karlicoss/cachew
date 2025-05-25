@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from dataclasses import dataclass
-from typing import Union, NamedTuple
+from typing import NamedTuple, Union
 
 
 def test_dataclasses_json():
@@ -11,19 +11,18 @@ def test_dataclasses_json():
     class Inner:
         value: int
 
-
     @dataclass
     class Outer:
         inner: Inner
 
     ### issue 1: requires @dataclass_json annotation on all involved dataclasses
-    obj = Outer(inner=Inner(value=123))
+    obj = Outer(inner=Inner(value=123))  # noqa: F841
 
     # we don't control the types that are passed to us, so we can't use the @dataclass_json
     # but we can just call the decorator directly
 
     # HOWEVER: this modifies the original class, Outer!!
-    OuterJson = dataclass_json(Outer)
+    OuterJson = dataclass_json(Outer)  # noqa: F841
     # it adds 'from_dict', 'from_json', 'schema', 'to_dict', 'to_json' attributes to it
 
     # now if you try
@@ -50,8 +49,7 @@ def test_dataclasses_json():
     @dataclass_json
     @dataclass
     class WithUnion:
-        union: Union[City | Country]
-
+        union: Union[City, Country]
 
     objs = [
         WithUnion(union=City(name='London')),
@@ -89,7 +87,7 @@ def test_marshmallow_dataclass():
 
     @dataclass
     class WithUnion:
-        union: Union[City | Country]
+        union: Union[City, Country]
 
     objs = [
         WithUnion(union=City(name="London")),
@@ -114,7 +112,6 @@ def test_marshmallow_dataclass():
 def test_pydantic():
     from pydantic import TypeAdapter
 
-
     ### issue: doesn't handle Unions correctly
     @dataclass
     class City:
@@ -126,7 +123,7 @@ def test_pydantic():
 
     @dataclass
     class WithUnion:
-        union: Union[City | Country]
+        union: Union[City, Country]
 
     objs = [
         WithUnion(union=City(name="London")),
@@ -148,7 +145,7 @@ def test_pydantic():
     print("json     ", json)
     print("restored ", objs2)
 
-    #assert objs == objs2, (objs, objs2)
+    # assert objs == objs2, (objs, objs2)
     # ^ this assert fails!
     # created an issue https://github.com/pydantic/pydantic/issues/7391
     ###
@@ -164,7 +161,7 @@ def test_cattrs():
     class X(NamedTuple):
         value: int
 
-    d = converter.unstructure(X(value=123), X)
+    d = converter.unstructure(X(value=123), X)  # noqa: F841
     # NOTE: this assert doesn't pass!
     # assert isinstance(d, dict)
     ###
@@ -180,7 +177,7 @@ def test_cattrs():
 
     @dataclass
     class WithUnion:
-        union: Union[City | Country]
+        union: Union[City, Country]
 
     objs = [
         WithUnion(union=City(name="London")),
@@ -203,7 +200,6 @@ def test_cattrs():
 
     assert objs == objs2, (objs, objs2)
     ###
-
 
     ### issue: unions of simple types aren't supported?
     # see https://github.com/python-attrs/cattrs/issues/423
