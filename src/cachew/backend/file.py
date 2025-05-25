@@ -79,6 +79,6 @@ class FileBackend(AbstractBackend):
             fw.write(blob)
             fw.write(b'\n')
 
-    def finalize(self, new_hash: SourceHash) -> None:
+    def finalize(self, new_hash: SourceHash) -> None:  # noqa: ARG002
         # TODO defensive??
         self.jsonl_tmp.rename(self.jsonl)

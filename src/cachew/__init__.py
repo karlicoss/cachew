@@ -428,8 +428,8 @@ def cachew_impl(
     else:
         _func = func
 
+    # fmt: off
     ctx = Context(
-        # fmt: off
         func         =_func,
         cache_path   =cache_path,
         force_file   =force_file,
@@ -439,8 +439,8 @@ def cachew_impl(
         chunk_by     =chunk_by,
         synthetic_key=synthetic_key,
         backend      =backend,
-        # fmt: on
     )
+    # fmt: on
 
     # hack to avoid extra stack frame (see test_recursive*)
     @functools.wraps(func)
@@ -555,7 +555,6 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
 
 
 def _module_is_disabled(module_name: str, logger: logging.Logger) -> bool:
-
     disabled_modules = _parse_disabled_modules(logger)
     for pat in disabled_modules:
         if _matches_disabled_module(module_name, pat):
@@ -629,7 +628,6 @@ def cachew_wrapper(
     cache_path    = C.cache_path
     force_file    = C.force_file
     cls           = C.cls_
-    depends_on    = C.depends_on
     logger        = C.logger
     chunk_by      = C.chunk_by
     synthetic_key = C.synthetic_key

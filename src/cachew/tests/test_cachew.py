@@ -1,3 +1,4 @@
+# ruff: noqa: ARG001  # ruff thinks pytest fixtures are unused arguments
 import hashlib
 import inspect
 import string
@@ -104,7 +105,6 @@ def test_string_annotation_old() -> None:
 
 
 def test_string_annotation_new() -> None:
-
     if sys.version_info[:2] <= (3, 10):
         pytest.skip("collections.abc.Iterable doesn't work with string annotations on python <= 3.10")
 
@@ -279,7 +279,7 @@ def test_cache_path(tmp_path: Path) -> None:
 
     # treat None as "don't cache" ('factory')
     # hmm not sure why mypy complains here.. might better if we get to use ParamSpec?
-    fun = cachew(cache_path=lambda *args: None)(orig)  # type: ignore[arg-type]
+    fun = cachew(cache_path=lambda *args: None)(orig)  # type: ignore[arg-type]  # noqa: ARG005
     assert list(fun()) == [1, 2]
     assert calls == 6
     assert list(fun()) == [1, 2]
@@ -344,7 +344,7 @@ def test_many(count: int, tmp_path: Path, gc_control) -> None:
     b = time.time()
     print(f'test_many: initial write to cache took {b - a:.1f}s', file=sys.stderr)
 
-    print(f'test_many: cache size is {cache_path.stat().st_size / 10 ** 6}Mb', file=sys.stderr)
+    print(f'test_many: cache size is {cache_path.stat().st_size / 10**6}Mb', file=sys.stderr)
 
     a = time.time()
     assert ilen(iter_data()) == count  # hitting cache
@@ -1372,6 +1372,8 @@ def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
 
     ##
 
+    # preserve formatting of string arguments it makes easier to read the tes
+    # fmt: off
     assert fun(keys125) == set('01' '12' '45')
     assert recomputed() == keys125
     assert fun(keys125) == set('01' '12' '45')
@@ -1403,6 +1405,7 @@ def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     assert recomputed() == keys5689
     assert fun(keys5689) == set('45' '56' '78' '89')
     assert recomputed() == []  # should be cached
+    # fmt: on
 
     # TODO maybe call combined function? so it could return total result and last cached?
     # TODO another option is:
