@@ -1,0 +1,4 @@
+[src]
+exclude = [
+    "doc/test_serialization.py",
+]

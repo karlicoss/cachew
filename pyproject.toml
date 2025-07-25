@@ -34,6 +34,9 @@ optional = [
     "colorlog",
 ]
 [dependency-groups]
+# TODO: not sure, on the one hand could just use 'standard' dev dependency group
+# On the other hand, it's a bit annoying that it's always included by default? 
+# To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
     "pytz", "types-pytz",  # optional runtime only dependency
 
@@ -47,14 +50,9 @@ testing = [
 
     "ruff",
     "mypy",
-    "lxml",  # for mypy html coverage
+    "lxml", # for mypy html coverage
+    "ty>=0.0.1a16",
 ]
-
-
-# workaround for error during uv publishing
-# see https://github.com/astral-sh/uv/issues/9513#issuecomment-2519527822
-[tool.setuptools]
-license-files = []
 
 
 [build-system]

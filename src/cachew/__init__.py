@@ -38,7 +38,7 @@ except:
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
 
-    orjson_loads = json.loads
+    orjson_loads = json.loads  # ty: ignore[invalid-assignment]
 
 import platformdirs
 
@@ -291,7 +291,7 @@ use_default_path = cast(Path, object())
 # using cachew_impl here just to use different signatures during type checking (see below)
 @doublewrap
 def cachew_impl(
-    func=None,
+    func=None,  # TODO should probably type it after switch to python 3.10/proper paramspec
     cache_path: Optional[PathProvider[P]] = use_default_path,
     *,
     force_file: bool = False,
@@ -364,6 +364,7 @@ def cachew_impl(
             func_name = extra['func_name']
             return f'[{func_name}] {msg}', kwargs
 
+    assert func is not None
     func_name = callable_name(func)
     adapter = AddFuncName(logger, {'func_name': func_name})
     logger = cast(logging.Logger, adapter)
@@ -428,7 +429,8 @@ def cachew_impl(
     else:
         _func = func
 
-    # fmt: off
+    assert use_cls is not None
+
     ctx = Context(
         func         =_func,
         cache_path   =cache_path,
@@ -439,14 +441,13 @@ def cachew_impl(
         chunk_by     =chunk_by,
         synthetic_key=synthetic_key,
         backend      =backend,
-    )
-    # fmt: on
+    )  # fmt: skip
 
     # hack to avoid extra stack frame (see test_recursive*)
     @functools.wraps(func)
     def binder(*args, **kwargs):
         kwargs['_cachew_context'] = ctx
-        res = cachew_wrapper(*args, **kwargs)
+        res = cachew_wrapper(*args, **kwargs)  # ty: ignore[missing-argument]
 
         if use_kind == 'single':
             lres = list(res)
@@ -460,7 +461,7 @@ def cachew_impl(
 if TYPE_CHECKING:
     # we need two versions due to @doublewrap
     # this is when we just annotate as @cachew without any args
-    @overload  # type: ignore[no-overload-impl]
+    @overload
     def cachew(fun: F) -> F: ...
 
     # NOTE: we won't really be able to make sure the args of cache_path are the same as args of the wrapped function
@@ -479,6 +480,8 @@ if TYPE_CHECKING:
         backend: Optional[Backend] = ...,
     ) -> Callable[[F], F]: ...
 
+    def cachew(*args, **kwargs):  # make ty happy
+        raise NotImplementedError
 else:
     cachew = cachew_impl
 
@@ -486,7 +489,7 @@ else:
 def callable_name(func: Callable) -> str:
     # some functions don't have __module__
     mod = getattr(func, '__module__', None) or ''
-    return f'{mod}:{func.__qualname__}'
+    return f'{mod}:{getattr(func, "__qualname__")}'
 
 
 def callable_module_name(func: Callable) -> Optional[str]:
@@ -572,7 +575,7 @@ _DEPENDENCIES        = 'dependencies'
 
 
 @dataclass
-class Context(Generic[P]):
+class Context(Generic[P]):  # ty: ignore[invalid-argument-type]
     # fmt: off
     func         : Callable
     cache_path   : PathProvider[P]
