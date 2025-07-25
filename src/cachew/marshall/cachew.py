@@ -8,8 +8,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timezone
 from numbers import Real
-from typing import (
+from typing import (  # noqa: UP035
     Any,
+    List,
     NamedTuple,
     Optional,
     Union,
@@ -101,12 +102,10 @@ class SDataclass(Schema):
 
     def load(self, dct):
         # dict comprehension is meh, but not sure if there is a faster way?
-        # fmt: off
         return self.type(**{
             k: ks.load(dct[k])
             for k, ks in self.fields
-        })
-        # fmt: on
+        })  # fmt: skip
 
 
 @dataclass(**SLOTS)
@@ -187,20 +186,16 @@ class SDict(Schema):
     tt: Schema
 
     def dump(self, obj):
-        # fmt: off
         return {
             k: self.tt.dump(v)
             for k, v in obj.items()
-        }
-        # fmt: on
+        }  # fmt: skip
 
     def load(self, dct):
-        # fmt: off
         return {
             k: self.tt.load(v)
             for k, v in dct.items()
-        }
-        # fmt: on
+        }  # fmt: skip
 
 
 # TODO unify with primitives?
@@ -314,8 +309,9 @@ def build_schema(Type) -> Schema:
         return SPrimitive(type=ptype)
 
     origin = get_origin(Type)
+    # origin is 'unsubscripted/erased' version of type
+    # if origin is NOT None, it's some sort of generic type
 
-    # if origin not none, it's some sort of generic type?
     if origin is None:
         if issubclass(Type, Exception):
             return SException(type=Type)
@@ -327,13 +323,13 @@ def build_schema(Type) -> Schema:
             return SDate(type=Type)
 
         if not (is_dataclass(Type) or is_namedtuple(Type)):
-            raise TypeNotSupported(type_=Type)
+            raise TypeNotSupported(type_=Type, reason='unknown type')
         try:
             hints = get_type_hints(Type)
         except TypeError as te:
             # this can happen for instance on 3.9 if pipe syntax was used for Union types
             # would be nice to provide a friendlier error though
-            raise TypeNotSupported(type_=Type) from te
+            raise TypeNotSupported(type_=Type, reason='failed to get type hints') from te
         fields = tuple((k, build_schema(t)) for k, t in hints.items())
         return SDataclass(
             type=Type,
@@ -350,21 +346,25 @@ def build_schema(Type) -> Schema:
     is_union = origin is Union or is_uniontype
 
     if is_union:
-        # fmt: off
+        # We 'erasing' types (since generic types don't work with isinstance checks).
+        # So we need to make sure the types are unique to make sure we can deserialise them.
+        schemas = [build_schema(a) for a in args]
+        union_types = [s.type for s in schemas if s.type is not Real]
+        if len(set(union_types)) != len(union_types):
+            raise TypeNotSupported(type_=Type, reason=f'runtime union arguments are not unique: {union_types}')
         return SUnion(
-            type=Type,
+            type=origin,
             args=tuple(
-                (tidx, build_schema(a))
-                for tidx, a in enumerate(args)
+                (tidx, s)
+                for tidx, s in enumerate(schemas)
             ),
-        )
-        # fmt: on
+        )  # fmt: skip
 
     is_listish = origin is list
     if is_listish:
         (t,) = args
         return SList(
-            type=Type,
+            type=origin,
             arg=build_schema(t),
         )
 
@@ -378,13 +378,13 @@ def build_schema(Type) -> Schema:
             if args == ((),):
                 args = ()
             return STuple(
-                type=Type,
+                type=origin,
                 args=tuple(build_schema(a) for a in args),
             )
         else:
             (t,) = args
             return SSequence(
-                type=Type,
+                type=origin,
                 arg=build_schema(t),
             )
 
@@ -395,12 +395,12 @@ def build_schema(Type) -> Schema:
         tts = build_schema(tt)
         assert isinstance(fts, SPrimitive)
         return SDict(
-            type=Type,
+            type=origin,
             ft=fts,
             tt=tts,
         )
 
-    raise RuntimeError(f"unsupported: {Type} {origin} {args}")
+    raise RuntimeError(f"unsupported: {Type=} {origin=} {args=}")
 
 
 ######### tests
@@ -449,11 +449,6 @@ def test_serialize_and_deserialize() -> None:
     helper(None, str)
     helper(1, float)
 
-    # unions
-    helper(1, Union[str, int])
-    if sys.version_info[:2] >= (3, 10):
-        helper('aaa', str | int)  # ty: ignore[unsupported-operator]
-
     # implicit casts, inside other types
     # technically not type safe, but might happen in practice
     # doesn't matter how to deserialize None anyway so let's allow this
@@ -475,17 +470,25 @@ def test_serialize_and_deserialize() -> None:
 
     # lists/tuples/sequences
     helper([1, 2, 3], list[int])
+    helper([1, 2, 3], List[int])  # noqa: UP006
+    helper([1, 2, 3], Optional[List[int]])  # noqa: UP006
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
     helper((1, 2, 3), tuple[int, int, int])
     # TODO test with from __future__ import annotations..
     helper([1, 2, 3], list[int])
     helper((1, 2, 3), tuple[int, int, int])
+    helper((1, 2, 3), Optional[tuple[int, int, int]])
 
     # dicts
     helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
     helper({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
     helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
+
+    # unions
+    helper(1, Union[str, int])
+    if sys.version_info[:2] >= (3, 10):
+        helper('aaa', str | int)  # ty: ignore[unsupported-operator]
 
     # compounds of simple types
     helper(['1', 2, '3'], list[Union[str, int]])
@@ -590,6 +593,14 @@ def test_serialize_and_deserialize() -> None:
 
     # edge cases
     helper((), tuple[()])
+
+    # unions of generic sequences and such
+    # these don't work because the erased type of both is just 'list'..
+    # so there is no way to tell which one we need to construct :(
+    with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
+        helper([1, 2, 3], Union[list[int], list[Exception]])
+    with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
+        helper([1, 2, 3], Union[list[Exception], list[int]])
 
 
 # TODO test type aliases and such??
