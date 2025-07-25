@@ -26,7 +26,7 @@ def get_union_args(cls) -> Optional[tuple[type]]:
         return None
 
     args = cls.__args__
-    args = [e for e in args if e is not type(None)]
+    args = tuple(e for e in args if e is not type(None))
     assert len(args) > 0
     return args
 
@@ -158,7 +158,7 @@ class IsoDate(IsoDateTime):
     def process_literal_param(self, value, dialect):
         raise NotImplementedError()  # make pylint happy
 
-    def process_result_value(self, value: Optional[str], dialect) -> Optional[date]:  # type: ignore[explicit-override,override]
+    def process_result_value(self, value: Optional[str], dialect) -> Optional[date]:  # type: ignore[override]
         res = super().process_result_value(value, dialect)
         if res is None:
             return None

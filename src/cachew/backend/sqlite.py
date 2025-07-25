@@ -9,6 +9,7 @@ from typing import (
 )
 
 import sqlalchemy
+import sqlalchemy.exc
 from sqlalchemy import Column, Table, event, text
 from sqlalchemy.dialects import sqlite
 

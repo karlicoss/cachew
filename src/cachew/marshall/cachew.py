@@ -452,7 +452,7 @@ def test_serialize_and_deserialize() -> None:
     # unions
     helper(1, Union[str, int])
     if sys.version_info[:2] >= (3, 10):
-        helper('aaa', str | int)
+        helper('aaa', str | int)  # ty: ignore[unsupported-operator]
 
     # implicit casts, inside other types
     # technically not type safe, but might happen in practice
@@ -471,7 +471,7 @@ def test_serialize_and_deserialize() -> None:
     helper('aaa', Union[str, None])
     helper(None, Union[str, None])
     if sys.version_info[:2] >= (3, 10):
-        helper('aaa', str | None)
+        helper('aaa', str | None)  # ty: ignore[unsupported-operator]
 
     # lists/tuples/sequences
     helper([1, 2, 3], list[int])

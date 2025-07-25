@@ -138,12 +138,10 @@ def test_custom_hash(tmp_path: Path) -> None:
         md5 = hashlib.md5(path.read_bytes()).digest()
         return str((ns, md5))
 
-    # fmt: off
     @cachew(
         cache_path=tmp_path,
         depends_on=get_path_version,  # when path is updated, underlying cache would be discarded
     )
-    # fmt: on
     def data(path: Path) -> Iterable[UUU]:
         nonlocal calls
         calls += 1
@@ -1306,6 +1304,8 @@ re.hack = lambda: None
     Path(tmp_path / 'import_hack.py').write_text(import_hack)
 
     prog = f'''
+import sys
+sys.path.insert(0, '')
 import import_hack
 
 import cachew
