@@ -140,18 +140,18 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L385), [2](src/cachew/tests/test_cachew.py#L399)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L386), [2](src/cachew/tests/test_cachew.py#L400)
 * supported types:
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
 
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L685), [tests.test_primitive](src/cachew/tests/test_cachew.py#L723), [tests.test_dates](src/cachew/tests/test_cachew.py#L635), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1122)
-    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L600)
-    * [Optional](src/cachew/tests/test_cachew.py#L529) types
-    * [Union](src/cachew/tests/test_cachew.py#L830) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L445)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L686), [tests.test_primitive](src/cachew/tests/test_cachew.py#L724), [tests.test_dates](src/cachew/tests/test_cachew.py#L636), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1124)
+    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L601)
+    * [Optional](src/cachew/tests/test_cachew.py#L530) types
+    * [Union](src/cachew/tests/test_cachew.py#L831) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L446)
 
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L475) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L476) and discards old data automatically
 
 
 # Performance
@@ -170,7 +170,7 @@ You can also use [extensive unit tests](src/cachew/tests/test_cachew.py) as a re
 
 Some useful (but optional) arguments of `@cachew` decorator:
 
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L422) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L423) and depends on function's arguments.
 
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
 
@@ -178,7 +178,7 @@ Some useful (but optional) arguments of `@cachew` decorator:
 
    By default it just uses string representation of the arguments, you can also specify a custom callable.
 
-   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L119) if the input file was modified.
+   For instance, it can be used to [discard cache](src/cachew/tests/test_cachew.py#L120) if the input file was modified.
 
 * `cls` is the type that would be serialized.
 

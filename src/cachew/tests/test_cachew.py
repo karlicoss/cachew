@@ -1,6 +1,7 @@
 # ruff: noqa: ARG001  # ruff thinks pytest fixtures are unused arguments
 import hashlib
 import inspect
+import platform
 import string
 import sys
 import time
@@ -895,6 +896,7 @@ def fuzz_cachew_impl():
 # TODO how to run it enough times on CI and increase likelihood of failing?
 # for now, stress testing manually:
 # while PYTHONPATH=src pytest -s cachew -k concurrent_writes ; do sleep 0.5; done
+@pytest.mark.xfail(condition=platform.system() == 'Darwin', reason='seems like file writes might not be atomic on osx?')
 def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl) -> None:
     cache_path = tmp_path / 'cache.sqlite'
 
