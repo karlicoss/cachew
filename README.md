@@ -125,7 +125,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 
 # How it works
 
-- first your objects get [converted](src/cachew/marshall/cachew.py#L30) into a simpler JSON-like representation
+- first your objects get [converted](src/cachew/marshall/cachew.py#L31) into a simpler JSON-like representation
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
 When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py:#L590)
