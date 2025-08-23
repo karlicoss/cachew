@@ -26,14 +26,12 @@ class NewStyleTypes1:
 
 
 def test_types1(tmp_path: Path) -> None:
-    # fmt: off
     obj = NewStyleTypes1(
         a_str   = 'abac',
         a_dict  = {'a': True, 'x': {'whatever': 3.14}},
         a_list  = ['aba', 123, None],
         a_tuple = (1.23, '3.2.1'),
-    )
-    # fmt: on
+    )  # fmt: skip
 
     @cachew(tmp_path)
     def get() -> Iterator[NewStyleTypes1]:
@@ -52,15 +50,10 @@ class NewStyleTypes2:
 
 
 def test_types2(tmp_path: Path) -> None:
-    if sys.version_info[:2] <= (3, 9):
-        pytest.skip("can only use new style union types from 3.10")
-
-    # fmt: off
     obj = NewStyleTypes2(
         an_opt  = 'hello',
         a_union = 999,
-    )
-    # fmt: on
+    )  # fmt: skip
 
     @cachew(tmp_path)
     def get() -> Iterator[NewStyleTypes2]:

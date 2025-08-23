@@ -4,12 +4,11 @@ import logging
 import os
 import warnings
 from functools import lru_cache
-from typing import Union
 
 
 def test() -> None:
     import sys
-    from typing import Callable
+    from collections.abc import Callable
 
     M: Callable[[str], None] = lambda s: print(s, file=sys.stderr)
 
@@ -52,7 +51,7 @@ FORMAT_NOCOLOR = FORMAT.format(start='', end='')
 
 
 Level = int
-LevelIsh = Union[Level, str, None]
+LevelIsh = Level | str | None
 
 
 def mklevel(level: LevelIsh) -> Level:

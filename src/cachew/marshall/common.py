@@ -3,10 +3,9 @@ from typing import (
     Any,
     Generic,
     TypeVar,
-    Union,
 )
 
-Json = Union[dict[str, Any], tuple[Any, ...], str, float, int, bool, None]
+Json = dict[str, Any] | tuple[Any, ...] | str | float | int | bool | None
 
 
 T = TypeVar('T')

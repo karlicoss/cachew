@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import (
     Any,
     Literal,
-    Union,
 )
 
 import orjson
@@ -191,7 +190,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
         pytest.skip('TODO need to adjust the handling of Union types..')
 
     def factory(count: int):
-        objects: list[Union[str, Name]] = []
+        objects: list[str | Name] = []
         for i in range(count):
             if i % 2 == 0:
                 objects.append(str(i))
@@ -199,7 +198,7 @@ def test_union_str_dataclass(impl: Impl, count: int, gc_control, request) -> Non
                 objects.append(Name(first=f'first {i}', last=f'last {i}'))
         return objects
 
-    do_test(test_name=request.node.name, Type=Union[str, Name], factory=factory, count=count, impl=impl)
+    do_test(test_name=request.node.name, Type=str | Name, factory=factory, count=count, impl=impl)
 
 
 # OK, performance with calling this manually (not via pytest) is the same
