@@ -9,7 +9,10 @@ def mcachew(*args, **kwargs):
     except ModuleNotFoundError:
         import warnings
 
-        warnings.warn('cachew library not found. You might want to install it to speed things up. See https://github.com/karlicoss/cachew')
+        warnings.warn(
+            'cachew library not found. You might want to install it to speed things up. See https://github.com/karlicoss/cachew',
+            stacklevel=2,
+        )
         return lambda orig_func: orig_func
     else:
         return cachew.cachew(*args, **kwargs)

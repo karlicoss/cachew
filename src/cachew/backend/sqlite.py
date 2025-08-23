@@ -122,7 +122,9 @@ class SqliteBackend(AbstractBackend):
         # asked here https://github.com/sqlalchemy/sqlalchemy/discussions/10350
         raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
         if raw_row_iterator is None:
-            warnings.warn("CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance.")
+            warnings.warn(
+                "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance.", stacklevel=2
+            )
             row_iterator = rows
         else:
             row_iterator = raw_row_iterator()

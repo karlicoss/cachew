@@ -32,7 +32,7 @@ try:
     from orjson import dumps as orjson_dumps
     from orjson import loads as orjson_loads
 except:
-    warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance")
+    warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance", stacklevel=2)
 
     def orjson_dumps(*args, **kwargs):  # type: ignore[misc]
         # sqlite needs a blob
@@ -369,9 +369,9 @@ def cachew_impl(
     adapter = AddFuncName(logger, {'func_name': func_name})
     logger = cast(logging.Logger, adapter)
 
-    hashf = kwargs.get('hashf', None)
+    hashf = kwargs.get('hashf')
     if hashf is not None:
-        warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead")
+        warnings.warn("'hashf' is deprecated. Please use 'depends_on' instead", stacklevel=2)
         depends_on = hashf
 
     # todo not very nice that ENABLE check is scattered across two places
@@ -575,7 +575,7 @@ _DEPENDENCIES        = 'dependencies'
 
 
 @dataclass
-class Context(Generic[P]):  # ty: ignore[invalid-argument-type]
+class Context(Generic[P]):
     # fmt: off
     func         : Callable
     cache_path   : PathProvider[P]
