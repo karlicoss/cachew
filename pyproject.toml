@@ -6,6 +6,7 @@ dependencies = [
     "platformdirs",     # default cache dir
     "sqlalchemy>=1.0",  # cache DB interaction
     "orjson",           # fast json serialization
+    "typing-extensions",# for depreceated decorator
 ]
 requires-python = ">=3.9"
 
@@ -51,7 +52,11 @@ testing = [
     "ruff",
     "mypy",
     "lxml", # for mypy html coverage
-    "ty>=0.0.1a16",
+    "ty>=0.0.1a19",
+]
+typecheck = [
+    { include-group = "testing" },
+    "cachew[optional]",
 ]
 
 

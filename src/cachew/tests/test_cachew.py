@@ -1233,7 +1233,7 @@ COMMIT;
 
     # this tests that it doesn't crash
     # for actual version upgrade test see test_version_change
-    assert [1, 2, 3] == list(fun())
+    assert list(fun()) == [1, 2, 3]
 
 
 def test_disabled(tmp_path: Path) -> None:

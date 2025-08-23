@@ -1,9 +1,11 @@
-import warnings
+from .compat import deprecated
 
 
-def enable_exceptions():
-    warnings.warn("Exceptions are not an experimental feature anymore and enabled by default.")
+@deprecated("Exceptions are not an experimental feature anymore and enabled by default.")
+def enable_exceptions() -> None:
+    pass
 
 
-def disable_exceptions():
-    warnings.warn("Exceptions are not an experimental feature anymore and enabled by default.")
+@deprecated("Exceptions are not an experimental feature anymore and enabled by default.")
+def disable_exceptions() -> None:
+    pass

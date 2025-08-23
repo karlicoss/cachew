@@ -419,7 +419,7 @@ def _test_identity(obj, Type_, expected=None):
     def normalise(x):
         if isinstance(x, Exception):
             return (type(x), x.args)
-        if type(x) is list:  # noqa: E721
+        if type(x) is list:
             return [(type(i), i.args) if isinstance(i, Exception) else i for i in x]
         return x
 

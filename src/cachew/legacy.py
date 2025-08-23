@@ -142,7 +142,7 @@ class IsoDateTime(sqlalchemy.TypeDecorator):
             return dt.astimezone(tz)
 
     def warn_pytz(self) -> None:
-        warnings.warn('install pytz for better timezone support while serializing with cachew')
+        warnings.warn('install pytz for better timezone support while serializing with cachew', stacklevel=2)
 
 
 # a bit hacky, but works...
