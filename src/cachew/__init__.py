@@ -6,20 +6,17 @@ import json
 import logging
 import os
 import stat
-import sys
 import warnings
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Generic,
     Literal,
-    Optional,
+    ParamSpec,
     TypeVar,
-    Union,
     cast,
     get_args,
     get_origin,
@@ -56,7 +53,7 @@ from .utils import (
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
-PathIsh = Union[Path, str]
+PathIsh = Path | str
 
 Backend = Literal['sqlite', 'file']
 
@@ -92,22 +89,10 @@ BACKENDS: dict[Backend, type[AbstractBackend]] = {
 
 
 R = TypeVar('R')
-# ugh. python < 3.10 doesn't have ParamSpec and it seems tricky to backport it in compatible manner
-if sys.version_info[:2] >= (3, 10) or TYPE_CHECKING:
-    if sys.version_info[:2] >= (3, 10):
-        from typing import ParamSpec
-    else:
-        from typing_extensions import ParamSpec
-    P = ParamSpec('P')
-    CC = Callable[P, R]  # need to give it a name, if inlined into bound=, mypy runs in a bug
-    PathProvider = Union[PathIsh, Callable[P, PathIsh]]
-    HashFunction = Callable[P, SourceHash]
-else:
-    # just use some dummy types so runtime is happy
-    P = TypeVar('P')
-    CC = Any
-    PathProvider = Union[P, Any]
-    HashFunction = Union[P, Any]
+P = ParamSpec('P')
+CC = Callable[P, R]  # need to give it a name, if inlined into bound=, mypy runs in a bug
+PathProvider = PathIsh | Callable[P, PathIsh]
+HashFunction = Callable[P, SourceHash]
 
 F = TypeVar('F', bound=CC)
 
@@ -129,7 +114,7 @@ Kind = Literal['single', 'multiple']
 Inferred = tuple[Kind, type[Any]]
 
 
-def infer_return_type(func) -> Union[Failure, Inferred]:
+def infer_return_type(func) -> Failure | Inferred:
     """
     >>> def const() -> int:
     ...     return 123
@@ -292,12 +277,12 @@ use_default_path = cast(Path, object())
 @doublewrap
 def cachew_impl(
     func=None,  # TODO should probably type it after switch to python 3.10/proper paramspec
-    cache_path: Optional[PathProvider[P]] = use_default_path,
+    cache_path: PathProvider[P] | None = use_default_path,
     *,
     force_file: bool = False,
-    cls: Optional[Union[type, tuple[Kind, type]]] = None,
+    cls: type | tuple[Kind, type] | None = None,
     depends_on: HashFunction[P] = default_hash,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
     chunk_by: int = 100,
     # NOTE: allowed values for chunk_by depend on the system.
     # some systems (to be more specific, sqlite builds), it might be too large and cause issues
@@ -305,8 +290,8 @@ def cachew_impl(
     # you can use 'test_many' to experiment
     # - too small values (e.g. 10)  are slower than 100 (presumably, too many sql statements)
     # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
-    synthetic_key: Optional[str] = None,
-    backend: Optional[Backend] = None,
+    synthetic_key: str | None = None,
+    backend: Backend | None = None,
     **kwargs,
 ):
     r"""
@@ -383,8 +368,8 @@ def cachew_impl(
         cache_path = settings.DEFAULT_CACHEW_DIR
         logger.debug(f'no cache_path specified, using the default {cache_path}')
 
-    use_kind: Optional[Kind] = None
-    use_cls: Optional[type] = None
+    use_kind: Kind | None = None
+    use_cls: type | None = None
     if cls is not None:
         # defensive here since typing. objects passed as cls might fail on isinstance
         try:
@@ -469,15 +454,15 @@ if TYPE_CHECKING:
     # but at least it works for checking that cachew_path and depdns_on have the same args :shrug:
     @overload
     def cachew(
-        cache_path: Optional[PathProvider[P]] = ...,
+        cache_path: PathProvider[P] | None = ...,
         *,
         force_file: bool = ...,
-        cls: Optional[Union[type, tuple[Kind, type]]] = ...,
+        cls: type | tuple[Kind, type] | None = ...,
         depends_on: HashFunction[P] = ...,
-        logger: Optional[logging.Logger] = ...,
+        logger: logging.Logger | None = ...,
         chunk_by: int = ...,
-        synthetic_key: Optional[str] = ...,
-        backend: Optional[Backend] = ...,
+        synthetic_key: str | None = ...,
+        backend: Backend | None = ...,
     ) -> Callable[[F], F]: ...
 
     def cachew(*args, **kwargs):  # make ty happy
@@ -492,12 +477,12 @@ def callable_name(func: Callable) -> str:
     return f'{mod}:{getattr(func, "__qualname__")}'
 
 
-def callable_module_name(func: Callable) -> Optional[str]:
+def callable_module_name(func: Callable) -> str | None:
     return getattr(func, '__module__', None)
 
 
 # could cache this, but might be worth not to, so the user can change it on the fly?
-def _parse_disabled_modules(logger: Optional[logging.Logger] = None) -> list[str]:
+def _parse_disabled_modules(logger: logging.Logger | None = None) -> list[str]:
     # e.g. CACHEW_DISABLE=my.browser:my.reddit
     if 'CACHEW_DISABLE' not in os.environ:
         return []
@@ -550,7 +535,7 @@ def _matches_disabled_module(module_name: str, pattern: str) -> bool:
     if len(module_parts) < len(pattern_parts):
         return False
 
-    for mp, pp in zip(module_parts, pattern_parts):
+    for mp, pp in zip(module_parts, pattern_parts, strict=False):
         if fnmatch.fnmatch(mp, pp):
             continue
         return False
@@ -584,8 +569,8 @@ class Context(Generic[P]):
     depends_on   : HashFunction[P]
     logger       : logging.Logger
     chunk_by     : int
-    synthetic_key: Optional[str]
-    backend      : Optional[Backend]
+    synthetic_key: str | None
+    backend      : Backend | None
 
     def composite_hash(self, *args, **kwargs) -> dict[str, Any]:
         fsig = inspect.signature(self.func)
@@ -650,7 +635,7 @@ def cachew_wrapper(
         yield from func(*args, **kwargs)
         return
 
-    def get_db_path() -> Optional[Path]:
+    def get_db_path() -> Path | None:
         db_path: Path
         if callable(cache_path):
             pp = cache_path(*args, **kwargs)
@@ -708,7 +693,7 @@ def cachew_wrapper(
         if not cache_compatible:
             return
 
-        def missing_keys(cached: list[str], wanted: list[str]) -> Optional[list[str]]:
+        def missing_keys(cached: list[str], wanted: list[str]) -> list[str] | None:
             # FIXME assert both cached and wanted are sorted? since we rely on it
             # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
             # although in this case passing it into the function wouldn't make sense?

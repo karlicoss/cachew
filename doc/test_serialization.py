@@ -49,7 +49,7 @@ def test_dataclasses_json():
     @dataclass_json
     @dataclass
     class WithUnion:
-        union: Union[City, Country]
+        union: Union[City, Country]  # noqa: UP007
 
     objs = [
         WithUnion(union=City(name='London')),
@@ -87,7 +87,7 @@ def test_marshmallow_dataclass():
 
     @dataclass
     class WithUnion:
-        union: Union[City, Country]
+        union: Union[City, Country]  # noqa: UP007
 
     objs = [
         WithUnion(union=City(name="London")),
@@ -123,7 +123,7 @@ def test_pydantic():
 
     @dataclass
     class WithUnion:
-        union: Union[City, Country]
+        union: Union[City, Country]  # noqa: UP007
 
     objs = [
         WithUnion(union=City(name="London")),
@@ -177,7 +177,7 @@ def test_cattrs():
 
     @dataclass
     class WithUnion:
-        union: Union[City, Country]
+        union: Union[City, Country]  # noqa: UP007
 
     objs = [
         WithUnion(union=City(name="London")),

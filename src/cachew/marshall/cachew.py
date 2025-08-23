@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import types
 from abc import abstractmethod
 from collections import abc
@@ -10,9 +9,11 @@ from datetime import date, datetime, timezone
 from numbers import Real
 from typing import (  # noqa: UP035
     Any,
+    Dict,
     List,
     NamedTuple,
     Optional,
+    Tuple,
     Union,
     get_args,
     get_origin,
@@ -45,15 +46,8 @@ class CachewMarshall(AbstractMarshall[T]):
 # NOTE: using slots gives a small speedup (maybe 5%?)
 # I suppose faster access to fields or something..
 
-SLOTS: dict[str, bool]
-if sys.version_info[:2] >= (3, 10):
-    SLOTS = {'slots': True}
-else:
-    # not available :(
-    SLOTS = {}
 
-
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class Schema:
     type: Any
 
@@ -66,7 +60,7 @@ class Schema:
         raise NotImplementedError
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SPrimitive(Schema):
     def dump(self, obj):
         # NOTE: returning here directly (instead of calling identity lambda) gives about 20% speedup
@@ -83,7 +77,7 @@ class SPrimitive(Schema):
         # return prim(d)
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SDataclass(Schema):
     # using list of tuples instead of dict gives about 5% speedup
     fields: tuple[tuple[str, Schema], ...]
@@ -108,7 +102,7 @@ class SDataclass(Schema):
         })  # fmt: skip
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SUnion(Schema):
     # it's a bit faster to cache indices here, gives about 15% speedup
     args: tuple[tuple[int, Schema], ...]
@@ -147,7 +141,7 @@ class SUnion(Schema):
         return s.load(val)
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SList(Schema):
     arg: Schema
 
@@ -158,18 +152,18 @@ class SList(Schema):
         return [self.arg.load(i) for i in dct]
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class STuple(Schema):
     args: tuple[Schema, ...]
 
     def dump(self, obj):
-        return tuple(a.dump(i) for a, i in zip(self.args, obj))
+        return tuple(a.dump(i) for a, i in zip(self.args, obj, strict=True))
 
     def load(self, dct):
-        return tuple(a.load(i) for a, i in zip(self.args, dct))
+        return tuple(a.load(i) for a, i in zip(self.args, dct, strict=True))
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SSequence(Schema):
     arg: Schema
 
@@ -180,7 +174,7 @@ class SSequence(Schema):
         return tuple(self.arg.load(i) for i in dct)
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SDict(Schema):
     ft: SPrimitive
     tt: Schema
@@ -215,7 +209,7 @@ def _exc_helper(args):
             yield str(a)  # not much we can do..
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SException(Schema):
     def dump(self, obj: Exception) -> Json:
         return tuple(_exc_helper(obj.args))
@@ -247,7 +241,7 @@ _TZTAG_ZONEINFO = 1
 _TZTAG_PYTZ = 2
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SDatetime(Schema):
     def dump(self, obj: datetime) -> Json:
         iso = obj.isoformat()
@@ -276,7 +270,7 @@ class SDatetime(Schema):
         return dt.astimezone(tz)
 
 
-@dataclass(**SLOTS)
+@dataclass(slots=True)
 class SDate(Schema):
     def dump(self, obj: date) -> Json:
         return obj.isoformat()
@@ -337,13 +331,7 @@ def build_schema(Type) -> Schema:
         )
 
     args = get_args(Type)
-
-    if sys.version_info[:2] >= (3, 10):
-        is_uniontype = origin is types.UnionType
-    else:
-        is_uniontype = False
-
-    is_union = origin is Union or is_uniontype
+    is_union = origin is Union or origin is types.UnionType
 
     if is_union:
         # We 'erasing' types (since generic types don't work with isinstance checks).
@@ -452,46 +440,53 @@ def test_serialize_and_deserialize() -> None:
     # implicit casts, inside other types
     # technically not type safe, but might happen in practice
     # doesn't matter how to deserialize None anyway so let's allow this
-    helper(None, Union[str, int])
+    helper(None, str | int)
+    # old syntax
+    helper(None, Union[str, int])  # noqa: UP007
 
     # even though 1 is not isinstance(float), often it ends up as float in data
     # see https://github.com/karlicoss/cachew/issues/54
-    helper(1, Union[float, str])
-    helper(2, Union[float, int])
-    helper(2.0, Union[float, int])
+    helper(1, float | str)
+    helper(2, float | int)
+    helper(2.0, float | int)
     helper((1, 2), tuple[int, float])
 
     # optionals
-    helper('aaa', Optional[str])
-    helper('aaa', Union[str, None])
-    helper(None, Union[str, None])
-    if sys.version_info[:2] >= (3, 10):
-        helper('aaa', str | None)  # ty: ignore[unsupported-operator]
+    helper('aaa', str | None)
+    helper(None, str | None)
+    # old syntax
+    helper('aaa', Optional[str])  # noqa: UP045
+    helper('aaa', Union[str, None])  # noqa: UP007
+    helper(None, Union[str, None])  # noqa: UP007
 
     # lists/tuples/sequences
+    # TODO test with from __future__ import annotations..
     helper([1, 2, 3], list[int])
-    helper([1, 2, 3], List[int])  # noqa: UP006
-    helper([1, 2, 3], Optional[List[int]])  # noqa: UP006
+    helper([1, 2, 3], Optional[List[int]])  # noqa: UP006,UP045
     helper([1, 2, 3], Sequence[int], expected=(1, 2, 3))
     helper((1, 2, 3), Sequence[int])
     helper((1, 2, 3), tuple[int, int, int])
-    # TODO test with from __future__ import annotations..
-    helper([1, 2, 3], list[int])
-    helper((1, 2, 3), tuple[int, int, int])
-    helper((1, 2, 3), Optional[tuple[int, int, int]])
+    # old syntax
+    helper([1, 2, 3], List[int])  # noqa: UP006
+    helper((1, 2, 3), Tuple[int, int, int])  # noqa: UP006
+    helper((1, 2, 3), Optional[tuple[int, int, int]])  # noqa: UP045
 
     # dicts
     helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
-    helper({'a': None, 'b': 'bb'}, dict[str, Optional[str]])
+    helper({'a': None, 'b': 'bb'}, dict[str, str | None])
     helper({'a': 'aa', 'b': 'bb'}, dict[str, str])
+    # old syntax
+    helper({'a': None, 'b': 'bb'}, Dict[str, Optional[str]])  # noqa: UP006,UP045
 
     # unions
-    helper(1, Union[str, int])
-    if sys.version_info[:2] >= (3, 10):
-        helper('aaa', str | int)  # ty: ignore[unsupported-operator]
+    helper('aaa', str | int)
+    # old syntax
+    helper(1, Union[str, int])  # noqa: UP007
 
     # compounds of simple types
-    helper(['1', 2, '3'], list[Union[str, int]])
+    helper(['1', 2, '3'], list[str | int])
+    # old syntax
+    helper(['1', 2, '3'], list[Union[str, int]])  # noqa: UP007
 
     # TODO need to add test for equivalent dataclasses
 
@@ -529,7 +524,7 @@ def test_serialize_and_deserialize() -> None:
         Point(x=11, y=22),
         RuntimeError('more stuff'),
         RuntimeError(),
-    ], list[Union[RuntimeError, Point]])
+    ], list[RuntimeError | Point])
 
     exc_with_datetime     = Exception('I happenned on', datetime.fromisoformat('2021-04-03T10:11:12'))
     exc_with_datetime_exp = Exception('I happenned on', '2021-04-03T10:11:12')
@@ -598,9 +593,9 @@ def test_serialize_and_deserialize() -> None:
     # these don't work because the erased type of both is just 'list'..
     # so there is no way to tell which one we need to construct :(
     with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
-        helper([1, 2, 3], Union[list[int], list[Exception]])
+        helper([1, 2, 3], list[int] | list[Exception])
     with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
-        helper([1, 2, 3], Union[list[Exception], list[int]])
+        helper([1, 2, 3], list[Exception] | list[int])
 
 
 # TODO test type aliases and such??

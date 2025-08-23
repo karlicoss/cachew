@@ -19,8 +19,6 @@ from time import sleep
 from typing import (
     Any,
     NamedTuple,
-    Optional,
-    Union,
     cast,
 )
 
@@ -307,7 +305,7 @@ def test_unsupported_class(tmp_path: Path) -> None:
     with pytest.raises(CachewException, match=".*can't infer type from.*"):
 
         @cachew(cache_path=tmp_path)
-        def fun2() -> Iterable[Union[UGood, UBad]]:
+        def fun2() -> Iterable[UGood | UBad]:
             yield UGood(x=1)
             yield UBad()
             yield UGood(x=2)
@@ -379,7 +377,7 @@ class BB(NamedTuple):
 
 class AA(NamedTuple):
     value: int
-    b: Optional[BB]
+    b: BB | None
     value2: int
 
 
@@ -524,7 +522,7 @@ def test_transaction(tmp_path: Path) -> None:
 
 class Job(NamedTuple):
     company: str
-    title: Optional[str]
+    title: str | None
 
 
 def test_optional(tmp_path: Path) -> None:
@@ -555,7 +553,7 @@ class Person(NamedTuple):
     name: str
     secondname: str
     age: int
-    job: Optional[Job]
+    job: Job | None
 
 
 def make_people_data(count: int) -> Iterator[Person]:
@@ -566,7 +564,7 @@ def make_people_data(count: int) -> Iterator[Person]:
 
     for _ in range(count):
         has_job = g.choice([True, False])
-        maybe_job: Optional[Job] = None
+        maybe_job: Job | None = None
         if has_job:
             maybe_job = Job(company=randstr(12), title=randstr(8))
 
@@ -677,7 +675,7 @@ class AllTypes:
     a_list  : list[Any]
     a_tuple : tuple[float, str]
     an_exc  : Exception
-    an_opt  : Optional[str]
+    an_opt  : str | None
 # fmt: on
 
 # TODO support vararg tuples?
@@ -747,7 +745,7 @@ def test_single_value(tmp_path: Path) -> None:
     assert fun_str() == 'whatever'
 
     @cachew(tmp_path)
-    def fun_opt_namedtuple(none: bool) -> Optional[UUU]:  # noqa: FBT001
+    def fun_opt_namedtuple(none: bool) -> UUU | None:  # noqa: FBT001
         if none:
             return None
         else:
@@ -825,7 +823,7 @@ def test_default_arguments(tmp_path: Path) -> None:
 
 
 class U(NamedTuple):
-    x: Union[str, O]
+    x: str | O
 
 
 def test_union(tmp_path: Path) -> None:
@@ -846,7 +844,7 @@ class DD:
 
 def test_union_with_dataclass(tmp_path: Path) -> None:
     @cachew(tmp_path)
-    def fun() -> Iterator[Union[int, DD]]:
+    def fun() -> Iterator[int | DD]:
         yield 123
         yield DD(456)
 
@@ -1141,7 +1139,7 @@ def test_exceptions(tmp_path: Path) -> None:
 # see https://beepb00p.xyz/mypy-error-handling.html#kiss
 def test_result(tmp_path: Path) -> None:
     @cachew(tmp_path)
-    def fun() -> Iterator[Union[Exception, int]]:
+    def fun() -> Iterator[Exception | int]:
         yield 1
         yield RuntimeError("sad!")
         yield 123

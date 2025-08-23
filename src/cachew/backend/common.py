@@ -2,9 +2,6 @@ import logging
 from abc import abstractmethod
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import (
-    Optional,
-)
 
 from ..common import SourceHash
 
@@ -21,10 +18,10 @@ class AbstractBackend:
     def __exit__(self, *args) -> None:
         raise NotImplementedError
 
-    def get_old_hash(self) -> Optional[SourceHash]:
+    def get_old_hash(self) -> SourceHash | None:
         raise NotImplementedError
 
-    def cached_blobs_total(self) -> Optional[int]:
+    def cached_blobs_total(self) -> int | None:
         raise NotImplementedError
 
     def cached_blobs(self) -> Iterator[bytes]:

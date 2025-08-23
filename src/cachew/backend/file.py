@@ -3,7 +3,6 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import (
     BinaryIO,
-    Optional,
 )
 
 from ..common import SourceHash
@@ -13,8 +12,8 @@ from .common import AbstractBackend
 class FileBackend(AbstractBackend):
     jsonl: Path
     jsonl_tmp: Path
-    jsonl_fr: Optional[BinaryIO]
-    jsonl_tmp_fw: Optional[BinaryIO]
+    jsonl_fr: BinaryIO | None
+    jsonl_tmp_fw: BinaryIO | None
 
     def __init__(self, cache_path: Path, *, logger: logging.Logger) -> None:
         self.logger = logger
@@ -43,13 +42,13 @@ class FileBackend(AbstractBackend):
         if self.jsonl_fr is not None:
             self.jsonl_fr.close()
 
-    def get_old_hash(self) -> Optional[SourceHash]:
+    def get_old_hash(self) -> SourceHash | None:
         if self.jsonl_fr is None:
             return None
         hash_line = self.jsonl_fr.readline().rstrip(b'\n')
         return hash_line.decode('utf8')
 
-    def cached_blobs_total(self) -> Optional[int]:
+    def cached_blobs_total(self) -> int | None:
         # not really sure how to support that for a plaintext file?
         # could wc -l but it might be costly..
         return None

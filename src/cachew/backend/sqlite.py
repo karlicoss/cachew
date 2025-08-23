@@ -4,9 +4,6 @@ import time
 import warnings
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import (
-    Optional,
-)
 
 import sqlalchemy
 import sqlalchemy.exc
@@ -80,7 +77,7 @@ class SqliteBackend(AbstractBackend):
         self.connection.close()
         self.engine.dispose()
 
-    def get_old_hash(self) -> Optional[SourceHash]:
+    def get_old_hash(self) -> SourceHash | None:
         # first, try to do as much as possible read-only, benefiting from deferred transaction
         old_hashes: Sequence
         try:
@@ -97,14 +94,14 @@ class SqliteBackend(AbstractBackend):
 
         assert len(old_hashes) <= 1, old_hashes  # shouldn't happen
 
-        old_hash: Optional[SourceHash]
+        old_hash: SourceHash | None
         if len(old_hashes) == 0:
             old_hash = None
         else:
             old_hash = old_hashes[0][0]  # returns a tuple...
         return old_hash
 
-    def cached_blobs_total(self) -> Optional[int]:
+    def cached_blobs_total(self) -> int | None:
         [(total,)] = self.connection.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(self.table_cache))
         return total
 
