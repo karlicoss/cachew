@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    TypeAliasType,
     cast,
     get_args,
     get_origin,
@@ -160,6 +161,16 @@ def infer_return_type(func) -> Failure | Inferred:
     >>> infer_return_type(union_provider)
     ('multiple', str | int)
 
+    >>> from typing import Iterator
+    >>> type Str = str
+    >>> type Int = int
+    >>> type IteratorStrInt = Iterator[Str | Int]
+    >>> def iterator_str_int() -> IteratorStrInt:
+    ...     yield 1
+    ...     yield 'aaa'
+    >>> infer_return_type(iterator_str_int)
+    ('multiple', Str | Int)
+
     # a bit of an edge case
     >>> from typing import Tuple
     >>> def empty_tuple() -> Iterator[Tuple[()]]:
@@ -196,6 +207,10 @@ def infer_return_type(func) -> Failure | Inferred:
     rtype = hints.get('return', None)
     if rtype is None:
         return f"no return type annotation on {func}"
+
+    if isinstance(rtype, TypeAliasType):
+        # handle 'type ... = ...' aliases
+        rtype = rtype.__value__
 
     def bail(reason: str) -> str:
         return f"can't infer type from {rtype}: " + reason
