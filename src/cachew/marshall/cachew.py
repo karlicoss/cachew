@@ -14,6 +14,7 @@ from typing import (  # noqa: UP035
     NamedTuple,
     Optional,
     Tuple,
+    TypeAliasType,
     Union,
     get_args,
     get_origin,
@@ -289,6 +290,10 @@ PRIMITIVES = {
 
 
 def build_schema(Type) -> Schema:
+    if isinstance(Type, TypeAliasType):
+        # handle 'type ... = ...' aliases
+        Type = Type.__value__
+
     # just to avoid confusion in case of weirdness with stringish type annotations
     assert not isinstance(Type, str), Type
 
@@ -414,6 +419,13 @@ def _test_identity(obj, Type_, expected=None):
     return (j, obj2)
 
 
+## this is used for test below...
+# however if we define this inside the test function, it fails if from __future__ import annotations is present on the file..
+type _IntType = int
+type _StrIntType = str | int
+##
+
+
 # TODO customise with cattrs
 def test_serialize_and_deserialize() -> None:
     import pytest
@@ -503,6 +515,22 @@ def test_serialize_and_deserialize() -> None:
     class WithJson:
         id: int
         raw_data: dict[str, Any]
+
+    ## type aliases including new 3.12 type aliases
+    # this works..
+    StrInt = str | int
+    helper('aaa', StrInt)
+
+    helper('aaa', _StrIntType)
+    helper([1, 2, 3], list[_IntType])
+
+    @dataclass
+    class TestTypeAlias:
+        x: _IntType
+        value: _StrIntType
+
+    helper(TestTypeAlias(x=1, value='aaa'), TestTypeAlias)
+    ##
 
     # json-ish stuff
     helper({}, dict[str, Any])

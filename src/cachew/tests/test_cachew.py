@@ -1439,3 +1439,25 @@ def test_db_path_matches_fun_name(tmp_path: Path) -> None:
 
     assert (tmp_path / callable_name(fun_single)).exists()
     assert (tmp_path / callable_name(fun_multiple)).exists()
+
+
+def test_type_alias_type_1(tmp_path: Path) -> None:
+    type Int = int
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[Int]:
+        yield 123
+
+    assert list(fun()) == [123]
+    assert list(fun()) == [123]
+
+
+def test_type_alias_type_2(tmp_path: Path) -> None:
+    type IteratorInt = Iterator[int]
+
+    @cachew(tmp_path)
+    def fun() -> IteratorInt:
+        yield 123
+
+    assert list(fun()) == [123]
+    assert list(fun()) == [123]

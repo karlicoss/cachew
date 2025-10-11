@@ -14,6 +14,8 @@ from more_itertools import one
 
 from .. import cachew
 
+type _Str = str  # deliberate, to test 3.12 'type ... = ...' type definitions
+
 
 # fmt: off
 @dataclass
@@ -21,7 +23,7 @@ class NewStyleTypes1:
     a_str   : str
     a_dict  : dict[str, Any]
     a_list  : list[Any]
-    a_tuple : tuple[float, str]
+    a_tuple : tuple[float, _Str]
 # fmt: on
 
 
@@ -45,7 +47,7 @@ def test_types1(tmp_path: Path) -> None:
 @dataclass
 class NewStyleTypes2:
     an_opt  : str | None
-    a_union : str | int
+    a_union : _Str | int
 # fmt: on
 
 
@@ -102,7 +104,7 @@ td = Path(temp_dir.name)
 '''
 
     _TEST = '''
-T = int
+type T = int
 
 @cachew(td)
 def fun() -> list[T]:
