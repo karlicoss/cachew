@@ -54,4 +54,4 @@ def search_pypath(module_name: str) -> str:
     return str(mpath)
 
 
-_pytest.main.search_pypath = search_pypath  # ty: ignore[invalid-assignment]
+_pytest.main.search_pypath = search_pypath  # type: ignore[assignment]

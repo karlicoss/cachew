@@ -35,7 +35,7 @@ except:
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
 
-    orjson_loads = json.loads  # ty: ignore[invalid-assignment]
+    orjson_loads = json.loads  # type: ignore[assignment]
 
 import platformdirs
 
@@ -432,7 +432,7 @@ def cachew_impl(
     @functools.wraps(func)
     def binder(*args, **kwargs):
         kwargs['_cachew_context'] = ctx
-        res = cachew_wrapper(*args, **kwargs)  # ty: ignore[missing-argument]
+        res = cachew_wrapper(*args, **kwargs)  # type: ignore[call-arg]
 
         if use_kind == 'single':
             lres = list(res)
