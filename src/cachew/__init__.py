@@ -13,10 +13,7 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Generic,
     Literal,
-    ParamSpec,
-    TypeVar,
     cast,
     get_args,
     get_origin,
@@ -88,13 +85,8 @@ BACKENDS: dict[Backend, type[AbstractBackend]] = {
 }
 
 
-R = TypeVar('R')
-P = ParamSpec('P')
-CC = Callable[P, R]  # need to give it a name, if inlined into bound=, mypy runs in a bug
-PathProvider = PathIsh | Callable[P, PathIsh]
-HashFunction = Callable[P, SourceHash]
-
-F = TypeVar('F', bound=CC)
+type PathProvider[**P] = PathIsh | Callable[P, PathIsh]
+type HashFunction[**P] = Callable[P, SourceHash]
 
 
 def default_hash(*args, **kwargs) -> SourceHash:
@@ -109,9 +101,9 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
     return default_hash(f'{path}.{mt}', *args, **kwargs)
 
 
-Failure = str
-Kind = Literal['single', 'multiple']
-Inferred = tuple[Kind, type[Any]]
+Failure = str  # deliberately not a type =, used in type checks
+type Kind = Literal['single', 'multiple']
+type Inferred = tuple[Kind, type[Any]]
 
 
 def infer_return_type(func) -> Failure | Inferred:
@@ -161,12 +153,12 @@ def infer_return_type(func) -> Failure | Inferred:
     >>> infer_return_type(int_provider)
     ('multiple', <class 'int'>)
 
-    >>> from typing import Iterator, Union
-    >>> def union_provider() -> Iterator[Union[str, int]]:
+    >>> from typing import Iterator
+    >>> def union_provider() -> Iterator[str | int]:
     ...     yield 1
     ...     yield 'aaa'
     >>> infer_return_type(union_provider)
-    ('multiple', typing.Union[str, int])
+    ('multiple', str | int)
 
     # a bit of an edge case
     >>> from typing import Tuple
@@ -275,13 +267,13 @@ use_default_path = cast(Path, object())
 
 # using cachew_impl here just to use different signatures during type checking (see below)
 @doublewrap
-def cachew_impl(
+def cachew_impl[**P](
     func=None,  # TODO should probably type it after switch to python 3.10/proper paramspec
-    cache_path: PathProvider[P] | None = use_default_path,
+    cache_path: PathProvider[P] | None = use_default_path,  # ty: ignore[too-many-positional-arguments]  # see https://github.com/astral-sh/ty/issues/157
     *,
     force_file: bool = False,
     cls: type | tuple[Kind, type] | None = None,
-    depends_on: HashFunction[P] = default_hash,
+    depends_on: HashFunction[P] = default_hash,  # ty: ignore[too-many-positional-arguments]
     logger: logging.Logger | None = None,
     chunk_by: int = 100,
     # NOTE: allowed values for chunk_by depend on the system.
@@ -402,7 +394,9 @@ def cachew_impl(
         else:
             assert use_kind is not None
             if (use_kind, use_cls) != inference_res:
-                logger.warning(f"inferred type {inference_res} mismatches explicitly specified type {(use_kind, use_cls)}")
+                logger.warning(
+                    f"inferred type {inference_res} mismatches explicitly specified type {(use_kind, use_cls)}"
+                )
                 # TODO not sure if should be more serious error...
 
     if use_kind == 'single':
@@ -447,18 +441,18 @@ if TYPE_CHECKING:
     # we need two versions due to @doublewrap
     # this is when we just annotate as @cachew without any args
     @overload
-    def cachew(fun: F) -> F: ...
+    def cachew[F: Callable](fun: F) -> F: ...
 
     # NOTE: we won't really be able to make sure the args of cache_path are the same as args of the wrapped function
     # because when cachew() is called, we don't know anything about the wrapped function yet
     # but at least it works for checking that cachew_path and depdns_on have the same args :shrug:
     @overload
-    def cachew(
-        cache_path: PathProvider[P] | None = ...,
+    def cachew[F, **P](
+        cache_path: PathProvider[P] | None = ...,  # ty: ignore[too-many-positional-arguments]
         *,
         force_file: bool = ...,
         cls: type | tuple[Kind, type] | None = ...,
-        depends_on: HashFunction[P] = ...,
+        depends_on: HashFunction[P] = ...,  # ty: ignore[too-many-positional-arguments]
         logger: logging.Logger | None = ...,
         chunk_by: int = ...,
         synthetic_key: str | None = ...,
@@ -546,7 +540,9 @@ def _module_is_disabled(module_name: str, logger: logging.Logger) -> bool:
     disabled_modules = _parse_disabled_modules(logger)
     for pat in disabled_modules:
         if _matches_disabled_module(module_name, pat):
-            logger.debug(f"caching disabled for {module_name} (matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'")
+            logger.debug(
+                f"caching disabled for {module_name} (matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'"
+            )
             return True
     return False
 
@@ -560,13 +556,13 @@ _DEPENDENCIES        = 'dependencies'
 
 
 @dataclass
-class Context(Generic[P]):
+class Context[**P]:
     # fmt: off
     func         : Callable
-    cache_path   : PathProvider[P]
+    cache_path   : PathProvider[P]   # ty: ignore[too-many-positional-arguments]
     force_file   : bool
     cls_         : type
-    depends_on   : HashFunction[P]
+    depends_on   : HashFunction[P]   # ty: ignore[too-many-positional-arguments]
     logger       : logging.Logger
     chunk_by     : int
     synthetic_key: str | None
@@ -605,9 +601,9 @@ class Context(Generic[P]):
     # fmt: on
 
 
-def cachew_wrapper(
+def cachew_wrapper[**P](
     *args,
-    _cachew_context: Context[P],
+    _cachew_context: Context[P],  # ty: ignore[too-many-positional-arguments]
     **kwargs,
 ):
     C = _cachew_context

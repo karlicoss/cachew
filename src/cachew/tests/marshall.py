@@ -3,7 +3,7 @@ import shutil
 import sqlite3
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import (
     Any,
@@ -217,7 +217,7 @@ def test_datetimes(impl: Impl, count: int, gc_control, request) -> None:
     def factory(*, count: int):
         tzs = [
             pytz.timezone('Europe/Berlin'),
-            timezone.utc,
+            UTC,
             pytz.timezone('America/New_York'),
         ]
         start = datetime.fromisoformat('1990-01-01T00:00:00')
