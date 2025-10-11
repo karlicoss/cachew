@@ -5,7 +5,7 @@ from abc import abstractmethod
 from collections import abc
 from collections.abc import Sequence
 from dataclasses import dataclass, is_dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from numbers import Real
 from typing import (  # noqa: UP035
     Any,
@@ -22,14 +22,10 @@ from typing import (  # noqa: UP035
 from zoneinfo import ZoneInfo
 
 from ..utils import TypeNotSupported, is_namedtuple
-from .common import (
-    AbstractMarshall,
-    Json,
-    T,
-)
+from .common import AbstractMarshall, Json
 
 
-class CachewMarshall(AbstractMarshall[T]):
+class CachewMarshall[T](AbstractMarshall[T]):
     def __init__(self, Type_: type[T]) -> None:
         self.schema = build_schema(Type_)
 
@@ -38,9 +34,6 @@ class CachewMarshall(AbstractMarshall[T]):
 
     def load(self, dct: Json) -> T:
         return self.schema.load(dct)
-
-
-# TODO add generic types later?
 
 
 # NOTE: using slots gives a small speedup (maybe 5%?)
@@ -296,7 +289,8 @@ PRIMITIVES = {
 
 
 def build_schema(Type) -> Schema:
-    assert not isinstance(Type, str), Type  # just to avoid confusion in case of weirdness with stringish type annotations
+    # just to avoid confusion in case of weirdness with stringish type annotations
+    assert not isinstance(Type, str), Type
 
     ptype = PRIMITIVES.get(Type)
     if ptype is not None:
@@ -560,10 +554,10 @@ def test_serialize_and_deserialize() -> None:
         *dates_tz,
         dwinter,
         dsummer,
-        dsummer.replace(tzinfo=timezone.utc),
+        dsummer.replace(tzinfo=UTC),
     ]
     for d in dates:
-        jj, dd = helper(d, datetime)
+        _jj, dd = helper(d, datetime)
         assert str(d) == str(dd)
 
         # test that we preserve zone names
@@ -583,7 +577,7 @@ def test_serialize_and_deserialize() -> None:
     class NotSupported:
         pass
 
-    with pytest.raises(RuntimeError, match=".*NotSupported.* isn't supported by cachew"):
+    with pytest.raises(RuntimeError, match=r".*NotSupported.* isn't supported by cachew"):
         helper([NotSupported()], list[NotSupported])
 
     # edge cases
@@ -592,9 +586,9 @@ def test_serialize_and_deserialize() -> None:
     # unions of generic sequences and such
     # these don't work because the erased type of both is just 'list'..
     # so there is no way to tell which one we need to construct :(
-    with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
+    with pytest.raises(TypeNotSupported, match=r".*runtime union arguments are not unique"):
         helper([1, 2, 3], list[int] | list[Exception])
-    with pytest.raises(TypeNotSupported, match=".*runtime union arguments are not unique"):
+    with pytest.raises(TypeNotSupported, match=r".*runtime union arguments are not unique"):
         helper([1, 2, 3], list[Exception] | list[int])
 
 

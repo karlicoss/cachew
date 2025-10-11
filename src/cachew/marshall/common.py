@@ -1,17 +1,10 @@
 from abc import abstractmethod
-from typing import (
-    Any,
-    Generic,
-    TypeVar,
-)
+from typing import Any
 
-Json = dict[str, Any] | tuple[Any, ...] | str | float | int | bool | None
+type Json = dict[str, Any] | tuple[Any, ...] | str | float | int | bool | None
 
 
-T = TypeVar('T')
-
-
-class AbstractMarshall(Generic[T]):
+class AbstractMarshall[T]:
     @abstractmethod
     def dump(self, obj: T) -> Json:
         raise NotImplementedError

@@ -10,7 +10,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from itertools import chain, islice
 from pathlib import Path
 from random import Random
@@ -104,9 +104,6 @@ def test_string_annotation_old() -> None:
 
 
 def test_string_annotation_new() -> None:
-    if sys.version_info[:2] <= (3, 10):
-        pytest.skip("collections.abc.Iterable doesn't work with string annotations on python <= 3.10")
-
     @cachew
     def fun() -> Iterable['UUU']:
         yield from []
@@ -296,13 +293,13 @@ class UBad:
 
 
 def test_unsupported_class(tmp_path: Path) -> None:
-    with pytest.raises(CachewException, match='.*failed to infer cache type.*'):
+    with pytest.raises(CachewException, match=r'.*failed to infer cache type.*'):
 
         @cachew(cache_path=tmp_path)
         def fun() -> list[UBad]:
             return [UBad()]
 
-    with pytest.raises(CachewException, match=".*can't infer type from.*"):
+    with pytest.raises(CachewException, match=r".*can't infer type from.*"):
 
         @cachew(cache_path=tmp_path)
         def fun2() -> Iterable[UGood | UBad]:
@@ -399,7 +396,7 @@ def test_return_type_mismatch(tmp_path: Path) -> None:
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
     @cachew(tmp_path, cls=AA)
     def data2() -> list[BB]:
-        return [
+        return [  # ty: ignore[invalid-return-type]
             AA(value=1, b=None, value2=123),  # type: ignore[list-item]
         ]
 
@@ -588,7 +585,9 @@ def test_stats(tmp_path: Path) -> None:
         yield from make_people_data(count=N)
 
     list(get_people_data())
-    print(f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;")
+    print(
+        f"Cache db size for {N} entries: estimated size {one * N // 1024} Kb, actual size {cache_file.stat().st_size // 1024} Kb;"
+    )
 
 
 @dataclass
@@ -643,7 +642,7 @@ def test_dates(tmp_path: Path) -> None:
         d2=dsummer.replace(tzinfo=tz),
         d3=dwinter,
         d4=dsummer,
-        d5=dsummer.replace(tzinfo=timezone.utc),
+        d5=dsummer.replace(tzinfo=UTC),
     )
 
     @cachew(tmp_path)
@@ -659,7 +658,7 @@ def test_dates(tmp_path: Path) -> None:
     assert str(r.d2.tzinfo) == str(x.d2.tzinfo)
     assert r.d3.tzname() is None
     assert r.d4.tzname() is None
-    assert r.d5.tzinfo is timezone.utc
+    assert r.d5.tzinfo is UTC
 
 
 # fmt: off
@@ -904,7 +903,9 @@ def test_concurrent_writes(tmp_path: Path, fuzz_cachew_impl) -> None:
 
     processes = 5
     with ProcessPoolExecutor() as pool:
-        futures = [pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND) for count in range(processes)]
+        futures = [
+            pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND) for count in range(processes)
+        ]
 
         for count, f in enumerate(futures):
             assert f.result() == [i * i for i in range(count)]
@@ -924,7 +925,9 @@ def test_concurrent_reads(tmp_path: Path, fuzz_cachew_impl):
 
     start = time.time()
     with ProcessPoolExecutor() as pool:
-        futures = [pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND, 1) for _ in range(processes)]
+        futures = [
+            pool.submit(_concurrent_helper, cache_path, count, settings.DEFAULT_BACKEND, 1) for _ in range(processes)
+        ]
 
         for f in futures:
             print(f.result())

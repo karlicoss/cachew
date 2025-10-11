@@ -120,7 +120,8 @@ class SqliteBackend(AbstractBackend):
         raw_row_iterator = getattr(rows, '_raw_row_iterator', None)
         if raw_row_iterator is None:
             warnings.warn(
-                "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance.", stacklevel=2
+                "CursorResult._raw_row_iterator method isn't found. This could lead to degraded cache reading performance.",
+                stacklevel=2,
             )
             row_iterator = rows
         else:
@@ -168,7 +169,9 @@ class SqliteBackend(AbstractBackend):
         # uhh. this gives a huge speedup for inserting
         # since we don't have to create intermediate dictionaries
         # TODO move this to __init__?
-        insert_into_table_cache_tmp_raw = str(self.table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark')))
+        insert_into_table_cache_tmp_raw = str(
+            self.table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark'))
+        )
         # I also tried setting paramstyle='qmark' in create_engine, but it seems to be ignored :(
         # idk what benefit sqlalchemy gives at this point, seems to just complicate things
         self.connection.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
