@@ -1,20 +1,6 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
 from types import UnionType
 from typing import TypeAliasType, TypeVar, get_args, get_origin
-
-
-class CachewException(RuntimeError):
-    pass
-
-
-@dataclass
-class TypeNotSupported(CachewException):
-    type_: type
-    reason: str
-
-    def __str__(self) -> str:
-        return f"{self.type_} isn't supported by cachew: {self.reason}. See https://github.com/karlicoss/cachew#features for the list of supported types."
 
 
 # https://stackoverflow.com/a/2166841/706389

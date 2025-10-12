@@ -21,7 +21,8 @@ from typing import (  # noqa: UP035
 )
 from zoneinfo import ZoneInfo
 
-from ..utils import TypeNotSupported, is_namedtuple, resolve_type_parameters
+from ..common import TypeNotSupported
+from ..utils import is_namedtuple, resolve_type_parameters
 from .common import AbstractMarshall, Json
 
 

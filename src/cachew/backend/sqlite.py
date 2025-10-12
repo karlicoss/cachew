@@ -50,7 +50,6 @@ class SqliteBackend(AbstractBackend):
         """
 
         @event.listens_for(self.connection, 'begin')
-        # pylint: disable=unused-variable
         def do_begin(conn):
             # NOTE there is also BEGIN CONCURRENT in newer versions of sqlite. could use it later?
             conn.execute(text('BEGIN DEFERRED'))
@@ -178,7 +177,6 @@ class SqliteBackend(AbstractBackend):
 
     def finalize(self, new_hash: SourceHash) -> None:
         # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
-        # pylint: disable=no-value-for-parameter
         self.connection.execute(self.table_hash.delete())
 
         # checkfirst is necessary since it might not have existed in the first place
@@ -189,5 +187,4 @@ class SqliteBackend(AbstractBackend):
         # also seems like sqlalchemy doesn't have any primitives to escape table names.. sigh
         self.connection.execute(text(f"ALTER TABLE `{self.table_cache_tmp.name}` RENAME TO `{self.table_cache.name}`"))
 
-        # pylint: disable=no-value-for-parameter
         self.connection.execute(self.table_hash.insert().values([{'value': new_hash}]))

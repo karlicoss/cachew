@@ -18,7 +18,7 @@ import sqlalchemy
 from sqlalchemy import Column
 
 from .pytest import parametrize
-from .utils import CachewException
+from .common import CachewException
 
 
 def get_union_args(cls) -> Optional[tuple[type]]:
@@ -300,7 +300,7 @@ class NTBinder(Generic[NT]):
     >>> binder.from_row(('ann', 25, True, None, None, 'extra'))
     Traceback (most recent call last):
     ...
-    cachew.utils.CachewException: unconsumed items in iterator ['extra']
+    cachew.common.CachewException: unconsumed items in iterator ['extra']
     """
 
     name: Optional[str]  # None means toplevel

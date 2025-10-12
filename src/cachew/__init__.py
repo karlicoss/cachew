@@ -39,19 +39,15 @@ import platformdirs
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
-from .common import SourceHash
+from .common import CachewException, SourceHash, TypeNotSupported
 from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall, build_schema
-from .utils import (
-    CachewException,
-    TypeNotSupported,
-    resolve_type_parameters,
-)
+from .utils import resolve_type_parameters
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
-PathIsh = Path | str
+type PathIsh = Path | str
 
 Backend = Literal['sqlite', 'file']
 

@@ -410,7 +410,6 @@ def test_return_type_none(tmp_path: Path) -> None:
     with pytest.raises(CachewException):
 
         @cachew(tmp_path)
-        # pylint: disable=unused-variable
         def data():
             return []
 
