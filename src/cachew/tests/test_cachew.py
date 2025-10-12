@@ -1461,3 +1461,15 @@ def test_type_alias_type_2(tmp_path: Path) -> None:
 
     assert list(fun()) == [123]
     assert list(fun()) == [123]
+
+
+def test_type_alias_generic(tmp_path: Path) -> None:
+    type Res[T] = T | Exception
+    type IntRes = Res[int]
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[IntRes]:
+        yield 123
+
+    assert list(fun()) == [123]
+    assert list(fun()) == [123]

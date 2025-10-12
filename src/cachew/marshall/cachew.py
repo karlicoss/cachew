@@ -14,7 +14,6 @@ from typing import (  # noqa: UP035
     NamedTuple,
     Optional,
     Tuple,
-    TypeAliasType,
     Union,
     get_args,
     get_origin,
@@ -22,7 +21,7 @@ from typing import (  # noqa: UP035
 )
 from zoneinfo import ZoneInfo
 
-from ..utils import TypeNotSupported, is_namedtuple
+from ..utils import TypeNotSupported, is_namedtuple, resolve_type_parameters
 from .common import AbstractMarshall, Json
 
 
@@ -290,12 +289,10 @@ PRIMITIVES = {
 
 
 def build_schema(Type) -> Schema:
-    if isinstance(Type, TypeAliasType):
-        # handle 'type ... = ...' aliases
-        Type = Type.__value__
-
     # just to avoid confusion in case of weirdness with stringish type annotations
     assert not isinstance(Type, str), Type
+
+    Type = resolve_type_parameters(Type)
 
     ptype = PRIMITIVES.get(Type)
     if ptype is not None:
@@ -618,6 +615,3 @@ def test_serialize_and_deserialize() -> None:
         helper([1, 2, 3], list[int] | list[Exception])
     with pytest.raises(TypeNotSupported, match=r".*runtime union arguments are not unique"):
         helper([1, 2, 3], list[Exception] | list[int])
-
-
-# TODO test type aliases and such??
