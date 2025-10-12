@@ -14,7 +14,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
-    TypeAliasType,
     cast,
     get_args,
     get_origin,
@@ -46,6 +45,7 @@ from .marshall.cachew import CachewMarshall, build_schema
 from .utils import (
     CachewException,
     TypeNotSupported,
+    resolve_type_parameters,
 )
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
@@ -119,7 +119,7 @@ def infer_return_type(func) -> Failure | Inferred:
     ...     return None if len(s) == 0 else s[0]
     >>> kind, opt = infer_return_type(first_character)
     >>> # in 3.8, Optional[str] is printed as Union[str, None], so need to hack around this
-    >>> (kind, opt is Optional[str])
+    >>> (kind, opt == Optional[str])
     ('single', True)
 
     # tuple is an iterable.. but presumably should be treated as a single value
@@ -127,7 +127,7 @@ def infer_return_type(func) -> Failure | Inferred:
     >>> def a_tuple() -> Tuple[int, str]:
     ...     return (123, 'hi')
     >>> infer_return_type(a_tuple)
-    ('single', typing.Tuple[int, str])
+    ('single', tuple[int, str])
 
     >>> from typing import Collection, NamedTuple
     >>> class Person(NamedTuple):
@@ -169,14 +169,14 @@ def infer_return_type(func) -> Failure | Inferred:
     ...     yield 1
     ...     yield 'aaa'
     >>> infer_return_type(iterator_str_int)
-    ('multiple', Str | Int)
+    ('multiple', str | int)
 
     # a bit of an edge case
     >>> from typing import Tuple
     >>> def empty_tuple() -> Iterator[Tuple[()]]:
     ...     yield ()
     >>> infer_return_type(empty_tuple)
-    ('multiple', typing.Tuple[()])
+    ('multiple', tuple[()])
 
     ... # doctest: +ELLIPSIS
 
@@ -196,7 +196,7 @@ def infer_return_type(func) -> Failure | Inferred:
     >>> def unsupported_list() -> List[Custom]:
     ...     return [Custom()]
     >>> infer_return_type(unsupported_list)
-    "can't infer type from typing.List[cachew.Custom]: can't cache <class 'cachew.Custom'>"
+    "can't infer type from list[cachew.Custom]: can't cache <class 'cachew.Custom'>"
     """
     try:
         hints = get_type_hints(func)
@@ -208,9 +208,7 @@ def infer_return_type(func) -> Failure | Inferred:
     if rtype is None:
         return f"no return type annotation on {func}"
 
-    if isinstance(rtype, TypeAliasType):
-        # handle 'type ... = ...' aliases
-        rtype = rtype.__value__
+    rtype = resolve_type_parameters(rtype)
 
     def bail(reason: str) -> str:
         return f"can't infer type from {rtype}: " + reason

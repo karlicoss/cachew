@@ -104,15 +104,18 @@ td = Path(temp_dir.name)
 '''
 
     _TEST = '''
-type T = int
+
+type Identity[T] = T
+I = int
+type S = Identity[str]
 
 @cachew(td)
-def fun() -> list[T]:
+def fun() -> list[I | S]:
     print("called")
-    return [1, 2]
+    return [1, "2"]
 
-assert list(fun()) == [1, 2]
-assert list(fun()) == [1, 2]
+assert list(fun()) == [1, "2"]
+assert list(fun()) == [1, "2"]
 '''
 
     if use_future_annotations:
