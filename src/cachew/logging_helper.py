@@ -4,6 +4,7 @@ import logging
 import os
 import warnings
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 
 def test() -> None:
@@ -34,7 +35,7 @@ def test() -> None:
     M(
         "\n   Also exception logging is kinda lame, doesn't print traceback by default unless you remember to pass exc_info:"
     )
-    l.exception(ex)  # type: ignore[possibly-undefined]  # pylint: disable=used-before-assignment
+    l.exception(ex)  # type: ignore[possibly-undefined]
 
     M(
         "\n\n    With make_logger you get a reasonable logging format, colours (via colorlog library) and other neat things:"
@@ -245,6 +246,7 @@ if __name__ == '__main__':
 
 
 ## legacy/deprecated methods for backwards compatilibity
-LazyLogger = make_logger
-logger = make_logger
+if not TYPE_CHECKING:
+    LazyLogger = make_logger
+    logger = make_logger
 ##

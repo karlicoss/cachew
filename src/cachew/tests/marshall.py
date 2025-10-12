@@ -5,10 +5,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import (
-    Any,
-    Literal,
-)
+from typing import Any, Literal
 
 import orjson
 import pytest
