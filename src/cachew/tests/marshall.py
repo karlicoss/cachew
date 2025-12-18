@@ -110,7 +110,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     jsons: list[Json] = [None for _ in range(count)]
     with profile(test_name + ':serialize'), timer(f'serializing   {count} objects of type {Type}'):
         for i in range(count):
-            jsons[i] = to_json(objects[i])
+            jsons[i] = to_json(objects[i])  # ty: ignore[invalid-assignment]
 
     strs: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
     with profile(test_name + ':json_dump'), timer(f'json dump     {count} objects of type {Type}'):
@@ -165,7 +165,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     objects2 = [None for _ in range(count)]
     with profile(test_name + ':deserialize'), timer(f'deserializing {count} objects of type {Type}'):
         for i in range(count):
-            objects2[i] = from_json(jsons2[i])
+            objects2[i] = from_json(jsons2[i])  # ty: ignore[invalid-argument-type]
 
     assert objects[:100] + objects[-100:] == objects2[:100] + objects2[-100:]
 
