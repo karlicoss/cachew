@@ -28,7 +28,7 @@ def get_union_args(cls) -> Optional[tuple[type]]:
     args = cls.__args__
     args = tuple(e for e in args if e is not type(None))
     assert len(args) > 0
-    return args
+    return args  # ty: ignore[invalid-return-type]
 
 
 def is_union(cls) -> bool:
@@ -313,7 +313,7 @@ class NTBinder(Generic[NT]):
 
     @staticmethod
     def make(tp: type[NT], name: Optional[str] = None) -> 'NTBinder[NT]':
-        tp, optional = strip_optional(tp)
+        tp, optional = strip_optional(tp)  # ty: ignore[invalid-assignment]
         union: Optional[type]
         fields: tuple[Any, ...]
         primitive: bool

@@ -278,11 +278,11 @@ use_default_path = cast(Path, object())
 @doublewrap
 def cachew_impl[**P](
     func=None,  # TODO should probably type it after switch to python 3.10/proper paramspec
-    cache_path: PathProvider[P] | None = use_default_path,  # ty: ignore[too-many-positional-arguments]  # see https://github.com/astral-sh/ty/issues/157
+    cache_path: PathProvider[P] | None = use_default_path,
     *,
     force_file: bool = False,
     cls: type | tuple[Kind, type] | None = None,
-    depends_on: HashFunction[P] = default_hash,  # ty: ignore[too-many-positional-arguments]
+    depends_on: HashFunction[P] = default_hash,
     logger: logging.Logger | None = None,
     chunk_by: int = 100,
     # NOTE: allowed values for chunk_by depend on the system.
@@ -435,7 +435,7 @@ def cachew_impl[**P](
     @functools.wraps(func)
     def binder(*args, **kwargs):
         kwargs['_cachew_context'] = ctx
-        res = cachew_wrapper(*args, **kwargs)  # ty: ignore[missing-argument]
+        res = cachew_wrapper(*args, **kwargs)
 
         if use_kind == 'single':
             lres = list(res)
@@ -457,11 +457,11 @@ if TYPE_CHECKING:
     # but at least it works for checking that cachew_path and depdns_on have the same args :shrug:
     @overload
     def cachew[F, **P](
-        cache_path: PathProvider[P] | None = ...,  # ty: ignore[too-many-positional-arguments]
+        cache_path: PathProvider[P] | None = ...,
         *,
         force_file: bool = ...,
         cls: type | tuple[Kind, type] | None = ...,
-        depends_on: HashFunction[P] = ...,  # ty: ignore[too-many-positional-arguments]
+        depends_on: HashFunction[P] = ...,
         logger: logging.Logger | None = ...,
         chunk_by: int = ...,
         synthetic_key: str | None = ...,
@@ -568,10 +568,10 @@ _DEPENDENCIES        = 'dependencies'
 class Context[**P]:
     # fmt: off
     func         : Callable
-    cache_path   : PathProvider[P]   # ty: ignore[too-many-positional-arguments]
+    cache_path   : PathProvider[P]
     force_file   : bool
     cls_         : type
-    depends_on   : HashFunction[P]   # ty: ignore[too-many-positional-arguments]
+    depends_on   : HashFunction[P]
     logger       : logging.Logger
     chunk_by     : int
     synthetic_key: str | None
@@ -612,7 +612,7 @@ class Context[**P]:
 
 def cachew_wrapper[**P](
     *args,
-    _cachew_context: Context[P],  # ty: ignore[too-many-positional-arguments]
+    _cachew_context: Context[P],
     **kwargs,
 ):
     C = _cachew_context

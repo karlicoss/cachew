@@ -34,12 +34,13 @@ Homepage = "https://github.com/karlicoss/cachew"
 optional = [
     "colorlog",
 ]
+
 [dependency-groups]
 # TODO: not sure, on the one hand could just use 'standard' dev dependency group
 # On the other hand, it's a bit annoying that it's always included by default? 
 # To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
-    "pytest",
+    "pytest>=9",  # need version 9 for proper namespace package support
     "ruff",
 
     "pytz",
@@ -53,10 +54,9 @@ testing = [
 ]
 typecheck = [
     { include-group = "testing" },
-
     "mypy",
-    "lxml",  # for mypy coverage
-    "ty>=0.0.1a22",
+    "lxml", # for mypy html coverage
+    "ty>=0.0.3",
 
     "types-pytz",  # optional runtime only dependency
 
