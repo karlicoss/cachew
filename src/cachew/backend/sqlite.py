@@ -4,6 +4,7 @@ import time
 import warnings
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Self
 
 import sqlalchemy
 import sqlalchemy.exc
@@ -64,7 +65,7 @@ class SqliteBackend(AbstractBackend):
         self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))
         # fmt: on
 
-    def __enter__(self) -> 'SqliteBackend':
+    def __enter__(self) -> Self:
         # NOTE: deferred transaction
         self.transaction = self.connection.begin()
         # FIXME this is a bit crap.. is there a nicer way to use another ctx manager here?

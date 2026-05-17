@@ -209,7 +209,7 @@ class SException(Schema):
         return tuple(_exc_helper(obj.args))
 
     def load(self, dct: Json):
-        return self.type(*dct)
+        return self.type(*dct)  # type: ignore[misc]  # ty: ignore[not-iterable]
 
 
 try:
@@ -273,7 +273,7 @@ class SDate(Schema):
         return date.fromisoformat(dct)
 
 
-PRIMITIVES = {
+PRIMITIVES: dict[type, type] = {
     # int and float are handled a bit differently to allow implicit casts
     # isinstance(.., Real) works both for int and for float
     # Real can't be serialized back, but if you look in SPrimitive, it leaves the values intact anyway

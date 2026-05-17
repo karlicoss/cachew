@@ -92,8 +92,8 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
         # )
         # NOTE: this seems to give a bit of speedup... maybe raise an issue or something?
         # fmt: off
-        unstruct_func = converter._unstructure_func.dispatch(Type)  # type: ignore[call-arg, misc]  # about 20% speedup
-        struct_func   = converter._structure_func  .dispatch(Type)  # type: ignore[call-arg, misc]  # TODO speedup
+        unstruct_func = converter._unstructure_func.dispatch(Type)  # type: ignore[call-arg, misc]  # ty: ignore[missing-argument]  # about 20% speedup
+        struct_func   = converter._structure_func  .dispatch(Type)  # type: ignore[call-arg, misc]  # ty: ignore[missing-argument]  # TODO speedup
         # fmt: on
 
         to_json = unstruct_func
@@ -110,9 +110,9 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
     jsons: list[Json] = [None for _ in range(count)]
     with profile(test_name + ':serialize'), timer(f'serializing   {count} objects of type {Type}'):
         for i in range(count):
-            jsons[i] = to_json(objects[i])  # ty: ignore[invalid-assignment]
+            jsons[i] = to_json(objects[i])
 
-    strs: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
+    strs: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]  # ty: ignore[invalid-assignment]
     with profile(test_name + ':json_dump'), timer(f'json dump     {count} objects of type {Type}'):
         for i in range(count):
             # TODO any orjson options to speed up?
@@ -129,13 +129,11 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             conn.executemany('INSERT INTO data (value) VALUES (?)', [(s,) for s in strs])
         conn.close()
 
-    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
+    strs2: list[bytes] = [None for _ in range(count)]  # type: ignore[misc] # ty: ignore[invalid-assignment]
     with profile(test_name + ':sqlite_load'), timer(f'sqlite load   {count} objects of type {Type}'):
         with sqlite3.connect(db) as conn:
-            i = 0
-            for (value,) in conn.execute('SELECT value FROM data'):
+            for i, (value,) in enumerate(conn.execute('SELECT value FROM data')):
                 strs2[i] = value
-                i += 1
         conn.close()
 
     cache = db.parent / 'cache.jsonl'
@@ -145,7 +143,7 @@ def do_test(*, test_name: str, Type, factory, count: int, impl: Impl = 'cachew')
             for s in strs:
                 fw.write(s + b'\n')
 
-    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]
+    strs3: list[bytes] = [None for _ in range(count)]  # type: ignore[misc]  # ty: ignore[invalid-assignment]
     with profile(test_name + ':jsonl_load'), timer(f'jsonl load    {count} objects of type {Type}'):
         i = 0
         with cache.open('rb') as fr:
