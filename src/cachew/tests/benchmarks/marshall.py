@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Literal, assert_never, cast, get_args
+from zoneinfo import ZoneInfo
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
@@ -123,18 +124,21 @@ def make_datetime_case(*, count: int, impl: Impl) -> MarshallCase:
 
     to_json, from_json = make_marshaller_impl(datetime, impl=impl)
     tzs = [
-        pytz.timezone('Europe/Berlin'),
         UTC,
+        pytz.timezone('Europe/Berlin'),
         pytz.timezone('America/New_York'),
+        ZoneInfo('America/Los_Angeles'),
+        ZoneInfo('Asia/Shanghai'),
     ]
-    start = datetime.fromisoformat('1990-01-01T00:00:00')
-    end = datetime.fromisoformat('2030-01-01T00:00:00')
+    # Using UTC datetimes to iterate; avoids pytz's replace/localize bs.
+    start = datetime.fromisoformat('1990-01-01T12:00:00+00:00')
+    end = datetime.fromisoformat('2030-01-01T12:00:00+00:00')
     step = (end - start) / count
     objects = []
     for i in range(count):
         dt = start + step * i
         tz = tzs[i % len(tzs)]
-        objects.append(dt.replace(tzinfo=tz))
+        objects.append(dt.astimezone(tz))
 
     jsons = [to_json(obj) for obj in objects]
     return MarshallCase(objects=objects, jsons=jsons, to_json=to_json, from_json=from_json)
@@ -215,6 +219,11 @@ def test_marshall_datetimes_deserialize(benchmark: BenchmarkFixture, count: int,
     result = benchmark.pedantic(case.deserialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
     assert _sample(result) == _sample(case.objects)
+    if impl != 'msgspec':
+        # msgspec reconstructs fixed-offset tzinfo from RFC3339 rather than the
+        # original named timezone object, so this stronger check doesn't apply.
+        for r, o in zip(_sample(result), _sample(case.objects), strict=True):
+            assert r.tzinfo == o.tzinfo
 
 
 @pytest.mark.parametrize('count', [BENCHMARK_COUNT], ids=['100k'])
