@@ -37,10 +37,12 @@ testing = [
 
     "pytz",
 
+    "cattrs",  # benchmarking alternative marshalling implementation
+    "msgspec", # benchmarking alternative typed codec
+
     "more-itertools",
     "patchy",  # for injecting sleeps and testing concurrent behaviour
     "enlighten",  # used in logging helper, but not really required
-    "cattrs",  # benchmarking alternative marshalling implementation
     "pyinstrument",  # for profiling from within tests
     "codetiming", # Timer context manager
 ]

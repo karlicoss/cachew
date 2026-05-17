@@ -18,7 +18,7 @@ from ...marshall.common import Json
 BENCHMARK_COUNT = 100_000
 BENCHMARK_ROUNDS = 50
 
-type Impl = Literal['cachew', 'cattrs', 'legacy', 'pickle']
+type Impl = Literal['cachew', 'cattrs', 'legacy', 'pickle', 'msgspec']
 Impls = cast(Sequence[Impl], get_args(Impl.__value__))
 type Marshalled = Any  # just easier, can be bytes or Json in this test...
 
@@ -93,7 +93,7 @@ def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Marshalle
         from ...legacy import NTBinder
 
         binder = NTBinder.make(Type)
-        return binder.to_row, binder.from_row  # type: ignore[return-value]
+        return binder.to_row, binder.from_row
     elif impl == 'pickle':
         # Keep the protocol explicit so cross-version benchmark results are
         # comparable even if pickle defaults change in the future.
@@ -101,6 +101,12 @@ def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Marshalle
             partial(pickle.dumps, protocol=5),
             pickle.loads,
         )
+    elif impl == 'msgspec':
+        import msgspec
+
+        encoder = msgspec.json.Encoder()
+        decoder = msgspec.json.Decoder(type=Type)
+        return encoder.encode, decoder.decode
     else:
         assert_never(impl)
 
@@ -215,6 +221,9 @@ def test_marshall_datetimes_deserialize(benchmark: BenchmarkFixture, count: int,
 @pytest.mark.parametrize('impl', Impls)
 @pytest.mark.benchmark(disable_gc=True, group='marshall-union-serialize')
 def test_marshall_union_dataclass_serialize(benchmark: BenchmarkFixture, count: int, impl: Impl) -> None:
+    if impl == 'msgspec':
+        pytest.skip('msgspec only supports multi-struct unions via tagged msgspec.Struct types')
+
     case = make_union_dataclass_case(count=count, impl=impl)
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
@@ -229,6 +238,9 @@ def test_marshall_union_dataclass_serialize(benchmark: BenchmarkFixture, count: 
 @pytest.mark.parametrize('impl', Impls)
 @pytest.mark.benchmark(disable_gc=True, group='marshall-union-deserialize')
 def test_marshall_union_dataclass_deserialize(benchmark: BenchmarkFixture, count: int, impl: Impl) -> None:
+    if impl == 'msgspec':
+        pytest.skip('msgspec only supports multi-struct unions via tagged msgspec.Struct types')
+
     case = make_union_dataclass_case(count=count, impl=impl)
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
