@@ -49,7 +49,7 @@ def _resolve_type_parameters_aux(t, *, typevar_to_type: Mapping[TypeVar, type]) 
     # This is the 'right hand side', e.g. '... = Id[int]' matches this
     if isinstance(origin, TypeAliasType):
         type_params = origin.__type_params__
-        new_typevar_to_type: Mapping[TypeVar, type] = {
+        new_typevar_to_type: Mapping[TypeVar, type] = {  # ty: ignore[invalid-assignment]
             **typevar_to_type,
             **dict(zip(type_params, resolved_args, strict=True)),  # type: ignore[arg-type]
         }

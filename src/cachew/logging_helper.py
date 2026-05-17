@@ -15,7 +15,7 @@ def test() -> None:
 
     ## prepare exception for later
     try:
-        None.whatever  # type: ignore[attr-defined]  # noqa: B018
+        None.whatever  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]  # noqa: B018
     except Exception as e:
         ex = e
     ##
@@ -57,12 +57,9 @@ def test() -> None:
 
 
 DEFAULT_LEVEL = 'INFO'
-FORMAT = '{start}[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d]{end} %(message)s'
-FORMAT_NOCOLOR = FORMAT.format(start='', end='')
 
-
-Level = int
-LevelIsh = Level | str | None
+type Level = int
+type LevelIsh = Level | str | None
 
 
 def mklevel(level: LevelIsh) -> Level:
@@ -71,6 +68,10 @@ def mklevel(level: LevelIsh) -> Level:
     if isinstance(level, int):
         return level
     return getattr(logging, level.upper())
+
+
+FORMAT = '{start}[%(levelname)-7s %(asctime)s %(name)s %(filename)s:%(lineno)-4d]{end} %(message)s'
+FORMAT_NOCOLOR = FORMAT.format(start='', end='')
 
 
 def get_collapse_level() -> Level | None:

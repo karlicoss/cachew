@@ -3,6 +3,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import (
     BinaryIO,
+    Self,
 )
 
 from ..common import SourceHash
@@ -23,7 +24,7 @@ class FileBackend(AbstractBackend):
         self.jsonl_fr = None
         self.jsonl_tmp_fw = None
 
-    def __enter__(self) -> 'FileBackend':
+    def __enter__(self) -> Self:
         try:
             self.jsonl_fr = self.jsonl.open('rb')
         except FileNotFoundError:

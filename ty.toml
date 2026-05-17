@@ -1,4 +1,5 @@
 [src]
 exclude = [
     "doc/test_serialization.py",
+    "src/cachew/legacy.py",
 ]

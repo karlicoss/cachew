@@ -32,7 +32,7 @@ except:
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
 
-    orjson_loads = json.loads  # ty: ignore[invalid-assignment]
+    orjson_loads = json.loads  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 import platformdirs
 
@@ -378,10 +378,10 @@ def cachew_impl[**P](
         except:
             is_tuple = False
         if is_tuple:
-            use_kind, use_cls = cls  # type: ignore[misc]
+            use_kind, use_cls = cls  # type: ignore[misc]  # ty: ignore[not-iterable]
         else:
             use_kind = 'multiple'
-            use_cls = cls  # type: ignore[assignment]
+            use_cls = cls  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     # TODO fuzz infer_return_type, should never crash?
     inference_res = infer_return_type(func)
@@ -642,7 +642,9 @@ def cachew_wrapper[**P](
 
     def get_db_path() -> Path | None:
         db_path: Path
-        if callable(cache_path):
+        if isinstance(cache_path, (Path, str)):
+            db_path = Path(cache_path)
+        else:
             pp = cache_path(*args, **kwargs)
             if pp is None:
                 logger.debug('cache explicitly disabled (cache_path is None)')
@@ -650,8 +652,6 @@ def cachew_wrapper[**P](
                 return None
             else:
                 db_path = Path(pp)
-        else:
-            db_path = Path(cache_path)
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
