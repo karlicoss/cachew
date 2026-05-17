@@ -589,7 +589,7 @@ def test_serialize_and_deserialize() -> None:
         # test that we preserve zone names
         if d in dates_tz:
             # this works both with pytz and zoneinfo without getting .zone or .key attributes
-            assert str(d.tzinfo) == str(dd.tzinfo)
+            assert d.tzinfo == dd.tzinfo
 
     assert helper(dsummer_tz, datetime)[0] == ('2020-08-03T01:02:03+01:00', 'Europe/London', _TZTAG_PYTZ)
     assert helper(dwinter, datetime)[0] == ('2020-02-03T01:02:03', None, None)
