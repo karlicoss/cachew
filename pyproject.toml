@@ -32,6 +32,7 @@ optional = [
 # To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
     "pytest>=9",  # need version 9 for proper namespace package support
+    "pytest-benchmark[histogram]",
     "ruff",
 
     "pytz",
