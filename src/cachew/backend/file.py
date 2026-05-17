@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import (
     BinaryIO,
     Self,
+    override,
 )
 
 from ..common import SourceHash
@@ -14,16 +15,24 @@ class FileBackend(AbstractBackend):
     jsonl: Path
     jsonl_tmp: Path
     jsonl_fr: BinaryIO | None
+    """
+    read-only IO into self.jsonl
+    """
+
     jsonl_tmp_fw: BinaryIO | None
+    """
+    writable IO into self.jsonl
+    """
 
     def __init__(self, cache_path: Path, *, logger: logging.Logger) -> None:
         self.logger = logger
         self.jsonl = cache_path
-        self.jsonl_tmp = Path(str(self.jsonl) + '.tmp')
+        self.jsonl_tmp = self.jsonl.with_suffix(self.jsonl.suffix + '.tmp')
 
         self.jsonl_fr = None
         self.jsonl_tmp_fw = None
 
+    @override
     def __enter__(self) -> Self:
         try:
             self.jsonl_fr = self.jsonl.open('rb')
@@ -31,6 +40,7 @@ class FileBackend(AbstractBackend):
             self.jsonl_fr = None
         return self
 
+    @override
     def __exit__(self, *args) -> None:
         if self.jsonl_tmp_fw is not None:
             # might still exist in case of early exit
@@ -43,21 +53,25 @@ class FileBackend(AbstractBackend):
         if self.jsonl_fr is not None:
             self.jsonl_fr.close()
 
+    @override
     def get_old_hash(self) -> SourceHash | None:
         if self.jsonl_fr is None:
             return None
         hash_line = self.jsonl_fr.readline().rstrip(b'\n')
         return hash_line.decode('utf8')
 
+    @override
     def cached_blobs_total(self) -> int | None:
         # not really sure how to support that for a plaintext file?
         # could wc -l but it might be costly..
         return None
 
+    @override
     def cached_blobs(self) -> Iterator[bytes]:
         assert self.jsonl_fr is not None  # should be guaranteed by get_old_hash
         yield from self.jsonl_fr  # yields line by line
 
+    @override
     def get_exclusive_write(self) -> bool:
         # NOTE: opening in x (exclusive write) mode just in case, so it throws if file exists
         try:
@@ -68,10 +82,12 @@ class FileBackend(AbstractBackend):
         else:
             return True
 
+    @override
     def write_new_hash(self, new_hash: SourceHash) -> None:
         assert self.jsonl_tmp_fw is not None
         self.jsonl_tmp_fw.write(new_hash.encode('utf8') + b'\n')
 
+    @override
     def flush_blobs(self, chunk: Sequence[bytes]) -> None:
         fw = self.jsonl_tmp_fw
         assert fw is not None
@@ -79,6 +95,7 @@ class FileBackend(AbstractBackend):
             fw.write(blob)
             fw.write(b'\n')
 
-    def finalize(self, new_hash: SourceHash) -> None:  # noqa: ARG002
+    @override
+    def finalize(self, new_hash: SourceHash) -> None:
         # TODO defensive??
         self.jsonl_tmp.rename(self.jsonl)

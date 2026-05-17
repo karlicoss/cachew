@@ -4,7 +4,7 @@ import time
 import warnings
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Self
+from typing import Self, override
 
 import sqlalchemy
 import sqlalchemy.exc
@@ -65,6 +65,7 @@ class SqliteBackend(AbstractBackend):
         self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))
         # fmt: on
 
+    @override
     def __enter__(self) -> Self:
         # NOTE: deferred transaction
         self.transaction = self.connection.begin()
@@ -72,11 +73,13 @@ class SqliteBackend(AbstractBackend):
         self.transaction.__enter__()
         return self
 
+    @override
     def __exit__(self, *args) -> None:
         self.transaction.__exit__(*args)
         self.connection.close()
         self.engine.dispose()
 
+    @override
     def get_old_hash(self) -> SourceHash | None:
         # first, try to do as much as possible read-only, benefiting from deferred transaction
         old_hashes: Sequence
@@ -101,10 +104,12 @@ class SqliteBackend(AbstractBackend):
             old_hash = old_hashes[0][0]  # returns a tuple...
         return old_hash
 
+    @override
     def cached_blobs_total(self) -> int | None:
         [(total,)] = self.connection.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(self.table_cache))
         return total
 
+    @override
     def cached_blobs(self) -> Iterator[bytes]:
         rows = self.connection.execute(self.table_cache.select())
         # by default, sqlalchemy wraps all results into Row object
@@ -130,6 +135,7 @@ class SqliteBackend(AbstractBackend):
         for (blob,) in row_iterator:
             yield blob
 
+    @override
     def get_exclusive_write(self) -> bool:
         # NOTE on recursive calls
         # somewhat magically, they should work as expected with no extra database inserts?
@@ -165,6 +171,7 @@ class SqliteBackend(AbstractBackend):
                 raise e
         return True
 
+    @override
     def flush_blobs(self, chunk: Sequence[bytes]) -> None:
         # uhh. this gives a huge speedup for inserting
         # since we don't have to create intermediate dictionaries
@@ -176,6 +183,7 @@ class SqliteBackend(AbstractBackend):
         # idk what benefit sqlalchemy gives at this point, seems to just complicate things
         self.connection.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
 
+    @override
     def finalize(self, new_hash: SourceHash) -> None:
         # delete hash first, so if we are interrupted somewhere, it mismatches next time and everything is recomputed
         self.connection.execute(self.table_hash.delete())
@@ -189,3 +197,8 @@ class SqliteBackend(AbstractBackend):
         self.connection.execute(text(f"ALTER TABLE `{self.table_cache_tmp.name}` RENAME TO `{self.table_cache.name}`"))
 
         self.connection.execute(self.table_hash.insert().values([{'value': new_hash}]))
+
+    @override
+    def write_new_hash(self, new_hash: SourceHash) -> None:
+        # TODO think later maybe fine to keep a no op implementation?
+        raise NotImplementedError("shouldn't be used for SqliteBackend")
