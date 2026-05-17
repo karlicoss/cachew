@@ -43,12 +43,12 @@ class FileBackend(AbstractBackend):
     @override
     def __exit__(self, *args) -> None:
         if self.jsonl_tmp_fw is not None:
-            # might still exist in case of early exit
-            self.jsonl_tmp.unlink(missing_ok=True)
-
-            # NOTE: need to unlink first
-            # otherwise possible that someone else might open the file before we unlink it
             self.jsonl_tmp_fw.close()
+            self.jsonl_tmp_fw = None
+
+            # Normally it wouldn't exist at this point
+            # But it might if some error happened and .finalize never kicked in
+            self.jsonl_tmp.unlink(missing_ok=True)
 
         if self.jsonl_fr is not None:
             self.jsonl_fr.close()
@@ -97,5 +97,8 @@ class FileBackend(AbstractBackend):
 
     @override
     def finalize(self, new_hash: SourceHash) -> None:
-        # TODO defensive??
+        assert self.jsonl_tmp_fw is not None  # should be only called after we get_exclusive_write
+        self.jsonl_tmp_fw.close()
+        self.jsonl_tmp_fw = None  # no need to do further cleanup in __exit__
+
         self.jsonl_tmp.rename(self.jsonl)
