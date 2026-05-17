@@ -1,6 +1,8 @@
+import pickle
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Literal, assert_never, cast, get_args
 
 import pytest
@@ -16,8 +18,9 @@ from ...marshall.common import Json
 BENCHMARK_COUNT = 100_000
 BENCHMARK_ROUNDS = 50
 
-type Impl = Literal['cachew', 'cattrs', 'legacy']
+type Impl = Literal['cachew', 'cattrs', 'legacy', 'pickle']
 Impls = cast(Sequence[Impl], get_args(Impl.__value__))
+type Marshalled = Any  # just easier, can be bytes or Json in this test...
 
 
 @dataclass
@@ -48,9 +51,9 @@ class NameAlt:
 @dataclass
 class MarshallCase:
     objects: list[Any]
-    jsons: list[Json]
-    to_json: Callable[[Any], Json]
-    from_json: Callable[[Json], Any]
+    jsons: list[Marshalled]
+    to_json: Callable[[Any], Marshalled]
+    from_json: Callable[[Marshalled], Any]
 
     def serialize_all(self) -> list[Json]:
         return [self.to_json(obj) for obj in self.objects]
@@ -67,7 +70,7 @@ def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
 _SDATETIME = SDatetime(type=datetime)
 
 
-def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Json], Callable[[Json], Any]]:
+def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Marshalled], Callable[[Marshalled], Any]]:
     if impl == 'cachew':
         marshall: CachewMarshall[Any] = CachewMarshall(Type_=Type)
         return marshall.dump, marshall.load
@@ -90,7 +93,14 @@ def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Json], Ca
         from ...legacy import NTBinder
 
         binder = NTBinder.make(Type)
-        return binder.to_row, binder.from_row  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+        return binder.to_row, binder.from_row  # type: ignore[return-value]
+    elif impl == 'pickle':
+        # Keep the protocol explicit so cross-version benchmark results are
+        # comparable even if pickle defaults change in the future.
+        return (
+            partial(pickle.dumps, protocol=5),
+            pickle.loads,
+        )
     else:
         assert_never(impl)
 
