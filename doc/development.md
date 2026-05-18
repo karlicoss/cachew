@@ -5,6 +5,7 @@
 
 - add `--benchmark-compare` to compare with the saved baseline
 - use `--benchmark-save baseline` to update the baseline
+- use `--benchmark-time-unit=ms` to force time units (otherwise each group might have different ones)
 - use `uv run --python=3.xx` to pin a specific python version
 - add `-k ...` to select a specific benchmark
 - gc is disabled in some benchmarks via `disable_gc=True` parameter
