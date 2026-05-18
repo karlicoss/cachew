@@ -10,7 +10,6 @@ import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from ...marshall.cachew import CachewMarshall, SDatetime
-from ...marshall.common import Json
 
 # OK, this doesn't work since function level @pytest.mark.benchmark overrides it
 # pytestmark = pytest.mark.benchmark(disable_gc=True)
@@ -19,7 +18,7 @@ from ...marshall.common import Json
 BENCHMARK_COUNT = 100_000
 BENCHMARK_ROUNDS = 50
 
-type Impl = Literal['cachew', 'cattrs', 'legacy', 'pickle', 'msgspec']
+type Impl = Literal['cachew', 'cattrs', 'legacy', 'pickle', 'msgspec', 'msgspec-msgpack']
 Impls = cast(Sequence[Impl], get_args(Impl.__value__))
 type Marshalled = Any  # just easier, can be bytes or Json in this test...
 
@@ -52,15 +51,15 @@ class NameAlt:
 @dataclass
 class MarshallCase:
     objects: list[Any]
-    jsons: list[Marshalled]
-    to_json: Callable[[Any], Marshalled]
-    from_json: Callable[[Marshalled], Any]
+    payloads: list[Marshalled]
+    encode: Callable[[Any], Marshalled]
+    decode: Callable[[Marshalled], Any]
 
-    def serialize_all(self) -> list[Json]:
-        return [self.to_json(obj) for obj in self.objects]
+    def serialize_all(self) -> list[Marshalled]:
+        return [self.encode(obj) for obj in self.objects]
 
     def deserialize_all(self) -> list[Any]:
-        return [self.from_json(json_) for json_ in self.jsons]
+        return [self.decode(payload) for payload in self.payloads]
 
 
 def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
@@ -69,6 +68,10 @@ def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
 
 
 _SDATETIME = SDatetime(type=datetime)
+
+
+def _is_msgspec_impl(impl: Impl) -> bool:
+    return impl in {'msgspec', 'msgspec-msgpack'}
 
 
 def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Marshalled], Callable[[Marshalled], Any]]:
@@ -105,24 +108,30 @@ def make_marshaller_impl(Type, *, impl: Impl) -> tuple[Callable[[Any], Marshalle
     elif impl == 'msgspec':
         import msgspec
 
-        encoder = msgspec.json.Encoder()
-        decoder = msgspec.json.Decoder(type=Type)
-        return encoder.encode, decoder.decode
+        json_encoder = msgspec.json.Encoder()
+        json_decoder = msgspec.json.Decoder(type=Type)
+        return json_encoder.encode, json_decoder.decode
+    elif impl == 'msgspec-msgpack':
+        import msgspec
+
+        msgpack_encoder = msgspec.msgpack.Encoder()
+        msgpack_decoder = msgspec.msgpack.Decoder(type=Type)
+        return msgpack_encoder.encode, msgpack_decoder.decode
     else:
         assert_never(impl)
 
 
 def make_nested_dataclass_case(*, count: int, impl: Impl) -> MarshallCase:
-    to_json, from_json = make_marshaller_impl(TE2, impl=impl)
+    encode, decode = make_marshaller_impl(TE2, impl=impl)
     objects = [TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i) for i in range(count)]
-    jsons = [to_json(obj) for obj in objects]
-    return MarshallCase(objects=objects, jsons=jsons, to_json=to_json, from_json=from_json)
+    payloads = [encode(obj) for obj in objects]
+    return MarshallCase(objects=objects, payloads=payloads, encode=encode, decode=decode)
 
 
 def make_datetime_case(*, count: int, impl: Impl) -> MarshallCase:
     import pytz
 
-    to_json, from_json = make_marshaller_impl(datetime, impl=impl)
+    encode, decode = make_marshaller_impl(datetime, impl=impl)
     tzs = [
         UTC,
         pytz.timezone('Europe/Berlin'),
@@ -140,15 +149,15 @@ def make_datetime_case(*, count: int, impl: Impl) -> MarshallCase:
         tz = tzs[i % len(tzs)]
         objects.append(dt.astimezone(tz))
 
-    jsons = [to_json(obj) for obj in objects]
-    return MarshallCase(objects=objects, jsons=jsons, to_json=to_json, from_json=from_json)
+    payloads = [encode(obj) for obj in objects]
+    return MarshallCase(objects=objects, payloads=payloads, encode=encode, decode=decode)
 
 
 def make_union_dataclass_case(*, count: int, impl: Impl) -> MarshallCase:
     # Important that we test union of two dataclasses here.
     # cattrs doesn't really support unions with primitives.
     Type = Name | NameAlt
-    to_json, from_json = make_marshaller_impl(Type, impl=impl)
+    encode, decode = make_marshaller_impl(Type, impl=impl)
     objects: list[Name | NameAlt] = []
     for i in range(count):
         if i % 2 == 0:
@@ -156,8 +165,8 @@ def make_union_dataclass_case(*, count: int, impl: Impl) -> MarshallCase:
         else:
             objects.append(NameAlt(full_name=f'full name {i}', label=f'label {i}'))
 
-    jsons = [to_json(obj) for obj in objects]
-    return MarshallCase(objects=objects, jsons=jsons, to_json=to_json, from_json=from_json)
+    payloads = [encode(obj) for obj in objects]
+    return MarshallCase(objects=objects, payloads=payloads, encode=encode, decode=decode)
 
 
 # TODO hmm, seems like default benchmark might have a lot of noise due to calibration, perhaps because it's not quite a microbenchmark..
@@ -176,7 +185,7 @@ def test_marshall_nested_dataclass_serialize(benchmark: BenchmarkFixture, count:
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
-    assert _sample(result) == _sample(case.jsons)
+    assert _sample(result) == _sample(case.payloads)
 
 
 @pytest.mark.parametrize('count', [BENCHMARK_COUNT], ids=['100k'])
@@ -204,7 +213,7 @@ def test_marshall_datetimes_serialize(benchmark: BenchmarkFixture, count: int, i
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
-    assert _sample(result) == _sample(case.jsons)
+    assert _sample(result) == _sample(case.payloads)
 
 
 @pytest.mark.parametrize('count', [BENCHMARK_COUNT], ids=['100k'])
@@ -219,7 +228,7 @@ def test_marshall_datetimes_deserialize(benchmark: BenchmarkFixture, count: int,
     result = benchmark.pedantic(case.deserialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
     assert _sample(result) == _sample(case.objects)
-    if impl != 'msgspec':
+    if not _is_msgspec_impl(impl):
         # msgspec reconstructs fixed-offset tzinfo from RFC3339 rather than the
         # original named timezone object, so this stronger check doesn't apply.
         for r, o in zip(_sample(result), _sample(case.objects), strict=True):
@@ -230,7 +239,7 @@ def test_marshall_datetimes_deserialize(benchmark: BenchmarkFixture, count: int,
 @pytest.mark.parametrize('impl', Impls)
 @pytest.mark.benchmark(disable_gc=True, group='marshall-union-serialize')
 def test_marshall_union_dataclass_serialize(benchmark: BenchmarkFixture, count: int, impl: Impl) -> None:
-    if impl == 'msgspec':
+    if _is_msgspec_impl(impl):
         pytest.skip('msgspec only supports multi-struct unions via tagged msgspec.Struct types')
 
     case = make_union_dataclass_case(count=count, impl=impl)
@@ -240,14 +249,14 @@ def test_marshall_union_dataclass_serialize(benchmark: BenchmarkFixture, count: 
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
-    assert _sample(result) == _sample(case.jsons)
+    assert _sample(result) == _sample(case.payloads)
 
 
 @pytest.mark.parametrize('count', [BENCHMARK_COUNT], ids=['100k'])
 @pytest.mark.parametrize('impl', Impls)
 @pytest.mark.benchmark(disable_gc=True, group='marshall-union-deserialize')
 def test_marshall_union_dataclass_deserialize(benchmark: BenchmarkFixture, count: int, impl: Impl) -> None:
-    if impl == 'msgspec':
+    if _is_msgspec_impl(impl):
         pytest.skip('msgspec only supports multi-struct unions via tagged msgspec.Struct types')
 
     case = make_union_dataclass_case(count=count, impl=impl)
