@@ -32,7 +32,10 @@ optional = [
 # To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
     "pytest>=9",  # need version 9 for proper namespace package support
-    "pytest-benchmark[histogram]",
+
+    # using master version because we're patching display in conftest and latest version makes it easier
+    # can probably remove after version is >5.2.3
+    "pytest-benchmark[histogram] @ git+https://github.com/ionelmc/pytest-benchmark.git",
     "ruff",
 
     "pytz",

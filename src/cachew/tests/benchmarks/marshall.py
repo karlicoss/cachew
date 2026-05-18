@@ -6,6 +6,7 @@ from functools import partial
 from typing import Any, Literal, assert_never, cast, get_args
 from zoneinfo import ZoneInfo
 
+import orjson
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
@@ -61,10 +62,26 @@ class MarshallCase:
     def deserialize_all(self) -> list[Any]:
         return [self.decode(payload) for payload in self.payloads]
 
+    def serialized_size_bytes(self) -> int:
+        return sum(_payload_size_bytes(payload) for payload in self.payloads)
+
+
+def _payload_size_bytes(payload: Marshalled) -> int:
+    if isinstance(payload, bytes):
+        return len(payload)
+    return len(orjson.dumps(payload))
+
 
 def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
     # just to quickly sanity check/validate results
     return values[:sample_size] + values[-sample_size:]
+
+
+def _attach_size_info(benchmark: BenchmarkFixture, case: MarshallCase) -> None:
+    total_bytes = case.serialized_size_bytes()
+    count = len(case.payloads)
+    benchmark.extra_info['serialized_total_bytes'] = total_bytes
+    benchmark.extra_info['serialized_avg_bytes'] = total_bytes / count
 
 
 _SDATETIME = SDatetime(type=datetime)
@@ -182,6 +199,7 @@ def test_marshall_nested_dataclass_serialize(benchmark: BenchmarkFixture, count:
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'serialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
@@ -196,6 +214,7 @@ def test_marshall_nested_dataclass_deserialize(benchmark: BenchmarkFixture, coun
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'deserialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.deserialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
@@ -210,6 +229,7 @@ def test_marshall_datetimes_serialize(benchmark: BenchmarkFixture, count: int, i
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'serialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
@@ -224,6 +244,7 @@ def test_marshall_datetimes_deserialize(benchmark: BenchmarkFixture, count: int,
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'deserialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.deserialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
@@ -246,6 +267,7 @@ def test_marshall_union_dataclass_serialize(benchmark: BenchmarkFixture, count: 
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'serialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.serialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
@@ -263,6 +285,7 @@ def test_marshall_union_dataclass_deserialize(benchmark: BenchmarkFixture, count
     benchmark.extra_info['count'] = count
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = 'deserialize'
+    _attach_size_info(benchmark, case)
 
     result = benchmark.pedantic(case.deserialize_all, rounds=BENCHMARK_ROUNDS, warmup_rounds=2, iterations=1)
 
