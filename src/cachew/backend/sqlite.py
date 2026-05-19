@@ -58,12 +58,16 @@ class SqliteBackend(AbstractBackend):
         self.meta = sqlalchemy.MetaData()
         self.table_hash = Table('hash', self.meta, Column('value', sqlalchemy.String))
 
-        # fmt: off
         # actual cache
-        self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.BLOB))
+        self.table_cache     = Table('cache'    , self.meta, Column('data', sqlalchemy.BLOB))  # fmt: skip
         # temporary table, we use it to insert and then (atomically?) rename to the above table at the very end
-        self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))
-        # fmt: on
+        self.table_cache_tmp = Table('cache_tmp', self.meta, Column('data', sqlalchemy.BLOB))  # fmt: skip
+
+        # Cachew writes flush many small chunks, so avoid recompiling the same INSERT statement on every flush.
+        # This raw qmark INSERT avoids SQLAlchemy's per-row dictionary overhead.
+        self._insert_into_table_cache_tmp_raw = str(
+            self.table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark'))
+        )
 
     @override
     def __enter__(self) -> Self:
@@ -173,15 +177,9 @@ class SqliteBackend(AbstractBackend):
 
     @override
     def flush_blobs(self, chunk: Sequence[bytes]) -> None:
-        # uhh. this gives a huge speedup for inserting
-        # since we don't have to create intermediate dictionaries
-        # TODO move this to __init__?
-        insert_into_table_cache_tmp_raw = str(
-            self.table_cache_tmp.insert().compile(dialect=sqlite.dialect(paramstyle='qmark'))
-        )
         # I also tried setting paramstyle='qmark' in create_engine, but it seems to be ignored :(
         # idk what benefit sqlalchemy gives at this point, seems to just complicate things
-        self.connection.exec_driver_sql(insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
+        self.connection.exec_driver_sql(self._insert_into_table_cache_tmp_raw, [(c,) for c in chunk])
 
     @override
     def finalize(self, new_hash: SourceHash) -> None:
