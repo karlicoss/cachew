@@ -23,7 +23,7 @@ from typing import (
 
 import patchy
 import pytest
-from more_itertools import ilen, last, one, unique_everseen
+from more_itertools import one, unique_everseen
 
 from .. import (
     Backend,
@@ -32,10 +32,6 @@ from .. import (
     callable_name,
     get_logger,
     settings,
-)
-from .utils import (
-    gc_control,  # noqa: F401
-    running_on_ci,
 )
 
 logger = get_logger()
@@ -305,65 +301,6 @@ def test_unsupported_class(tmp_path: Path) -> None:
             yield UGood(x=1)
             yield UBad()
             yield UGood(x=2)
-
-
-class TE2(NamedTuple):
-    value: int
-    uuu: UUU
-    value2: int
-
-
-# you can run one specific test (e.g. to profile) by passing it as -k to pytest
-# e.g. -k 'test_many[500000-False]'
-@pytest.mark.parametrize('count', [99, 500_000, 1_000_000])
-@pytest.mark.parametrize('gc_on', [True, False], ids=['gc_on', 'gc_off'])
-def test_many(count: int, tmp_path: Path, gc_control) -> None:
-    if count > 99 and running_on_ci:
-        pytest.skip("test would be too slow on CI, only meant to run manually")
-    # should be a parametrized test perhaps
-    src = tmp_path / 'source'
-    src.touch()
-
-    cache_path = tmp_path / 'test_many'
-
-    @cachew(cache_path=cache_path, force_file=True)
-    def iter_data() -> Iterator[TE2]:
-        for i in range(count):
-            # TODO also profile datetimes?
-            yield TE2(value=i, uuu=UUU(xx=i, yy=i), value2=i)
-
-    a = time.time()
-    assert ilen(iter_data()) == count  # initial
-    b = time.time()
-    print(f'test_many: initial write to cache took {b - a:.1f}s', file=sys.stderr)
-
-    print(f'test_many: cache size is {cache_path.stat().st_size / 10**6}Mb', file=sys.stderr)
-
-    a = time.time()
-    assert ilen(iter_data()) == count  # hitting cache
-    b = time.time()
-    print(f'test_many: reading from cache took {b - a:.1f}s', file=sys.stderr)
-
-    assert last(iter_data()) == TE2(value=count - 1, uuu=UUU(xx=count - 1, yy=count - 1), value2=count - 1)
-
-    # serializing to db
-    # in-memory: 16 seconds
-
-    # without transaction: 22secs
-    # without transaction and size 100 chunks -- some crazy amount of time, as expected
-
-    # with transaction:
-    # about 17 secs to write 1M entries (just None)
-    # chunking by 20K doesn't seem to help
-    # chunking by 100 also gives same perf
-
-    # with to_row binding: 21 secs for dummy NamedTuple with None inside, 22 for less trivial class
-
-    # deserializing from db:
-    # initially, took 20 secs to load 1M entries (TE2)
-    # 9 secs currently
-    # 6 secs if we instantiate namedtuple directly via indices
-    # 3.5 secs if we just return None from row
 
 
 class BB(NamedTuple):

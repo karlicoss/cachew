@@ -11,13 +11,16 @@ import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
 from ...marshall.cachew import CachewMarshall, SDatetime
+from ..utils import running_on_ci
 
-BENCHMARK_COUNT = 100_000
+# CI runs the benchmark suite as a smoke test, so keep the dataset small there
+# while preserving the larger default for manual/local benchmark runs.
+BENCHMARK_COUNT = 100 if running_on_ci else 100_000
 # Default benchmark calibration introduced a fair bit of noise for these heavy
 # batch workloads, so the benchmark modules consistently use pedantic mode.
 BENCHMARK_PEDANTIC = {
     'rounds': 50,
-    'warmup_rounds': 2,
+    'warmup_rounds': 5,
     'iterations': 1,
 }
 
@@ -149,6 +152,33 @@ def make_marshaller_impl(
         unstruct_func = converter._unstructure_func.dispatch(Type)  # type: ignore[call-arg, misc]  # ty: ignore[missing-argument]
         struct_func   = converter._structure_func  .dispatch(Type)  # type: ignore[call-arg, misc]  # ty: ignore[missing-argument]
         # fmt: on
+
+        # def union_structure_hook_factory(_):
+        #     def union_hook(data, type_):
+        #         args = get_args(type_)
+
+        #         if data is None:  # we don't try to coerce None into anything
+        #             return None
+
+        #         for t in args:
+        #             try:
+        #                 res = converter.structure(data, t)
+        #             except Exception:
+        #                 continue
+        #             else:
+        #                 return res
+        #         raise ValueError(f"Could not cast {data} to {type_}")
+
+        #     return union_hook
+
+        # borrowed from https://github.com/python-attrs/cattrs/issues/423
+        # uhh, this doesn't really work straightaway...
+        # likely need to combine what cattr does with configure_tagged_union
+        # converter.register_structure_hook_factory(is_union, union_structure_hook_factory)
+        # configure_tagged_union(
+        #     union=Type,
+        #     converter=converter,
+        # )
 
         return unstruct_func, lambda x: struct_func(x, Type), orjson.dumps, orjson.loads
     elif impl == 'legacy':

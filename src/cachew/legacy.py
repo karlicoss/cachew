@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import chain, islice
 from pathlib import Path
+from types import UnionType
 from typing import (
     Any,
     Generic,
@@ -12,6 +13,8 @@ from typing import (
     Optional,
     TypeVar,
     Union,
+    get_args,
+    get_origin,
 )
 
 import sqlalchemy
@@ -22,10 +25,11 @@ from .common import CachewException
 
 
 def get_union_args(cls) -> Optional[tuple[type]]:
-    if getattr(cls, '__origin__', None) != Union:
+    origin = get_origin(cls)
+    if origin is not Union and origin is not UnionType:
         return None
 
-    args = cls.__args__
+    args = get_args(cls)
     args = tuple(e for e in args if e is not type(None))
     assert len(args) > 0
     return args  # ty: ignore[invalid-return-type]
