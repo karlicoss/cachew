@@ -82,8 +82,10 @@ def _sqlite_iter(db: Path) -> Iterator[bytes]:
 
 def _file_iter(path: Path) -> Iterator[bytes]:
     with path.open('rb') as fr:
-        for line in fr:
-            yield line[:-1]
+        # Yield raw newline-terminated records so file-backed e2e benchmarks stay
+        # shaped like the real FileBackend path. JSON decoders used here accept
+        # the newline as insignificant trailing whitespace.
+        yield from fr
 
 
 def _storage_load(path: Path, *, storage: Storage) -> list[bytes]:
@@ -97,6 +99,17 @@ def _storage_iter(path: Path, *, storage: Storage) -> Iterator[bytes]:
     if storage == 'file':
         yield from _file_iter(path)
         return
+    assert_never(storage)
+
+
+def _normalize_loaded_blobs(blobs: Sequence[bytes], *, storage: Storage) -> list[bytes]:
+    if storage == 'file':
+        # The raw file iterator yields newline-terminated records to match the
+        # real FileBackend read shape. Strip the framing byte only in the places
+        # where we need exact blob equality against case.blobs.
+        return [blob[:-1] for blob in blobs]
+    if storage == 'sqlite':
+        return list(blobs)
     assert_never(storage)
 
 
@@ -288,7 +301,8 @@ def test_05_dump_e2e(
 
     benchmark_pedantic(benchmark, dump_e2e)
 
-    assert _sample(_storage_load(path, storage=storage)) == _sample(case.blobs)
+    loaded = _storage_load(path, storage=storage)
+    assert _sample(_normalize_loaded_blobs(loaded, storage=storage)) == _sample(case.blobs)
 
 
 @COUNT_PARAM
@@ -347,7 +361,7 @@ def test_06_storage_load(
 
     result = benchmark_pedantic(benchmark, _storage_load, path, storage=storage)
 
-    assert _sample(result) == _sample(case.blobs)
+    assert _sample(_normalize_loaded_blobs(result, storage=storage)) == _sample(case.blobs)
 
 
 @COUNT_PARAM
