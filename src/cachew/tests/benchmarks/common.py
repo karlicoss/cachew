@@ -275,6 +275,16 @@ def make_union_dataclass_objects(count: int) -> list[Name | NameAlt]:
     return objects
 
 
+def make_primitive_int_objects(count: int) -> list[int]:
+    return list(range(count))
+
+
+PRIMITIVE_INT_SPEC = CaseSpec(
+    id='primitive-int',
+    Type=int,
+    build_objects=make_primitive_int_objects,
+    validate_deserialized=_validate_sample_equal,
+)
 NESTED_DATACLASS_SPEC = CaseSpec(
     id='nested-dataclass',
     Type=TE2,
@@ -296,6 +306,7 @@ UNION_DATACLASS_SPEC = CaseSpec(
     unsupported_reason='msgspec only supports multi-struct unions via tagged msgspec.Struct types',
 )
 CASE_SPECS = (
+    PRIMITIVE_INT_SPEC,
     NESTED_DATACLASS_SPEC,
     DATETIME_SPEC,
     UNION_DATACLASS_SPEC,
