@@ -1,12 +1,13 @@
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import closing
 from pathlib import Path
-from typing import Literal, assert_never, cast, get_args
+from typing import Any, Literal, assert_never, cast, get_args
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
+from ... import cachew
 from .common import (
     BENCHMARK_COUNT,
     CASE_SPECS,
@@ -28,6 +29,8 @@ IMPL_PARAM = pytest.mark.parametrize('impl', Impls)
 type Storage = Literal['sqlite', 'file']
 STORAGES = cast(Sequence[Storage], get_args(Storage.__value__))
 STORAGE_PARAM = pytest.mark.parametrize('storage', STORAGES)
+REAL_IMPL = 'cachew-real'
+REAL_IMPL_PARAM = pytest.mark.parametrize('real_impl', [REAL_IMPL])
 DISABLE_GC = pytest.mark.benchmark(disable_gc=True)
 
 
@@ -40,6 +43,10 @@ def _group_name(request: pytest.FixtureRequest, spec: CaseSpec) -> str:
     assert original_name is not None
     assert original_name.startswith('test_')
     stage = original_name[len('test_') :]
+    return _stage_group_name(spec, stage)
+
+
+def _stage_group_name(spec: CaseSpec, stage: str) -> str:
     return f'{spec.id}-{stage}'
 
 
@@ -49,6 +56,11 @@ def _sqlite_db_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int) -
 
 def _file_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int) -> Path:
     return tmp_path / f'{spec.id}-{impl}-{count}.jsonl'
+
+
+def _real_cachew_path(tmp_path: Path, *, spec: CaseSpec, count: int, storage: Storage) -> Path:
+    suffix = '.sqlite' if storage == 'sqlite' else '.jsonl'
+    return tmp_path / f'{spec.id}-{REAL_IMPL}-{storage}-{count}{suffix}'
 
 
 def _storage_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int, storage: Storage) -> Path:
@@ -119,6 +131,20 @@ def skip_unsupported_storage(*, storage: Storage, impl: Impl) -> None:
 
 def attach_storage_metadata(benchmark: BenchmarkFixture, *, storage: Storage) -> None:
     benchmark.extra_info['storage'] = storage
+
+
+def _make_real_cachew_fun(*, path: Path, spec: CaseSpec, count: int, storage: Storage) -> Any:
+    @cachew(
+        cache_path=path,
+        backend=storage,
+        force_file=storage == 'file',
+        cls=('multiple', spec.Type),
+        depends_on=lambda version: version,
+    )
+    def fun(version: int) -> Iterator[object]:  # noqa: ARG001
+        yield from spec.build_objects(count)
+
+    return fun
 
 
 @COUNT_PARAM
@@ -232,6 +258,37 @@ def test_05_dump_e2e(
 @COUNT_PARAM
 @SPEC_PARAM
 @STORAGE_PARAM
+@REAL_IMPL_PARAM
+@DISABLE_GC
+def test_05_real_dump_e2e(
+    benchmark: BenchmarkFixture,
+    tmp_path: Path,
+    count: int,
+    spec: CaseSpec,
+    storage: Storage,
+    real_impl: str,
+) -> None:
+    benchmark.group = _stage_group_name(spec, '05_dump_e2e')
+    path = _real_cachew_path(tmp_path, spec=spec, count=count, storage=storage)
+    case = make_case(spec, count=count, impl='cachew')
+    attach_case_metadata(benchmark, count=count, impl=real_impl, operation='dump-e2e', spec=spec, case=case)
+    attach_storage_metadata(benchmark, storage=storage)
+    fun = _make_real_cachew_fun(path=path, spec=spec, count=count, storage=storage)
+    version = 0
+
+    def dump_e2e() -> list[object]:
+        nonlocal version
+        version += 1
+        return list(fun(version=version))
+
+    result = benchmark_pedantic(benchmark, dump_e2e)
+
+    spec.validate_deserialized('cachew', result, case.objects)
+
+
+@COUNT_PARAM
+@SPEC_PARAM
+@STORAGE_PARAM
 @IMPL_PARAM
 @DISABLE_GC
 def test_06_storage_load(
@@ -321,6 +378,36 @@ def test_09_load_e2e(
     result = benchmark_pedantic(benchmark, load_e2e)
 
     spec.validate_deserialized(impl, result, case.objects)
+
+
+@COUNT_PARAM
+@SPEC_PARAM
+@STORAGE_PARAM
+@REAL_IMPL_PARAM
+@DISABLE_GC
+def test_09_real_load_e2e(
+    benchmark: BenchmarkFixture,
+    tmp_path: Path,
+    count: int,
+    spec: CaseSpec,
+    storage: Storage,
+    real_impl: str,
+) -> None:
+    benchmark.group = _stage_group_name(spec, '09_load_e2e')
+    path = _real_cachew_path(tmp_path, spec=spec, count=count, storage=storage)
+    case = make_case(spec, count=count, impl='cachew')
+    attach_case_metadata(benchmark, count=count, impl=real_impl, operation='load-e2e', spec=spec, case=case)
+    attach_storage_metadata(benchmark, storage=storage)
+    fun = _make_real_cachew_fun(path=path, spec=spec, count=count, storage=storage)
+    warmup = list(fun(version=1))
+    spec.validate_deserialized('cachew', warmup, case.objects)
+
+    def load_e2e() -> list[object]:
+        return list(fun(version=1))
+
+    result = benchmark_pedantic(benchmark, load_e2e)
+
+    spec.validate_deserialized('cachew', result, case.objects)
 
 
 # TODO add a separate benchmark module for the real SqliteBackend path.
