@@ -1,5 +1,5 @@
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal, assert_never, cast, get_args
@@ -7,7 +7,7 @@ from typing import Any, Literal, assert_never, cast, get_args
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
-from ... import cachew
+from ... import _DEFAULT_CHUNK_BY, cachew
 from .common import (
     BENCHMARK_COUNT,
     CASE_SPECS,
@@ -32,6 +32,9 @@ STORAGE_PARAM = pytest.mark.parametrize('storage', STORAGES)
 REAL_IMPL = 'cachew-real'
 REAL_IMPL_PARAM = pytest.mark.parametrize('real_impl', [REAL_IMPL])
 DISABLE_GC = pytest.mark.benchmark(disable_gc=True)
+# Match cachew's default chunking so synthetic storage/e2e benchmarks follow
+# the same batching shape as the real cachew backend path.
+_DUMP_CHUNK_BY = _DEFAULT_CHUNK_BY
 
 
 def _sample(values: Sequence[object], *, sample_size: int = 100) -> list[object]:
@@ -71,50 +74,29 @@ def _storage_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int, sto
     assert_never(storage)
 
 
-def _sqlite_dump(db: Path, blobs: list[bytes]) -> None:
-    db.unlink(missing_ok=True)
+def _sqlite_iter(db: Path) -> Iterator[bytes]:
     with closing(sqlite3.connect(db)) as conn, conn:
-        conn.execute('CREATE TABLE data (value BLOB)')
-        conn.executemany('INSERT INTO data (value) VALUES (?)', [(blob,) for blob in blobs])
+        for (value,) in conn.execute('SELECT value FROM data'):
+            yield value
 
 
-def _sqlite_load(db: Path) -> list[bytes]:
-    with closing(sqlite3.connect(db)) as conn, conn:
-        return [value for (value,) in conn.execute('SELECT value FROM data')]
-
-
-def _file_dump(path: Path, blobs: list[bytes]) -> None:
-    path.unlink(missing_ok=True)
-    # NOTE: tried an os.writev() implementation here, but it was a slowdown in
-    # practice because the extra Python-side bookkeeping outweighed any syscall
-    # reduction for this newline-delimited benchmark helper.
-    with path.open('wb') as fw:
-        write = fw.write
-        for blob in blobs:
-            write(blob)
-            write(b'\n')
-
-
-def _file_load(path: Path) -> list[bytes]:
+def _file_iter(path: Path) -> Iterator[bytes]:
     with path.open('rb') as fr:
-        return [line[:-1] for line in fr]
-
-
-def _storage_dump(path: Path, blobs: list[bytes], *, storage: Storage) -> None:
-    if storage == 'sqlite':
-        _sqlite_dump(path, blobs)
-        return
-    if storage == 'file':
-        _file_dump(path, blobs)
-        return
-    assert_never(storage)
+        for line in fr:
+            yield line[:-1]
 
 
 def _storage_load(path: Path, *, storage: Storage) -> list[bytes]:
+    return list(_storage_iter(path, storage=storage))
+
+
+def _storage_iter(path: Path, *, storage: Storage) -> Iterator[bytes]:
     if storage == 'sqlite':
-        return _sqlite_load(path)
+        yield from _sqlite_iter(path)
+        return
     if storage == 'file':
-        return _file_load(path)
+        yield from _file_iter(path)
+        return
     assert_never(storage)
 
 
@@ -131,6 +113,50 @@ def skip_unsupported_storage(*, storage: Storage, impl: Impl) -> None:
 
 def attach_storage_metadata(benchmark: BenchmarkFixture, *, storage: Storage) -> None:
     benchmark.extra_info['storage'] = storage
+
+
+def _iter_blobs_from_objects(
+    *,
+    objects: Iterable[object],
+    encode,
+    payload_to_blob,
+) -> Iterator[bytes]:
+    for obj in objects:
+        yield payload_to_blob(encode(obj))
+
+
+def _storage_dump_streaming(
+    path: Path,
+    *,
+    blobs: Iterable[bytes],
+    storage: Storage,
+    chunk_by: int = _DUMP_CHUNK_BY,
+) -> None:
+    if storage == 'sqlite':
+        path.unlink(missing_ok=True)
+        with closing(sqlite3.connect(path)) as conn, conn:
+            conn.execute('CREATE TABLE data (value BLOB)')
+            chunk: list[bytes] = []
+            for blob in blobs:
+                chunk.append(blob)
+                if len(chunk) >= chunk_by:
+                    conn.executemany('INSERT INTO data (value) VALUES (?)', [(blob,) for blob in chunk])
+                    chunk = []
+            if len(chunk) > 0:
+                conn.executemany('INSERT INTO data (value) VALUES (?)', [(blob,) for blob in chunk])
+        return
+    if storage == 'file':
+        path.unlink(missing_ok=True)
+        # NOTE: tried an os.writev() implementation here, but it was a slowdown
+        # in practice because the extra Python-side bookkeeping outweighed any
+        # syscall reduction for this newline-delimited benchmark helper.
+        with path.open('wb') as fw:
+            write = fw.write
+            for blob in blobs:
+                write(blob)
+                write(b'\n')
+        return
+    assert_never(storage)
 
 
 def _make_real_cachew_fun(*, path: Path, spec: CaseSpec, count: int, storage: Storage) -> Any:
@@ -220,7 +246,7 @@ def test_04_storage_dump(
     attach_case_metadata(benchmark, count=count, impl=impl, operation='storage-dump', spec=spec, case=case)
     attach_storage_metadata(benchmark, storage=storage)
 
-    benchmark_pedantic(benchmark, _storage_dump, path, case.blobs, storage=storage)
+    benchmark_pedantic(benchmark, _storage_dump_streaming, path, blobs=case.blobs, storage=storage)
 
     assert path.exists()
 
@@ -248,7 +274,17 @@ def test_05_dump_e2e(
     attach_storage_metadata(benchmark, storage=storage)
 
     def dump_e2e() -> None:
-        _storage_dump(path, case.dump_blobs_all(), storage=storage)
+        # Include object construction here so this synthetic miss-path benchmark
+        # stays comparable to the real cachew e2e write benchmark below.
+        _storage_dump_streaming(
+            path,
+            blobs=_iter_blobs_from_objects(
+                objects=spec.build_objects(count),
+                encode=case.encode,
+                payload_to_blob=case.payload_to_blob,
+            ),
+            storage=storage,
+        )
 
     benchmark_pedantic(benchmark, dump_e2e)
 
@@ -305,7 +341,7 @@ def test_06_storage_load(
     skip_unsupported_storage(storage=storage, impl=impl)
     case = make_case(spec, count=count, impl=impl)
     path = _storage_path(tmp_path, spec=spec, impl=impl, count=count, storage=storage)
-    _storage_dump(path, case.blobs, storage=storage)
+    _storage_dump_streaming(path, blobs=case.blobs, storage=storage)
     attach_case_metadata(benchmark, count=count, impl=impl, operation='storage-load', spec=spec, case=case)
     attach_storage_metadata(benchmark, storage=storage)
 
@@ -367,13 +403,12 @@ def test_09_load_e2e(
     skip_unsupported_storage(storage=storage, impl=impl)
     case = make_case(spec, count=count, impl=impl)
     path = _storage_path(tmp_path, spec=spec, impl=impl, count=count, storage=storage)
-    _storage_dump(path, case.blobs, storage=storage)
+    _storage_dump_streaming(path, blobs=case.blobs, storage=storage)
     attach_case_metadata(benchmark, count=count, impl=impl, operation='load-e2e', spec=spec, case=case)
     attach_storage_metadata(benchmark, storage=storage)
 
     def load_e2e() -> list[object]:
-        blobs = _storage_load(path, storage=storage)
-        return [case.decode(case.blob_to_payload(blob)) for blob in blobs]
+        return [case.decode(case.blob_to_payload(blob)) for blob in _storage_iter(path, storage=storage)]
 
     result = benchmark_pedantic(benchmark, load_e2e)
 

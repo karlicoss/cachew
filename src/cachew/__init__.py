@@ -81,6 +81,8 @@ BACKENDS: dict[Backend, type[AbstractBackend]] = {
     'sqlite': SqliteBackend,
 }
 
+_DEFAULT_CHUNK_BY = 100
+
 
 type PathProvider[**P] = PathIsh | Callable[P, PathIsh]
 type HashFunction[**P] = Callable[P, SourceHash]
@@ -284,7 +286,7 @@ def cachew_impl[**P](
     cls: type | tuple[Kind, type] | None = None,
     depends_on: HashFunction[P] = default_hash,
     logger: logging.Logger | None = None,
-    chunk_by: int = 100,
+    chunk_by: int = _DEFAULT_CHUNK_BY,
     # NOTE: allowed values for chunk_by depend on the system.
     # some systems (to be more specific, sqlite builds), it might be too large and cause issues
     # ideally this would be more defensive/autodetected, maybe with a warning?
