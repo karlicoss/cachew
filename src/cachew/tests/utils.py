@@ -1,10 +1,7 @@
-import gc
 import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-
-import pytest
 
 PROFILES = Path(__file__).absolute().parent / 'profiles'
 
@@ -34,20 +31,6 @@ def timer(name: str):
     from codetiming import Timer
 
     return Timer(name=name, text=name + ': ' + '{:.2f}s')
-
-
-@pytest.fixture
-def gc_control(*, gc_on: bool):
-    if gc_on:
-        # no need to do anything, should be on by default
-        yield
-        return
-
-    gc.disable()
-    try:
-        yield
-    finally:
-        gc.enable()
 
 
 running_on_ci = 'CI' in os.environ
