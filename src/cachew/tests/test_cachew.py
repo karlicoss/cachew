@@ -6,7 +6,7 @@ import string
 import sys
 import time
 import timeit
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import closing, nullcontext
 from dataclasses import asdict, dataclass
@@ -19,6 +19,7 @@ from time import sleep
 from typing import (
     Any,
     NamedTuple,
+    assert_type,
     cast,
 )
 
@@ -327,6 +328,49 @@ def test_return_type_inference(tmp_path: Path) -> None:
 
     assert len(list(data())) == 2
     assert len(list(data())) == 2
+
+
+def test_preserves_static_return_types(tmp_path: Path) -> None:
+    @cachew(tmp_path)
+    def many_ints() -> Iterator[int]:
+        yield 1
+
+    @cachew
+    def many_uuu() -> Iterator[UUU]:
+        yield UUU(xx=1, yy=2)
+
+    @cachew(tmp_path)
+    def one_int() -> int:
+        return 123
+
+    @cachew(tmp_path, cls=('single', str))
+    def one_str() -> str:
+        return 'whatever'
+
+    @cachew(tmp_path)
+    def with_args(x: int, y: str = 'a') -> Iterator[int]:
+        yield x
+        yield len(y)
+
+    # NOTE: ty is too strict and rejects assert_type for named functions?
+    # workaround by type assignability check
+    _many_ints_f: Callable[[], Iterator[int]] = many_ints
+    assert_type(many_ints(), Iterator[int])
+    assert_type(next(many_ints()), int)
+
+    _many_uuu_f: Callable[[], Iterator[UUU]] = many_uuu
+    assert_type(many_uuu(), Iterator[UUU])
+    assert_type(next(many_uuu()), UUU)
+
+    _one_int_f: Callable[[], int] = one_int
+    assert_type(one_int(), int)
+
+    _one_str_f: Callable[[], str] = one_str
+    assert_type(one_str(), str)
+
+    _with_args_f: Callable[[int, str], Iterator[int]] = with_args
+    assert_type(with_args(1), Iterator[int])
+    assert_type(with_args(1, 'bb'), Iterator[int])
 
 
 def test_return_type_mismatch(tmp_path: Path) -> None:
