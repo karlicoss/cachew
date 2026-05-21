@@ -1,13 +1,14 @@
 # ruff: noqa: ARG001  # ruff thinks pytest fixtures are unused arguments
 import hashlib
 import inspect
+import sqlite3
 import string
 import sys
 import time
 import timeit
 from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from itertools import chain, islice
@@ -434,22 +435,95 @@ def test_transaction(tmp_path: Path) -> None:
     class TestError(Exception):
         pass
 
+    calls = 0
+
     @cachew(cache_path=tmp_path, cls=BB, chunk_by=1)
     def get_data(version: int):
+        nonlocal calls
+        calls += 1
         for i in range(3):
             yield BB(xx=2, yy=i)
             if version == 2:
                 raise TestError
 
     exp = [BB(xx=2, yy=0), BB(xx=2, yy=1), BB(xx=2, yy=2)]
-    assert list(get_data(1)) == exp
-    assert list(get_data(1)) == exp
+    assert list(get_data(version=1)) == exp
+    assert list(get_data(version=1)) == exp
+    assert calls == 1
 
-    # TODO test that hash is unchanged?
     with pytest.raises(TestError):
-        list(get_data(2))
+        list(get_data(version=2))
+    assert calls == 2
 
-    assert list(get_data(1)) == exp
+    # Failed recomputation should not turn into a cached hit for the new hash.
+    with pytest.raises(TestError):
+        list(get_data(version=2))
+    assert calls == 3
+
+    assert list(get_data(version=1)) == exp
+    assert calls == 3
+
+
+def test_sqlite_startup_fails_cleanly_on_readonly_cache_dir(tmp_path: Path) -> None:
+    if settings.DEFAULT_BACKEND != 'sqlite':
+        pytest.skip('this test only makes sense for sqlite backend')
+
+    db = tmp_path / 'cache.sqlite'
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute('CREATE TABLE seed (value INTEGER)')
+
+    ## make read only
+    db.chmod(0o666)
+    tmp_path.chmod(0o555)
+    ##
+
+    @cachew(cache_path=db, force_file=True)
+    def fun() -> Iterator[int]:
+        yield 1
+
+    with pytest.raises(RuntimeError, match='Error while setting WAL'):
+        list(fun())
+
+
+def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path) -> None:
+    if settings.DEFAULT_BACKEND != 'sqlite':
+        pytest.skip('this test only makes sense for sqlite backend')
+
+    db = tmp_path / 'cache.sqlite'
+    calls = 0
+
+    @cachew(cache_path=db, force_file=True)
+    def fun(version: int) -> Iterator[int]:
+        nonlocal calls
+        calls += 1
+        yield version
+
+    assert list(fun(version=1)) == [1]
+    assert list(fun(version=1)) == [1]
+    assert calls == 1
+
+    # BEGIN IMMEDIATE keeps reads working but prevents cachew from upgrading to
+    # a write transaction, so it should fall back to uncached execution.
+    with closing(sqlite3.connect(db, timeout=0.0, isolation_level=None)) as lock_conn:
+        lock_conn.execute('BEGIN IMMEDIATE')
+
+        ## if version is unchanged, should be able to read from cache
+        assert list(fun(version=1)) == [1]
+        assert calls == 1
+
+        ## if version is changed, should recompute from scratch
+        assert list(fun(version=2)) == [2]
+        assert calls == 2
+
+        lock_conn.rollback()
+
+    ## while cache was locked, we couldn't update it, so calls should increase
+    assert list(fun(version=2)) == [2]
+    assert calls == 3
+
+    ## but next call is cached
+    assert list(fun(version=2)) == [2]
+    assert calls == 3
 
 
 class Job(NamedTuple):
