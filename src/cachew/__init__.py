@@ -7,13 +7,13 @@ import logging
 import os
 import stat
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
+    Protocol,
     cast,
     get_args,
     get_origin,
@@ -28,7 +28,7 @@ try:
 except:
     warnings.warn("orjson couldn't be imported. It's _highly_ recommended for better caching performance", stacklevel=2)
 
-    def orjson_dumps(*args, **kwargs):  # type: ignore[misc]
+    def orjson_dumps(*args: Any, **kwargs: Any) -> bytes:  # type: ignore[misc]
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
 
@@ -103,9 +103,15 @@ def mtime_hash(path: Path, *args, **kwargs) -> SourceHash:
 Failure = str  # deliberately not a type =, used in type checks
 type Kind = Literal['single', 'multiple']
 type Inferred = tuple[Kind, type[Any]]
+type ExplicitCacheType[ItemT] = type[ItemT] | tuple[Kind, type[ItemT]]
+# NOTE: just ItemT basically means ('multiple', ItemT)
 
 
-def infer_return_type(func) -> Failure | Inferred:
+class PreservingDecorator(Protocol):
+    def __call__[F: Callable[..., Any]](self, func: F, /) -> F: ...
+
+
+def infer_return_type(func: Callable[..., Any]) -> Failure | Inferred:
     """
     >>> def const() -> int:
     ...     return 123
@@ -236,7 +242,7 @@ def infer_return_type(func) -> Failure | Inferred:
     return ('multiple' if return_multiple else 'single', cached_type)
 
 
-def _returns_multiple(rtype) -> bool:
+def _returns_multiple(rtype: object) -> bool:
     origin = get_origin(rtype)
     if origin is None:
         return False
@@ -251,20 +257,6 @@ def _returns_multiple(rtype) -> bool:
         return False
 
 
-# https://stackoverflow.com/questions/653368/how-to-create-a-python-decorator-that-can-be-used-either-with-or-without-paramet
-def doublewrap(f):
-    @functools.wraps(f)
-    def new_dec(*args, **kwargs):
-        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-            # actual decorated function
-            return f(args[0])
-        else:
-            # decorator arguments
-            return lambda realf: f(realf, *args, **kwargs)
-
-    return new_dec
-
-
 def cachew_error(e: Exception, *, logger: logging.Logger) -> None:
     if settings.THROW_ON_ERROR:
         # TODO would be nice to throw from the original code line -- maybe mess with the stack here?
@@ -276,14 +268,14 @@ def cachew_error(e: Exception, *, logger: logging.Logger) -> None:
 use_default_path = cast(Path, object())
 
 
-# using cachew_impl here just to use different signatures during type checking (see below)
-@doublewrap
-def cachew_impl[**P](
-    func=None,  # TODO should probably type it after switch to python 3.10/proper paramspec
+# ReturnT is the decorated function's public return type.
+# ItemT is the type cachew serializes: the element type for iterable returns, or ReturnT for single-value returns.
+def cachew_impl[**P, ReturnT, ItemT](
+    func: Callable[P, ReturnT],
     cache_path: PathProvider[P] | None = use_default_path,
     *,
     force_file: bool = False,
-    cls: type | tuple[Kind, type] | None = None,
+    cls: ExplicitCacheType[ItemT] | None = None,
     depends_on: HashFunction[P] = default_hash,
     logger: logging.Logger | None = None,
     chunk_by: int = _DEFAULT_CHUNK_BY,
@@ -295,8 +287,8 @@ def cachew_impl[**P](
     # - too large values (e.g. 10K) are slightly slower as well (not sure why?)
     synthetic_key: str | None = None,
     backend: Backend | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Callable[P, ReturnT]:
     r"""
     Database-backed cache decorator. TODO more description?
     # TODO use this doc in readme?
@@ -346,13 +338,12 @@ def cachew_impl[**P](
             logger = get_logger()
 
     class AddFuncName(logging.LoggerAdapter):
-        def process(self, msg, kwargs):
+        def process(self, msg: str, kwargs: Any) -> tuple[str, Any]:
             extra = self.extra
             assert extra is not None
             func_name = extra['func_name']
             return f'[{func_name}] {msg}', kwargs
 
-    assert func is not None
     func_name = callable_name(func)
     adapter = AddFuncName(logger, {'func_name': func_name})
     logger = cast(logging.Logger, adapter)
@@ -371,8 +362,8 @@ def cachew_impl[**P](
         cache_path = settings.DEFAULT_CACHEW_DIR
         logger.debug(f'no cache_path specified, using the default {cache_path}')
 
-    use_kind: Kind | None = None
-    use_cls: type | None = None
+    use_kind: Kind
+    use_cls: type[ItemT] | None = None
     if cls is not None:
         # defensive here since typing. objects passed as cls might fail on isinstance
         try:
@@ -396,28 +387,33 @@ def cachew_impl[**P](
         else:
             # it's ok, assuming user knows better
             logger.debug(msg)
-            assert use_kind is not None
     else:
         (inferred_kind, inferred_cls) = inference_res
         if use_cls is None:
             logger.debug(f'using inferred type {inferred_kind} {inferred_cls}')
             (use_kind, use_cls) = (inferred_kind, inferred_cls)
         else:
-            assert use_kind is not None
             if (use_kind, use_cls) != inference_res:
                 logger.warning(
                     f"inferred type {inference_res} mismatches explicitly specified type {(use_kind, use_cls)}"
                 )
                 # TODO not sure if should be more serious error...
 
+    _func: Callable[P, Iterable[ItemT]]
     if use_kind == 'single':
         # pretend it's an iterable, this is just simpler for cachew_wrapper
         @functools.wraps(func)
-        def _func(*args, **kwargs):
-            return [func(*args, **kwargs)]
+        def _func_single(*args: P.args, **kwargs: P.kwargs) -> list[ItemT]:
+            # Runtime invariant: in single mode, ReturnT is ItemT.
+            single_func = cast(Callable[P, ItemT], func)
+            return [single_func(*args, **kwargs)]
+
+        _func = _func_single
 
     else:
-        _func = func
+        # Runtime invariant: in multiple mode, ReturnT is Iterable[ItemT].
+        # This comes from cls/return-type inference, which type checkers can't connect back to the generic parameters.
+        _func = cast(Callable[P, Iterable[ItemT]], func)
 
     assert use_cls is not None
 
@@ -435,54 +431,66 @@ def cachew_impl[**P](
 
     # hack to avoid extra stack frame (see test_recursive*)
     @functools.wraps(func)
-    def binder(*args, **kwargs):
-        kwargs['_cachew_context'] = ctx
-        res = cachew_wrapper(*args, **kwargs)
+    def binder(*args: P.args, **kwargs: P.kwargs) -> ReturnT:
+        res = cachew_wrapper(ctx, *args, **kwargs)
 
         if use_kind == 'single':
             lres = list(res)
             assert len(lres) == 1, lres  # shouldn't happen
-            return lres[0]
-        return res
+            return cast(ReturnT, lres[0])
+        else:
+            return cast(ReturnT, res)
 
     return binder
 
 
-if TYPE_CHECKING:
-    # we need two versions due to @doublewrap
-    # this is when we just annotate as @cachew without any args
-    @overload
-    def cachew[F: Callable](fun: F) -> F: ...
-
-    # NOTE: we won't really be able to make sure the args of cache_path are the same as args of the wrapped function
-    # because when cachew() is called, we don't know anything about the wrapped function yet
-    # but at least it works for checking that cachew_path and depdns_on have the same args :shrug:
-    @overload
-    def cachew[F, **P](
-        cache_path: PathProvider[P] | None = ...,
-        *,
-        force_file: bool = ...,
-        cls: type | tuple[Kind, type] | None = ...,
-        depends_on: HashFunction[P] = ...,
-        logger: logging.Logger | None = ...,
-        chunk_by: int = ...,
-        synthetic_key: str | None = ...,
-        backend: Backend | None = ...,
-    ) -> Callable[[F], F]: ...
-
-    def cachew(*args, **kwargs):  # make ty happy
-        raise NotImplementedError
-else:
-    cachew = cachew_impl
+@overload
+def cachew[F: Callable[..., Any]](fun: F, /) -> F: ...
 
 
-def callable_name(func: Callable) -> str:
+# NOTE: cache_path and depends_on are tied to each other, but not to the wrapped function.
+# Runtime supports looser helpers, such as depends_on accepting only the arguments it cares about.
+@overload
+def cachew[**P, ItemT](
+    cache_path: PathProvider[P] | None = ...,
+    *,
+    force_file: bool = ...,
+    cls: ExplicitCacheType[ItemT] | None = ...,
+    depends_on: HashFunction[P] = ...,
+    logger: logging.Logger | None = ...,
+    chunk_by: int = ...,
+    synthetic_key: str | None = ...,
+    backend: Backend | None = ...,
+) -> PreservingDecorator: ...
+
+
+def cachew(func_or_cache_path: Any = use_default_path, /, **kwargs: Any) -> Any:
+    if callable(func_or_cache_path) and len(kwargs) == 0:
+        return cachew_impl(func_or_cache_path)
+
+    if 'cache_path' in kwargs:
+        if func_or_cache_path is not use_default_path:
+            raise TypeError("cachew() got multiple values for argument 'cache_path'")
+        cache_path = kwargs.pop('cache_path')
+    else:
+        cache_path = func_or_cache_path
+
+    def decorator[F: Callable[..., Any]](func: F, /) -> F:
+        return cast(F, cachew_impl(func, cache_path=cache_path, **kwargs))
+
+    return decorator
+
+
+cachew.__doc__ = cachew_impl.__doc__
+
+
+def callable_name(func: Callable[..., Any]) -> str:
     # some functions don't have __module__
     mod = getattr(func, '__module__', None) or ''
     return f'{mod}:{getattr(func, "__qualname__")}'
 
 
-def callable_module_name(func: Callable) -> str | None:
+def callable_module_name(func: Callable[..., Any]) -> str | None:
     return getattr(func, '__module__', None)
 
 
@@ -567,17 +575,18 @@ _DEPENDENCIES        = 'dependencies'
 
 
 @dataclass
-class Context[**P]:
+class Context[**P, ItemT]:
     # fmt: off
-    func         : Callable
+    func         : Callable[P, Iterable[ItemT]]
     cache_path   : PathProvider[P]
     force_file   : bool
-    cls_         : type
+    cls_         : type[ItemT]
     depends_on   : HashFunction[P]
     logger       : logging.Logger
     chunk_by     : int
     synthetic_key: str | None
     backend      : Backend | None
+    # fmt: on
 
     def composite_hash(self, *args, **kwargs) -> dict[str, Any]:
         fsig = inspect.signature(self.func)
@@ -586,37 +595,37 @@ class Context[**P]:
             k: v.default
             for k, v in fsig.parameters.items()
             if v.default is not inspect.Parameter.empty
-        }
+        }  # fmt: skip
         # but only pass default if the user wants it in the hash function?
         hsig = inspect.signature(self.depends_on)
         defaults = {
             k: v
             for k, v in defaults.items()
             if k in hsig.parameters or 'kwargs' in hsig.parameters
-        }
+        }  # fmt: skip
         kwargs = {**defaults, **kwargs}
         schema = str(self.cls_)
         hash_parts = {
             'cachew'      : CACHEW_VERSION,
             'schema'      : schema,
             _DEPENDENCIES : str(self.depends_on(*args, **kwargs)),
-        }
+        }  # fmt: skip
         synthetic_key = self.synthetic_key
         if synthetic_key is not None:
-            hash_parts[_SYNTHETIC_KEY      ] = synthetic_key
+            hash_parts[_SYNTHETIC_KEY      ] = synthetic_key  # fmt: skip
             hash_parts[_SYNTHETIC_KEY_VALUE] = kwargs[synthetic_key]
             # FIXME assert it's in kwargs in the first place?
             # FIXME support positional args too? maybe extract the name from signature somehow? dunno
             # need to test it
         return hash_parts
-    # fmt: on
 
 
-def cachew_wrapper[**P](
-    *args,
-    _cachew_context: Context[P],
-    **kwargs,
-):
+def cachew_wrapper[**P, ItemT](
+    _cachew_context: Context[P, ItemT],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> Iterator[ItemT]:
     C = _cachew_context
     # fmt: off
     func          = C.func
@@ -728,12 +737,12 @@ def cachew_wrapper[**P](
         missing = missing_keys(cached=old_values, wanted=new_values)
         if missing is not None:
             # can reuse cache
-            kwargs[_CACHEW_CACHED] = cached_items()
-            kwargs[synthetic_key] = missing
+            kwargs[_CACHEW_CACHED] = cached_items()  # ty: ignore[invalid-assignment]
+            kwargs[synthetic_key] = missing  # ty: ignore[invalid-assignment]
 
     early_exit = False
 
-    def written_to_cache():
+    def written_to_cache() -> Iterator[ItemT]:
         nonlocal early_exit
 
         datas = func(*args, **kwargs)
@@ -749,7 +758,7 @@ def cachew_wrapper[**P](
 
         flush_blobs = backend.flush_blobs
 
-        chunk: list[Any] = []
+        chunk: list[bytes] = []
 
         def flush() -> None:
             nonlocal chunk
@@ -776,7 +785,7 @@ def cachew_wrapper[**P](
         backend.finalize(new_hash)
         logger.info(f'wrote   {total_objects} objects to   cachew ({used_backend}:{db_path})')
 
-    def cached_items():
+    def cached_items() -> Iterator[ItemT]:
         total_cached = backend.cached_blobs_total()
         total_cached_s = '' if total_cached is None else f'{total_cached} '
         logger.info(f'loading {total_cached_s}objects from cachew ({used_backend}:{db_path})')
@@ -801,7 +810,7 @@ def cachew_wrapper[**P](
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
 
-        marshall: CachewMarshall[Any] = CachewMarshall(Type_=cls)
+        marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=cls)
 
         with BackendCls(cache_path=db_path, logger=logger) as backend:
             old_hash = backend.get_old_hash()
