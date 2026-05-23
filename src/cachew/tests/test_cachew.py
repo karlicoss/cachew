@@ -1043,6 +1043,83 @@ def test_defensive(restore_settings) -> None:
             assert list(fun()) == [123]
 
 
+@pytest.mark.xfail(reason='cache write errors after yielding currently restart the source iterator', strict=True)
+def test_defensive_write_error_after_yield_does_not_duplicate(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If cache writing fails after yielding an item, fallback must not restart the source iterator and duplicate emitted items.
+    """
+    settings.THROW_ON_ERROR = False
+
+    calls = 0
+    first = BB(xx=1, yy=2)
+    second = BB(xx=3, yy=4)
+
+    # deliberately specify the wrong type, so cache writing fails after yielding the first item
+    @cachew(tmp_path, cls=AA)
+    def fun() -> Iterator[BB]:
+        nonlocal calls
+        calls += 1
+        yield first
+        yield second
+
+    # Current buggy result is [first, first, second]: one item yielded before cache writing fails, then full fallback.
+    # Expected result is [first, second], with no restarted source iterator after anything was yielded.
+    assert list(fun()) == [first, second]
+    assert calls == 1
+
+
+@pytest.mark.xfail(reason='cache read errors after yielding currently restart the source iterator', strict=True)
+def test_defensive_read_error_after_yield_does_not_duplicate(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If cache reading fails after yielding an item, fallback must not restart the source iterator and duplicate emitted items.
+    """
+    settings.THROW_ON_ERROR = False
+
+    calls = 0
+
+    class Item(NamedTuple):
+        value: Any
+
+    first = Item(value=[1])
+    second = Item(value=2)
+
+    # First populate the cache with a looser schema.
+    @cachew(tmp_path)
+    def fun() -> Iterator[Item]:
+        nonlocal calls
+        calls += 1
+        yield first
+        yield second
+
+    assert list(fun()) == [first, second]
+    assert calls == 1
+
+    class Item(NamedTuple):  # type: ignore[no-redef]
+        value: list[int]
+
+    first = Item(value=[1])
+    second = Item(value=[2])
+
+    # Then reuse the same function and type names, so the cache hash still matches, but the second cached item no longer loads.
+    @cachew(tmp_path)  # type: ignore[no-redef]
+    def fun() -> Iterator[Item]:
+        nonlocal calls
+        calls += 1
+        yield first
+        yield second
+
+    # Current buggy result is [first, first, second]: one item loaded from cache, then full fallback.
+    # Expected result is [first, second], with no restarted source iterator after anything was yielded.
+    assert list(fun()) == [first, second]
+    assert calls == 1
+
+
 @pytest.mark.parametrize('throw', [False, True])
 def test_bad_annotation(*, tmp_path: Path, throw: bool) -> None:
     """
