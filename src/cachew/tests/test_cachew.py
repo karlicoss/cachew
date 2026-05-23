@@ -1160,6 +1160,48 @@ def test_locked_write_uncached_exception_propagates_without_retry(
     assert calls == 1
 
 
+def test_synthetic_lock_lost_runs_uncached_with_original_args(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If synthetic cachew loses the write lock, it should run uncached with the original arguments.
+    """
+    settings.THROW_ON_ERROR = False
+
+    cache_path = tmp_path / 'cache'
+    recomputed: list[str] = []
+    consumed_cached = False
+
+    @cachew(cache_path, force_file=True, synthetic_key='keys')
+    def fun(keys: Sequence[str], *, cachew_cached: Iterable[str] = ()) -> Iterator[str]:
+        nonlocal consumed_cached
+
+        for item in cachew_cached:
+            consumed_cached = True
+            yield item
+
+        for key in keys:
+            recomputed.append(key)
+            yield key
+
+    assert list(fun(keys=['a'])) == ['a']
+    assert recomputed == ['a']
+
+    recomputed.clear()
+    backend_cls = {
+        'file': FileBackend,
+        'sqlite': SqliteBackend,
+    }[settings.DEFAULT_BACKEND]
+
+    with backend_cls(cache_path=cache_path, logger=logger) as backend:
+        assert backend.get_exclusive_write()
+        assert list(fun(keys=['a', 'b'])) == ['a', 'b']
+
+    assert recomputed == ['a', 'b']
+    assert consumed_cached is False
+
+
 @pytest.mark.parametrize('throw', [False, True])
 def test_bad_annotation(*, tmp_path: Path, throw: bool) -> None:
     """

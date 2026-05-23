@@ -553,16 +553,6 @@ def cachew_wrapper[**P, ItemT](
 
             logger.debug('hash mismatch: computing data and writing to db')
 
-            if synthetic_key is not None:
-                missing_synthetic_values = _synthetic.missing_synthetic_key_values_for_hashes(
-                    old_hash=old_hash,
-                    new_hash_d=new_hash_d,
-                )
-                if missing_synthetic_values is not None:
-                    # can reuse cache
-                    kwargs[_synthetic.CACHEW_CACHED] = session.cached_items()  # ty: ignore[invalid-assignment]
-                    kwargs[synthetic_key] = missing_synthetic_values  # ty: ignore[invalid-assignment]
-
             got_write = backend.get_exclusive_write()
             if not got_write:
                 # NOTE: this is the bit we really have to watch out for and not put in a helper function
@@ -572,6 +562,16 @@ def cachew_wrapper[**P, ItemT](
                 yield from func(*args, **kwargs)
                 running_uncached = False
                 return
+
+            if synthetic_key is not None:
+                missing_synthetic_values = _synthetic.missing_synthetic_key_values_for_hashes(
+                    old_hash=old_hash,
+                    new_hash_d=new_hash_d,
+                )
+                if missing_synthetic_values is not None:
+                    # can reuse cache
+                    kwargs[_synthetic.CACHEW_CACHED] = session.cached_items()  # ty: ignore[invalid-assignment]
+                    kwargs[synthetic_key] = missing_synthetic_values  # ty: ignore[invalid-assignment]
 
             # at this point we're guaranteed to have an exclusive write transaction
             try:
