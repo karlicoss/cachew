@@ -1379,7 +1379,7 @@ print("FINISHED")
 
 
 # tests both modes side by side to demonstrate the difference
-@pytest.mark.parametrize('use_synthetic', ['False', 'True'])
+@pytest.mark.parametrize('use_synthetic', [False, True])
 def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     # just to keep track of which data we had to compute from scratch
     _recomputed: list[str] = []

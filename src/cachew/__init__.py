@@ -31,12 +31,13 @@ except:
 
 import platformdirs
 
+from . import _synthetic
 from ._disable import module_is_disabled
 from ._infer import Failure, Kind, infer_return_type
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
-from .common import CachewException, SourceHash
+from .common import DEPENDENCIES, CachewException, SourceHash
 from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall
 
@@ -339,14 +340,6 @@ def callable_module_name(func: Callable[..., Any]) -> str | None:
     return getattr(func, '__module__', None)
 
 
-# fmt: off
-_CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs
-_SYNTHETIC_KEY       = 'synthetic_key'
-_SYNTHETIC_KEY_VALUE = 'synthetic_key_value'
-_DEPENDENCIES        = 'dependencies'
-# fmt: on
-
-
 @dataclass
 class Context[**P, ItemT]:
     # fmt: off
@@ -407,14 +400,14 @@ class Context[**P, ItemT]:
         kwargs = {**defaults, **kwargs}
         schema = str(self.cls_)
         hash_parts = {
-            'cachew'      : CACHEW_VERSION,
-            'schema'      : schema,
-            _DEPENDENCIES : str(self.depends_on(*args, **kwargs)),
+            'cachew'    : CACHEW_VERSION,
+            'schema'    : schema,
+            DEPENDENCIES: str(self.depends_on(*args, **kwargs)),
         }  # fmt: skip
         synthetic_key = self.synthetic_key
         if synthetic_key is not None:
-            hash_parts[_SYNTHETIC_KEY      ] = synthetic_key  # fmt: skip
-            hash_parts[_SYNTHETIC_KEY_VALUE] = kwargs[synthetic_key]
+            hash_parts[_synthetic.SYNTHETIC_KEY      ] = synthetic_key  # fmt: skip
+            hash_parts[_synthetic.SYNTHETIC_KEY_VALUE] = kwargs[synthetic_key]
             # FIXME assert it's in kwargs in the first place?
             # FIXME support positional args too? maybe extract the name from signature somehow? dunno
             # need to test it
@@ -447,60 +440,6 @@ def cachew_wrapper[**P, ItemT](
     if mod_name is not None and module_is_disabled(mod_name, logger):
         yield from func(*args, **kwargs)
         return
-
-    def try_use_synthetic_key() -> None:
-        if synthetic_key is None:
-            return
-        # attempt to use existing cache if possible, as a 'prefix'
-
-        old_hash_d: dict[str, Any] = {}
-        if old_hash is not None:
-            try:
-                old_hash_d = json.loads(old_hash)
-            except json.JSONDecodeError:
-                # possible if we used old cachew version (<=0.8.1), hash wasn't json
-                pass
-
-        hash_diffs = {
-            k: new_hash_d.get(k) == old_hash_d.get(k)
-            for k in (*new_hash_d.keys(), *old_hash_d.keys())
-            # the only 'allowed' differences for hash, otherwise need to recompute (e.g. if schema changed)
-            if k not in {_SYNTHETIC_KEY_VALUE, _DEPENDENCIES}
-        }
-        cache_compatible = all(hash_diffs.values())
-        if not cache_compatible:
-            return
-
-        def missing_keys(cached: list[str], wanted: list[str]) -> list[str] | None:
-            # FIXME assert both cached and wanted are sorted? since we rely on it
-            # if not, then the user could use some custom key for caching (e.g. normalise filenames etc)
-            # although in this case passing it into the function wouldn't make sense?
-
-            if len(cached) == 0:
-                # no point trying to reuse anything, cache should be empty?
-                return None
-            if len(wanted) == 0:
-                # similar, no way to reuse cache
-                return None
-            if cached[0] != wanted[0]:
-                # there is no common prefix, so no way to reuse cache really
-                return None
-            last_cached = cached[-1]
-            # ok, now actually figure out which items are missing
-            for i, k in enumerate(wanted):
-                if k > last_cached:
-                    # ok, rest of items are missing
-                    return wanted[i:]
-            # otherwise too many things are cached, and we seem to wante less
-            return None
-
-        new_values: list[str] = new_hash_d[_SYNTHETIC_KEY_VALUE]
-        old_values: list[str] = old_hash_d[_SYNTHETIC_KEY_VALUE]
-        missing = missing_keys(cached=old_values, wanted=new_values)
-        if missing is not None:
-            # can reuse cache
-            kwargs[_CACHEW_CACHED] = cached_items()  # ty: ignore[invalid-assignment]
-            kwargs[synthetic_key] = missing  # ty: ignore[invalid-assignment]
 
     early_exit = False
 
@@ -586,7 +525,15 @@ def cachew_wrapper[**P, ItemT](
 
             logger.debug('hash mismatch: computing data and writing to db')
 
-            try_use_synthetic_key()
+            if synthetic_key is not None:
+                missing_synthetic_values = _synthetic.missing_synthetic_key_values_for_hashes(
+                    old_hash=old_hash,
+                    new_hash_d=new_hash_d,
+                )
+                if missing_synthetic_values is not None:
+                    # can reuse cache
+                    kwargs[_synthetic.CACHEW_CACHED] = cached_items()  # ty: ignore[invalid-assignment]
+                    kwargs[synthetic_key] = missing_synthetic_values  # ty: ignore[invalid-assignment]
 
             got_write = backend.get_exclusive_write()
             if not got_write:
