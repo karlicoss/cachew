@@ -934,7 +934,7 @@ def fuzz_cachew_impl():
 +
              if new_hash == old_hash:
                  logger.debug('hash matched: loading from cache')
-                 yield from cached_items()
+                 yield from session.cached_items()
 '''
     patchy.patch(cachew_wrapper, patch)
     yield
