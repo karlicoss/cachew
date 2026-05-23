@@ -3,6 +3,8 @@ from dataclasses import dataclass
 # TODO better name to represent what it means?
 type SourceHash = str
 
+DEPENDENCIES = 'dependencies'
+
 
 class CachewException(RuntimeError):
     pass
