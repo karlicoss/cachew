@@ -1,4 +1,4 @@
-from ..utils import resolve_type_parameters
+from .._types import resolve_type_parameters
 
 
 def test_simple_generic_alias() -> None:
