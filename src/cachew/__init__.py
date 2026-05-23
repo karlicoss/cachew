@@ -78,7 +78,7 @@ BACKENDS: dict[Backend, type[AbstractBackend]] = {
 _DEFAULT_CHUNK_BY = 100
 
 
-type PathProvider[**P] = Path | str | Callable[P, Path | str]
+type PathProvider[**P] = Path | str | Callable[P, Path | str | None]
 type HashFunction[**P] = Callable[P, SourceHash]
 
 
@@ -138,7 +138,7 @@ def cachew_impl[**P, ReturnT, ItemT](
     Database-backed cache decorator. TODO more description?
     # TODO use this doc in readme?
 
-    :param cache_path: if not set, `cachew.settings.DEFAULT_CACHEW_DIR` will be used.
+    :param cache_path: if not set, `cachew.settings.DEFAULT_CACHEW_DIR` will be used. If set to `None`, or if a callable returns `None`, caching is disabled for that call.
     :param force_file: if set to True, assume `cache_path` is a regular file (instead of a directory)
     :param cls: if not set, cachew will attempt to infer it from return type annotation. See :func:`infer_return_type` and :func:`cachew.tests.test_cachew.test_return_type_inference`.
     :param depends_on: hash function to determine whether the underlying . Can potentially benefit from the use of side effects (e.g. file modification time). TODO link to test?
@@ -271,7 +271,7 @@ def cachew_impl[**P, ReturnT, ItemT](
         logger       =logger,
         chunk_by     =chunk_by,
         synthetic_key=synthetic_key,
-        backend      =backend,
+        backend      =backend or settings.DEFAULT_BACKEND,
     )  # fmt: skip
 
     # hack to avoid extra stack frame (see test_recursive*)
@@ -358,8 +358,36 @@ class Context[**P, ItemT]:
     logger       : logging.Logger
     chunk_by     : int
     synthetic_key: str | None
-    backend      : Backend | None
+    backend      : Backend
     # fmt: on
+
+    def resolve_cache_path(self, /, *args: P.args, **kwargs: P.kwargs) -> Path | None:
+        resolved_path: Path
+        if isinstance(self.cache_path, (Path, str)):
+            resolved_path = Path(self.cache_path)
+        else:
+            pp = self.cache_path(*args, **kwargs)
+            if pp is None:
+                self.logger.debug('cache explicitly disabled (cache_path is None)')
+                return None
+            resolved_path = Path(pp)
+
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Need to be atomic here, hence calling stat() once and then just using the results.
+        try:
+            # stat follows symlinks, which is what we want.
+            st = resolved_path.stat()
+        except FileNotFoundError:
+            if not self.force_file:
+                resolved_path.mkdir(parents=True, exist_ok=True)
+                resolved_path = resolved_path / callable_name(self.func)
+        else:
+            if stat.S_ISDIR(st.st_mode):
+                resolved_path = resolved_path / callable_name(self.func)
+
+        self.logger.debug(f'using {self.backend}:{resolved_path} for cache')
+        return resolved_path
 
     def composite_hash(self, *args, **kwargs) -> dict[str, Any]:
         fsig = inspect.signature(self.func)
@@ -402,18 +430,14 @@ def cachew_wrapper[**P, ItemT](
     C = _cachew_context
     # fmt: off
     func          = C.func
-    cache_path    = C.cache_path
-    force_file    = C.force_file
     cls           = C.cls_
     logger        = C.logger
     chunk_by      = C.chunk_by
     synthetic_key = C.synthetic_key
-    backend_name  = C.backend
     # fmt: on
 
-    used_backend = backend_name or settings.DEFAULT_BACKEND
+    used_backend = C.backend
 
-    func_name = callable_name(func)
     if not settings.ENABLE:
         logger.debug('cache explicitly disabled (settings.ENABLE is False)')
         yield from func(*args, **kwargs)
@@ -423,41 +447,6 @@ def cachew_wrapper[**P, ItemT](
     if mod_name is not None and module_is_disabled(mod_name, logger):
         yield from func(*args, **kwargs)
         return
-
-    def get_db_path() -> Path | None:
-        db_path: Path
-        if isinstance(cache_path, (Path, str)):
-            db_path = Path(cache_path)
-        else:
-            pp = cache_path(*args, **kwargs)
-            if pp is None:
-                logger.debug('cache explicitly disabled (cache_path is None)')
-                # early return, in this case we just yield the original items from the function
-                return None
-            else:
-                db_path = Path(pp)
-
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # need to be atomic here, hence calling stat() once and then just using the results
-        try:
-            # note: stat follows symlinks (which is what we want)
-            st = db_path.stat()
-        except FileNotFoundError:
-            # doesn't exist. then it's controlled by force_file
-            if force_file:
-                # just use db_path as is
-                pass
-            else:
-                db_path.mkdir(parents=True, exist_ok=True)
-                db_path = db_path / func_name
-        else:
-            # already exists, so just use callable name if it's a dir
-            if stat.S_ISDIR(st.st_mode):
-                db_path = db_path / func_name
-
-        logger.debug(f'using {used_backend}:{db_path} for cache')
-        return db_path
 
     def try_use_synthetic_key() -> None:
         if synthetic_key is None:
@@ -556,12 +545,12 @@ def cachew_wrapper[**P, ItemT](
         flush()
 
         backend.finalize(new_hash)
-        logger.info(f'wrote   {total_objects} objects to   cachew ({used_backend}:{db_path})')
+        logger.info(f'wrote   {total_objects} objects to   cachew ({used_backend}:{resolved_cache_path})')
 
     def cached_items() -> Iterator[ItemT]:
         total_cached = backend.cached_blobs_total()
         total_cached_s = '' if total_cached is None else f'{total_cached} '
-        logger.info(f'loading {total_cached_s}objects from cachew ({used_backend}:{db_path})')
+        logger.info(f'loading {total_cached_s}objects from cachew ({used_backend}:{resolved_cache_path})')
 
         for blob in backend.cached_blobs():
             j = orjson_loads(blob)
@@ -572,8 +561,8 @@ def cachew_wrapper[**P, ItemT](
     # but it lets us save a function call, hence a stack frame
     # see test_recursive*
     try:
-        db_path = get_db_path()
-        if db_path is None:
+        resolved_cache_path = C.resolve_cache_path(*args, **kwargs)
+        if resolved_cache_path is None:
             yield from func(*args, **kwargs)
             return
 
@@ -583,9 +572,10 @@ def cachew_wrapper[**P, ItemT](
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
 
+        # NOTE: marshall is captured by written_to_db
         marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=cls)
 
-        with BackendCls(cache_path=db_path, logger=logger) as backend:
+        with BackendCls(cache_path=resolved_cache_path, logger=logger) as backend:
             old_hash = backend.get_old_hash()
             logger.debug(f'old hash: {old_hash}')
 

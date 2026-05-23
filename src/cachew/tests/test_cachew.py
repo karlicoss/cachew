@@ -269,8 +269,7 @@ def test_cache_path(tmp_path: Path) -> None:
     assert (tmp_path / 'name').is_file()
 
     # treat None as "don't cache" ('factory')
-    # hmm not sure why mypy complains here.. might better if we get to use ParamSpec?
-    fun = cachew(cache_path=lambda *args: None)(orig)  # type: ignore[arg-type]  # noqa: ARG005
+    fun = cachew(cache_path=lambda *args: None)(orig)  # noqa: ARG005
     assert list(fun()) == [1, 2]
     assert calls == 6
     assert list(fun()) == [1, 2]
@@ -1476,7 +1475,7 @@ def test_synthetic_keyset(*, tmp_path: Path, use_synthetic: bool) -> None:
     # TODO check what happens when keys are not str but e.g. Path
 
 
-def test_db_path_matches_fun_name(tmp_path: Path) -> None:
+def test_cache_path_matches_fun_name(tmp_path: Path) -> None:
     @cachew(tmp_path)
     def fun_single() -> int:
         return 123
