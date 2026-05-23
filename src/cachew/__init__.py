@@ -1,10 +1,8 @@
-import fnmatch
 import functools
 import importlib.metadata
 import inspect
 import json
 import logging
-import os
 import stat
 import warnings
 from collections.abc import Callable, Iterable, Iterator
@@ -36,6 +34,7 @@ except:
 
 import platformdirs
 
+from ._disable import module_is_disabled
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
@@ -494,78 +493,6 @@ def callable_module_name(func: Callable[..., Any]) -> str | None:
     return getattr(func, '__module__', None)
 
 
-# could cache this, but might be worth not to, so the user can change it on the fly?
-def _parse_disabled_modules(logger: logging.Logger | None = None) -> list[str]:
-    # e.g. CACHEW_DISABLE=my.browser:my.reddit
-    if 'CACHEW_DISABLE' not in os.environ:
-        return []
-    disabled = os.environ['CACHEW_DISABLE']
-    if disabled.strip() == '':
-        return []
-    if ',' in disabled and logger:
-        logger.warning(
-            'CACHEW_DISABLE contains a comma, but this expects a $PATH-like, colon-separated list; '
-            f'try something like CACHEW_DISABLE={disabled.replace(",", ":")}'
-        )
-    # remove any empty strings incase did something like CACHEW_DISABLE=my.module:$CACHEW_DISABLE
-    return [p for p in disabled.split(':') if p.strip() != '']
-
-
-def _matches_disabled_module(module_name: str, pattern: str) -> bool:
-    '''
-    >>> _matches_disabled_module('my.browser', 'my.browser')
-    True
-    >>> _matches_disabled_module('my.browser', 'my.*')
-    True
-    >>> _matches_disabled_module('my.browser', 'my')
-    True
-    >>> _matches_disabled_module('my.browser', 'my.browse*')
-    True
-    >>> _matches_disabled_module('my.browser.export', 'my.browser')
-    True
-    >>> _matches_disabled_module('mysomething.else', '*')  # CACHEW_DISABLE='*' disables everything
-    True
-    >>> _matches_disabled_module('my.browser', 'my.br?????')  # fnmatch supports unix-like patterns
-    True
-    >>> _matches_disabled_module('my.browser', 'my.browse')
-    False
-    >>> _matches_disabled_module('mysomething.else', 'my')  # since not at '.' boundary, doesn't match
-    False
-    >>> _matches_disabled_module('mysomething.else', '')
-    False
-    >>> _matches_disabled_module('my.browser', 'my.browser.export')
-    False
-    '''
-
-    if module_name == pattern:
-        return True
-
-    module_parts = module_name.split('.')
-    pattern_parts = pattern.split('.')
-
-    # e.g. if pattern is 'module.submod.inner_module' and module is just 'module.submod'
-    # theres no possible way for it to match
-    if len(module_parts) < len(pattern_parts):
-        return False
-
-    for mp, pp in zip(module_parts, pattern_parts, strict=False):
-        if fnmatch.fnmatch(mp, pp):
-            continue
-        return False
-    return True
-
-
-def _module_is_disabled(module_name: str, logger: logging.Logger) -> bool:
-    disabled_modules = _parse_disabled_modules(logger)
-    for pat in disabled_modules:
-        if _matches_disabled_module(module_name, pat):
-            logger.debug(
-                f"caching disabled for {module_name} (matched '{pat}' from 'CACHEW_DISABLE={os.environ['CACHEW_DISABLE']})'"
-            )
-            return True
-    return False
-
-
 # fmt: off
 _CACHEW_CACHED       = 'cachew_cached'  # TODO add to docs
 _SYNTHETIC_KEY       = 'synthetic_key'
@@ -647,7 +574,7 @@ def cachew_wrapper[**P, ItemT](
         return
 
     mod_name = callable_module_name(func)
-    if mod_name is not None and _module_is_disabled(mod_name, logger):
+    if mod_name is not None and module_is_disabled(mod_name, logger):
         yield from func(*args, **kwargs)
         return
 
