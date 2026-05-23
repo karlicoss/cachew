@@ -29,12 +29,15 @@ from more_itertools import one, unique_everseen
 
 from .. import (
     Backend,
+    CacheReadError,
     CachewException,
     cachew,
     callable_name,
     get_logger,
     settings,
 )
+from ..backend.file import FileBackend
+from ..backend.sqlite import SqliteBackend
 
 logger = get_logger()
 
@@ -1071,13 +1074,12 @@ def test_defensive_write_error_after_yield_does_not_duplicate(
     assert calls == 1
 
 
-@pytest.mark.xfail(reason='cache read errors after yielding currently restart the source iterator', strict=True)
-def test_defensive_read_error_after_yield_does_not_duplicate(
+def test_defensive_read_error_after_yield_raises_cache_read_error(
     tmp_path: Path,
     restore_settings,
 ) -> None:
     """
-    If cache reading fails after yielding an item, fallback must not restart the source iterator and duplicate emitted items.
+    Cache read errors are unrecoverable because fallback after yielding cached items can duplicate or mix results.
     """
     settings.THROW_ON_ERROR = False
 
@@ -1114,9 +1116,47 @@ def test_defensive_read_error_after_yield_does_not_duplicate(
         yield first
         yield second
 
-    # Current buggy result is [first, first, second]: one item loaded from cache, then full fallback.
-    # Expected result is [first, second], with no restarted source iterator after anything was yielded.
-    assert list(fun()) == [first, second]
+    # Previous buggy behavior was [first, first, second]: one item loaded from cache, then full fallback.
+    # Expected behavior is a hard cache read error, even when THROW_ON_ERROR is false.
+    with pytest.raises(CacheReadError, match='failed to read cachew cache'):
+        list(fun())
+    assert calls == 1
+
+
+def test_locked_write_uncached_exception_propagates_without_retry(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If cachew loses the write lock and runs uncached, wrapped function errors must not trigger defensive retry.
+    """
+    settings.THROW_ON_ERROR = False
+
+    class UserError(Exception):
+        pass
+
+    calls = 0
+    cache_path = tmp_path / 'cache'
+
+    @cachew(cache_path, force_file=True)
+    def fun() -> Iterator[int]:
+        nonlocal calls
+        calls += 1
+        yield 1
+        raise UserError('boom')
+
+    backend_cls = {
+        'file': FileBackend,
+        'sqlite': SqliteBackend,
+    }[settings.DEFAULT_BACKEND]
+
+    with backend_cls(cache_path=cache_path, logger=logger) as backend:
+        assert backend.get_exclusive_write()
+        it = iter(fun())
+        assert next(it) == 1
+        with pytest.raises(UserError, match='boom'):
+            next(it)
+
     assert calls == 1
 
 

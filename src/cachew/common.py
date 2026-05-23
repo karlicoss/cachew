@@ -7,6 +7,16 @@ DEPENDENCIES = 'dependencies'
 
 
 class CachewException(RuntimeError):
+    # TODO rename this to CachewError for consistency with concrete error subclasses.
+    pass
+
+
+class CacheReadError(CachewException):
+    """
+    Cache read failures are unrecoverable and do not respect settings.THROW_ON_ERROR.
+    Once cached data starts yielding, falling back to the wrapped function can duplicate or mix results.
+    """
+
     pass
 
 

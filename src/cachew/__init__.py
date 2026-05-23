@@ -37,7 +37,7 @@ from ._infer import Failure, Kind, infer_return_type
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
-from .common import DEPENDENCIES, CachewException, SourceHash
+from .common import DEPENDENCIES, CacheReadError, CachewException, SourceHash
 from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall
 
@@ -436,10 +436,15 @@ class CacheSession[ItemT]:
             f'loading {total_cached_s}objects from cachew ({self.backend_name}:{self.resolved_cache_path})'
         )
 
-        for blob in self.backend.cached_blobs():
-            j = orjson_loads(blob)
-            obj = self.marshall.load(j)
-            yield obj
+        try:
+            for blob in self.backend.cached_blobs():
+                j = orjson_loads(blob)
+                obj = self.marshall.load(j)
+                yield obj
+        except Exception as e:
+            raise CacheReadError(
+                f'failed to read cachew cache ({self.backend_name}:{self.resolved_cache_path}); remove the cache and try again'
+            ) from e
 
     def write_to_cache(self, datas: Iterable[ItemT]) -> Iterator[ItemT]:
         if isinstance(self.backend, FileBackend):
@@ -486,14 +491,8 @@ def cachew_wrapper[**P, ItemT](
     **kwargs: P.kwargs,
 ) -> Iterator[ItemT]:
     C = _cachew_context
-    # fmt: off
-    func          = C.func
-    cls           = C.cls_
-    logger        = C.logger
-    synthetic_key = C.synthetic_key
-    # fmt: on
-
-    used_backend = C.backend
+    func = C.func
+    logger = C.logger
 
     if not settings.ENABLE:
         logger.debug('cache explicitly disabled (settings.ENABLE is False)')
@@ -505,28 +504,38 @@ def cachew_wrapper[**P, ItemT](
         yield from func(*args, **kwargs)
         return
 
+    try:
+        resolved_cache_path = C.resolve_cache_path(*args, **kwargs)
+    except Exception as e:
+        cachew_error(e, logger=logger)
+        yield from func(*args, **kwargs)
+        return
+
+    if resolved_cache_path is None:
+        # user explicitly requested no caching
+        yield from func(*args, **kwargs)
+        return
+
+    synthetic_key = C.synthetic_key
+
     # NOTE: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
     # see test_recursive*
     early_exit = False
+    running_uncached = False
     try:
-        resolved_cache_path = C.resolve_cache_path(*args, **kwargs)
-        if resolved_cache_path is None:
-            yield from func(*args, **kwargs)
-            return
-
-        BackendCls = BACKENDS[used_backend]
+        BackendCls = BACKENDS[C.backend]
 
         new_hash_d = C.composite_hash(*args, **kwargs)
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
 
-        marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=cls)
+        marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=C.cls_)
 
         with BackendCls(cache_path=resolved_cache_path, logger=logger) as backend:
             session = CacheSession(
                 backend=backend,
-                backend_name=used_backend,
+                backend_name=C.backend,
                 resolved_cache_path=resolved_cache_path,
                 marshall=marshall,
                 new_hash=new_hash,
@@ -559,7 +568,9 @@ def cachew_wrapper[**P, ItemT](
                 # NOTE: this is the bit we really have to watch out for and not put in a helper function
                 # otherwise it's causing an extra stack frame on every call
                 # the rest (reading from cachew or writing to cachew) happens once per function call? so not a huge deal
+                running_uncached = True
                 yield from func(*args, **kwargs)
+                running_uncached = False
                 return
 
             # at this point we're guaranteed to have an exclusive write transaction
@@ -568,7 +579,13 @@ def cachew_wrapper[**P, ItemT](
             except GeneratorExit:
                 early_exit = True
                 raise
+    except CacheReadError:
+        # Cache read failures bypass THROW_ON_ERROR because fallback can duplicate already-yielded cached items.
+        raise
     except Exception as e:
+        if running_uncached:
+            raise
+
         # sigh... see test_early_exit_shutdown...
         if early_exit and 'Cannot operate on a closed database' in str(e):
             return
@@ -580,6 +597,7 @@ def cachew_wrapper[**P, ItemT](
 
 
 __all__ = [
+    'CacheReadError',
     'CachewException',
     'HashFunction',
     'SourceHash',
