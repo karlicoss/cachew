@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if not TYPE_CHECKING:
-    from .compat import deprecated
+    from ._compat import deprecated
 
     @deprecated("Exceptions are not an experimental feature anymore and enabled by default.")
     def enable_exceptions() -> None:
