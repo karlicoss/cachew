@@ -414,6 +414,71 @@ class Context[**P, ItemT]:
         return hash_parts
 
 
+@dataclass
+class CacheSession[ItemT]:
+    """
+    Per-call state for an open backend transaction.
+    This keeps read/write generator helpers out of cachew_wrapper while preserving the direct recursive fallback path.
+    """
+
+    backend: AbstractBackend
+    backend_name: Backend
+    resolved_cache_path: Path
+    marshall: CachewMarshall[ItemT]
+    new_hash: SourceHash
+    chunk_by: int
+    logger: logging.Logger
+
+    def cached_items(self) -> Iterator[ItemT]:
+        total_cached = self.backend.cached_blobs_total()
+        total_cached_s = '' if total_cached is None else f'{total_cached} '
+        self.logger.info(
+            f'loading {total_cached_s}objects from cachew ({self.backend_name}:{self.resolved_cache_path})'
+        )
+
+        for blob in self.backend.cached_blobs():
+            j = orjson_loads(blob)
+            obj = self.marshall.load(j)
+            yield obj
+
+    def write_to_cache(self, datas: Iterable[ItemT]) -> Iterator[ItemT]:
+        if isinstance(self.backend, FileBackend):
+            # FIXME uhhh.. this is a bit crap
+            # but in sqlite mode we don't want to publish new hash before we write new items
+            # maybe should use tmp table for hashes as well?
+            self.backend.write_new_hash(self.new_hash)
+        else:
+            # happens later for sqlite
+            pass
+
+        flush_blobs = self.backend.flush_blobs
+
+        chunk: list[bytes] = []
+
+        def flush() -> None:
+            nonlocal chunk
+            if len(chunk) > 0:
+                flush_blobs(chunk=chunk)
+                chunk = []
+
+        total_objects = 0
+        for obj in datas:
+            total_objects += 1
+            yield obj
+
+            dct = self.marshall.dump(obj)
+            blob = orjson_dumps(dct)
+            chunk.append(blob)
+            if len(chunk) >= self.chunk_by:
+                flush()
+        flush()
+
+        self.backend.finalize(self.new_hash)
+        self.logger.info(
+            f'wrote   {total_objects} objects to   cachew ({self.backend_name}:{self.resolved_cache_path})'
+        )
+
+
 def cachew_wrapper[**P, ItemT](
     _cachew_context: Context[P, ItemT],
     /,
@@ -425,7 +490,6 @@ def cachew_wrapper[**P, ItemT](
     func          = C.func
     cls           = C.cls_
     logger        = C.logger
-    chunk_by      = C.chunk_by
     synthetic_key = C.synthetic_key
     # fmt: on
 
@@ -441,64 +505,10 @@ def cachew_wrapper[**P, ItemT](
         yield from func(*args, **kwargs)
         return
 
-    early_exit = False
-
-    def written_to_cache() -> Iterator[ItemT]:
-        nonlocal early_exit
-
-        datas = func(*args, **kwargs)
-
-        if isinstance(backend, FileBackend):
-            # FIXME uhhh.. this is a bit crap
-            # but in sqlite mode we don't want to publish new hash before we write new items
-            # maybe should use tmp table for hashes as well?
-            backend.write_new_hash(new_hash)
-        else:
-            # happens later for sqlite
-            pass
-
-        flush_blobs = backend.flush_blobs
-
-        chunk: list[bytes] = []
-
-        def flush() -> None:
-            nonlocal chunk
-            if len(chunk) > 0:
-                flush_blobs(chunk=chunk)
-                chunk = []
-
-        total_objects = 0
-        for obj in datas:
-            try:
-                total_objects += 1
-                yield obj
-            except GeneratorExit:
-                early_exit = True
-                return
-
-            dct = marshall.dump(obj)
-            blob = orjson_dumps(dct)
-            chunk.append(blob)
-            if len(chunk) >= chunk_by:
-                flush()
-        flush()
-
-        backend.finalize(new_hash)
-        logger.info(f'wrote   {total_objects} objects to   cachew ({used_backend}:{resolved_cache_path})')
-
-    def cached_items() -> Iterator[ItemT]:
-        total_cached = backend.cached_blobs_total()
-        total_cached_s = '' if total_cached is None else f'{total_cached} '
-        logger.info(f'loading {total_cached_s}objects from cachew ({used_backend}:{resolved_cache_path})')
-
-        for blob in backend.cached_blobs():
-            j = orjson_loads(blob)
-            obj = marshall.load(j)
-            yield obj
-
     # NOTE: annoyingly huge try/catch ahead...
     # but it lets us save a function call, hence a stack frame
     # see test_recursive*
+    early_exit = False
     try:
         resolved_cache_path = C.resolve_cache_path(*args, **kwargs)
         if resolved_cache_path is None:
@@ -511,16 +521,25 @@ def cachew_wrapper[**P, ItemT](
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
 
-        # NOTE: marshall is captured by written_to_db
         marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=cls)
 
         with BackendCls(cache_path=resolved_cache_path, logger=logger) as backend:
+            session = CacheSession(
+                backend=backend,
+                backend_name=used_backend,
+                resolved_cache_path=resolved_cache_path,
+                marshall=marshall,
+                new_hash=new_hash,
+                chunk_by=C.chunk_by,
+                logger=logger,
+            )
+
             old_hash = backend.get_old_hash()
             logger.debug(f'old hash: {old_hash}')
 
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
-                yield from cached_items()
+                yield from session.cached_items()
                 return
 
             logger.debug('hash mismatch: computing data and writing to db')
@@ -532,7 +551,7 @@ def cachew_wrapper[**P, ItemT](
                 )
                 if missing_synthetic_values is not None:
                     # can reuse cache
-                    kwargs[_synthetic.CACHEW_CACHED] = cached_items()  # ty: ignore[invalid-assignment]
+                    kwargs[_synthetic.CACHEW_CACHED] = session.cached_items()  # ty: ignore[invalid-assignment]
                     kwargs[synthetic_key] = missing_synthetic_values  # ty: ignore[invalid-assignment]
 
             got_write = backend.get_exclusive_write()
@@ -544,7 +563,11 @@ def cachew_wrapper[**P, ItemT](
                 return
 
             # at this point we're guaranteed to have an exclusive write transaction
-            yield from written_to_cache()
+            try:
+                yield from session.write_to_cache(func(*args, **kwargs))
+            except GeneratorExit:
+                early_exit = True
+                raise
     except Exception as e:
         # sigh... see test_early_exit_shutdown...
         if early_exit and 'Cannot operate on a closed database' in str(e):
