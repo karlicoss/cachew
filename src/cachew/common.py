@@ -20,6 +20,14 @@ class CacheReadError(CachewException):
     pass
 
 
+class CacheWriteError(CachewException):
+    """
+    Internal signal for defensive cache write fallback.
+    """
+
+    pass
+
+
 @dataclass
 class TypeNotSupported(CachewException):
     type_: type
