@@ -1123,6 +1123,43 @@ def test_defensive_read_error_after_yield_raises_cache_read_error(
     assert calls == 1
 
 
+def test_cache_hit_cleanup_error_after_full_read_does_not_fallback(
+    tmp_path: Path,
+    restore_settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    If cache cleanup fails after a full cache hit, cachew must not fallback and re-emit fresh items.
+    """
+    from .. import BACKENDS
+
+    settings.THROW_ON_ERROR = False
+
+    calls = 0
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[int]:
+        nonlocal calls
+        calls += 1
+        yield 1
+        yield 2
+
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+
+    BackendCls = BACKENDS[settings.DEFAULT_BACKEND]
+
+    class CleanupErrorBackend(BackendCls):  # type: ignore[valid-type, misc]
+        def __exit__(self, *exc_info) -> None:
+            super().__exit__(*exc_info)
+            raise RuntimeError('post-cache cleanup failed')
+
+    monkeypatch.setitem(BACKENDS, settings.DEFAULT_BACKEND, CleanupErrorBackend)
+
+    assert list(fun()) == [1, 2]
+    assert calls == 1
+
+
 def test_locked_write_uncached_exception_propagates_without_retry(
     tmp_path: Path,
     restore_settings,

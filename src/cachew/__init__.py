@@ -523,6 +523,7 @@ def cachew_wrapper[**P, ItemT](
     # see test_recursive*
     early_exit = False
     running_uncached = False
+    served_from_cache = False
     try:
         BackendCls = BACKENDS[C.backend]
 
@@ -549,6 +550,7 @@ def cachew_wrapper[**P, ItemT](
             if new_hash == old_hash:
                 logger.debug('hash matched: loading from cache')
                 yield from session.cached_items()
+                served_from_cache = True
                 return
 
             logger.debug('hash mismatch: computing data and writing to db')
@@ -577,22 +579,31 @@ def cachew_wrapper[**P, ItemT](
             try:
                 yield from session.write_to_cache(func(*args, **kwargs))
             except GeneratorExit:
+                # GeneratorExit itself is not caught below, but SQLAlchemy cleanup during interpreter shutdown can raise a normal Exception while unwinding.
                 early_exit = True
                 raise
     except CacheReadError:
         # Cache read failures bypass THROW_ON_ERROR because fallback can duplicate already-yielded cached items.
+        # This can be thrown from session.cached_items()
         raise
     except Exception as e:
         if running_uncached:
             raise
 
-        # sigh... see test_early_exit_shutdown...
+        # Work around known SQLAlchemy/sqlite shutdown noise; do not suppress other cleanup errors.
+        # See test_early_exit_shutdown.
         if early_exit and 'Cannot operate on a closed database' in str(e):
             return
 
-        # todo hmm, kinda annoying that it tries calling the function twice?
-        # but gonna require some sophisticated cooperation with the cached wrapper otherwise
         cachew_error(e, logger=logger)
+
+        if served_from_cache:
+            # this can happen if we fully read from the cache, but hit some error while shutting backend down
+            # - we're past reading, so we emitted all items user wanted from cache
+            # - we don't want to yield any items from original func
+            # so it's safe to simply return
+            return
+
         yield from func(*args, **kwargs)
 
 
