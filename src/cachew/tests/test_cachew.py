@@ -1046,7 +1046,6 @@ def test_defensive(restore_settings) -> None:
             assert list(fun()) == [123]
 
 
-@pytest.mark.xfail(reason='cache write errors after yielding currently restart the source iterator', strict=True)
 def test_defensive_write_error_after_yield_does_not_duplicate(
     tmp_path: Path,
     restore_settings,
@@ -1071,6 +1070,34 @@ def test_defensive_write_error_after_yield_does_not_duplicate(
     # Current buggy result is [first, first, second]: one item yielded before cache writing fails, then full fallback.
     # Expected result is [first, second], with no restarted source iterator after anything was yielded.
     assert list(fun()) == [first, second]
+    assert calls == 1
+
+
+def test_write_source_error_after_yield_propagates_without_retry(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If the wrapped iterator fails while cachew is writing, the source error must not trigger defensive retry.
+    """
+    settings.THROW_ON_ERROR = False
+
+    class UserError(Exception):
+        pass
+
+    calls = 0
+
+    @cachew(tmp_path)
+    def fun() -> Iterator[int]:
+        nonlocal calls
+        calls += 1
+        yield 1
+        raise UserError('boom')
+
+    it = iter(fun())
+    assert next(it) == 1
+    with pytest.raises(UserError, match='boom'):
+        next(it)
     assert calls == 1
 
 
