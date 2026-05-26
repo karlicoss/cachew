@@ -926,7 +926,7 @@ def fuzz_cachew_impl():
     from .. import cachew_wrapper
 
     patch = '''\
-@@ -189,6 +189,11 @@
+@@ -76,6 +76,11 @@
              old_hash = backend.get_old_hash()
              logger.debug(f'old hash: {old_hash}')
 
@@ -1098,6 +1098,31 @@ def test_write_source_error_after_yield_propagates_without_retry(
     assert next(it) == 1
     with pytest.raises(UserError, match='boom'):
         next(it)
+    assert calls == 1
+
+
+def test_write_source_call_error_propagates_without_retry(
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    If the wrapped function fails before returning an iterable, cachew must treat it as a source error.
+    """
+    settings.THROW_ON_ERROR = False
+
+    class UserError(Exception):
+        pass
+
+    calls = 0
+
+    @cachew(tmp_path, cls=int)
+    def fun() -> list[int]:
+        nonlocal calls
+        calls += 1
+        raise UserError('boom')
+
+    with pytest.raises(UserError, match='boom'):
+        list(fun())
     assert calls == 1
 
 
