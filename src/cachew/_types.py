@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 from types import UnionType
-from typing import TypeAliasType, TypeVar, get_args, get_origin
+from typing import Any, TypeAliasType, TypeVar, get_args, get_origin
 
 
 # https://stackoverflow.com/a/2166841/706389
@@ -16,11 +16,11 @@ def is_namedtuple(t) -> bool:
     return all(type(n) == str for n in f)  # noqa: E721
 
 
-def resolve_type_parameters(t) -> type:
+def resolve_type_parameters(t) -> Any:
     return _resolve_type_parameters_aux(t, typevar_to_type={})
 
 
-def _resolve_type_parameters_aux(t, *, typevar_to_type: Mapping[TypeVar, type]) -> type:
+def _resolve_type_parameters_aux(t, *, typevar_to_type: Mapping[TypeVar, Any]) -> Any:
     if isinstance(t, TypeVar):
         return typevar_to_type[t]
 
@@ -37,7 +37,7 @@ def _resolve_type_parameters_aux(t, *, typevar_to_type: Mapping[TypeVar, type]) 
         # Reconstruct the union with resolved args
         result = resolved_args[0]
         for arg in resolved_args[1:]:
-            result = result | arg  # type: ignore[assignment]
+            result = result | arg
         return result
 
     origin = get_origin(t)
@@ -49,7 +49,7 @@ def _resolve_type_parameters_aux(t, *, typevar_to_type: Mapping[TypeVar, type]) 
     # This is the 'right hand side', e.g. '... = Id[int]' matches this
     if isinstance(origin, TypeAliasType):
         type_params = origin.__type_params__
-        new_typevar_to_type: Mapping[TypeVar, type] = {  # ty: ignore[invalid-assignment]
+        new_typevar_to_type: Mapping[TypeVar, Any] = {  # ty: ignore[invalid-assignment]
             **typevar_to_type,
             **dict(zip(type_params, resolved_args, strict=True)),  # type: ignore[arg-type]
         }

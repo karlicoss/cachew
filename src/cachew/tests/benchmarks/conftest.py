@@ -98,4 +98,4 @@ def pytest_configure(config) -> None:
     benchmark_table.NUMBER_FMT = _NUMBER_FMT  # ty: ignore[invalid-assignment]
     benchmark_table.ALIGNED_NUMBER_FMT = _ALIGNED_NUMBER_FMT  # ty: ignore[invalid-assignment]
     benchmark_table.STAT_PROPS = tuple(dict.fromkeys((*_ORIGINAL_STAT_PROPS, *_EXTRA_COLUMNS)))  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-    TableResults.compute_scale = _compute_scale  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    TableResults.compute_scale = _compute_scale  # type: ignore[method-assign]

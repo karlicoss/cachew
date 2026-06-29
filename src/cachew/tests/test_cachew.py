@@ -1140,33 +1140,33 @@ def test_defensive_read_error_after_yield_raises_cache_read_error(
     class Item(NamedTuple):
         value: Any
 
-    first = Item(value=[1])
-    second = Item(value=2)
+    first_loose = Item(value=[1])
+    second_loose = Item(value=2)
 
     # First populate the cache with a looser schema.
     @cachew(tmp_path)
     def fun() -> Iterator[Item]:
         nonlocal calls
         calls += 1
-        yield first
-        yield second
+        yield first_loose
+        yield second_loose
 
-    assert list(fun()) == [first, second]
+    assert list(fun()) == [first_loose, second_loose]
     assert calls == 1
 
     class Item(NamedTuple):  # type: ignore[no-redef]
         value: list[int]
 
-    first = Item(value=[1])
-    second = Item(value=[2])
+    first_strict = Item(value=[1])
+    second_strict = Item(value=[2])
 
     # Then reuse the same function and type names, so the cache hash still matches, but the second cached item no longer loads.
     @cachew(tmp_path)  # type: ignore[no-redef]
     def fun() -> Iterator[Item]:
         nonlocal calls
         calls += 1
-        yield first
-        yield second
+        yield first_strict
+        yield second_strict
 
     # Previous buggy behavior was [first, first, second]: one item loaded from cache, then full fallback.
     # Expected behavior is a hard cache read error, even when THROW_ON_ERROR is false.
@@ -1201,7 +1201,7 @@ def test_cache_hit_cleanup_error_after_full_read_does_not_fallback(
 
     BackendCls = BACKENDS[settings.DEFAULT_BACKEND]
 
-    class CleanupErrorBackend(BackendCls):  # type: ignore[valid-type, misc]
+    class CleanupErrorBackend(BackendCls):  # type: ignore[valid-type, misc]  # ty: ignore[unsupported-base]
         def __exit__(self, *exc_info) -> None:
             super().__exit__(*exc_info)
             raise RuntimeError('post-cache cleanup failed')
