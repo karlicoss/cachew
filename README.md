@@ -265,7 +265,6 @@ def mcachew(*args, **kwargs):
         return lambda orig_func: orig_func
     else:
         return cachew.cachew(*args, **kwargs)
-
 ```
 
 

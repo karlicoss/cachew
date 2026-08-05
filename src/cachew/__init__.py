@@ -111,8 +111,7 @@ def cachew_error(e: Exception, *, logger: logging.Logger) -> None:
     if settings.THROW_ON_ERROR:
         # TODO would be nice to throw from the original code line -- maybe mess with the stack here?
         raise e
-    logger.error("error while setting up cache, falling back to non-cached version")
-    logger.exception(e)
+    logger.error("error while setting up cache, falling back to non-cached version", exc_info=e)
 
 
 use_default_path = cast(Path, object())
