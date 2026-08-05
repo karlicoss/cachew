@@ -243,6 +243,7 @@ def test_03_blob_dump(
 @IMPL_PARAM
 @DISABLE_GC
 def test_04_storage_dump(
+    *,
     benchmark: BenchmarkFixture,
     request: pytest.FixtureRequest,
     tmp_path: Path,
@@ -270,6 +271,7 @@ def test_04_storage_dump(
 @IMPL_PARAM
 @DISABLE_GC
 def test_05_dump_e2e(
+    *,
     benchmark: BenchmarkFixture,
     request: pytest.FixtureRequest,
     tmp_path: Path,
@@ -311,6 +313,7 @@ def test_05_dump_e2e(
 @REAL_IMPL_PARAM
 @DISABLE_GC
 def test_05_real_dump_e2e(
+    *,
     benchmark: BenchmarkFixture,
     tmp_path: Path,
     count: int,
@@ -342,6 +345,7 @@ def test_05_real_dump_e2e(
 @IMPL_PARAM
 @DISABLE_GC
 def test_06_storage_load(
+    *,
     benchmark: BenchmarkFixture,
     request: pytest.FixtureRequest,
     tmp_path: Path,
@@ -404,6 +408,7 @@ def test_08_decode(
 @IMPL_PARAM
 @DISABLE_GC
 def test_09_load_e2e(
+    *,
     benchmark: BenchmarkFixture,
     request: pytest.FixtureRequest,
     tmp_path: Path,
@@ -435,6 +440,7 @@ def test_09_load_e2e(
 @REAL_IMPL_PARAM
 @DISABLE_GC
 def test_09_real_load_e2e(
+    *,
     benchmark: BenchmarkFixture,
     tmp_path: Path,
     count: int,
