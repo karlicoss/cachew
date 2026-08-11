@@ -41,6 +41,7 @@ from ._infer import Failure, Kind, infer_return_type
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
+from .backend.sqlite_raw import SqliteRawBackend
 from .common import DEPENDENCIES, CacheReadError, CachewException, CacheWriteError, SourceHash
 from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall
@@ -48,7 +49,7 @@ from .marshall.cachew import CachewMarshall
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
-Backend = Literal['sqlite', 'file']
+Backend = Literal['sqlite', 'sqlite_raw', 'file']
 
 
 class settings:
@@ -78,6 +79,7 @@ def get_logger() -> logging.Logger:
 BACKENDS: dict[Backend, type[AbstractBackend]] = {
     'file': FileBackend,
     'sqlite': SqliteBackend,
+    'sqlite_raw': SqliteRawBackend,
 }
 
 _DEFAULT_CHUNK_BY = 100
