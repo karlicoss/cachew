@@ -1,13 +1,13 @@
 import sqlite3
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Literal, assert_never, cast, get_args
+from typing import Literal, Protocol, assert_never, cast, get_args
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
-from ... import _DEFAULT_CHUNK_BY, cachew
+from ... import _DEFAULT_CHUNK_BY, Backend, cachew
 from .common import (
     BENCHMARK_COUNT,
     CASE_SPECS,
@@ -31,10 +31,16 @@ STORAGES = cast(Sequence[Storage], get_args(Storage.__value__))
 STORAGE_PARAM = pytest.mark.parametrize('storage', STORAGES)
 REAL_IMPL = 'cachew-real'
 REAL_IMPL_PARAM = pytest.mark.parametrize('real_impl', [REAL_IMPL])
+BACKENDS = cast(Sequence[Backend], get_args(Backend))
+BACKEND_PARAM = pytest.mark.parametrize('backend', BACKENDS)
 DISABLE_GC = pytest.mark.benchmark(disable_gc=True)
 # Match cachew's default chunking so synthetic storage/e2e benchmarks follow
 # the same batching shape as the real cachew backend path.
 _DUMP_CHUNK_BY = _DEFAULT_CHUNK_BY
+
+
+class _CachewBenchmarkFunction(Protocol):
+    def __call__(self, version: int) -> Iterator[object]: ...
 
 
 def _sample(values: Sequence[object], *, sample_size: int = 100) -> list[object]:
@@ -61,9 +67,9 @@ def _file_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int) -> Pat
     return tmp_path / f'{spec.id}-{impl}-{count}.jsonl'
 
 
-def _real_cachew_path(tmp_path: Path, *, spec: CaseSpec, count: int, storage: Storage) -> Path:
-    suffix = '.sqlite' if storage == 'sqlite' else '.jsonl'
-    return tmp_path / f'{spec.id}-{REAL_IMPL}-{storage}-{count}{suffix}'
+def _real_cachew_path(tmp_path: Path, *, spec: CaseSpec, count: int, backend: Backend) -> Path:
+    suffix = '.jsonl' if backend == 'file' else '.sqlite'
+    return tmp_path / f'{spec.id}-{REAL_IMPL}-{backend}-{count}{suffix}'
 
 
 def _storage_path(tmp_path: Path, *, spec: CaseSpec, impl: Impl, count: int, storage: Storage) -> Path:
@@ -128,6 +134,12 @@ def attach_storage_metadata(benchmark: BenchmarkFixture, *, storage: Storage) ->
     benchmark.extra_info['storage'] = storage
 
 
+def attach_backend_metadata(benchmark: BenchmarkFixture, *, backend: Backend) -> None:
+    storage: Storage = 'file' if backend == 'file' else 'sqlite'
+    attach_storage_metadata(benchmark, storage=storage)
+    benchmark.extra_info['backend'] = backend
+
+
 def _iter_blobs_from_objects(
     *,
     objects: Iterable[object],
@@ -172,18 +184,27 @@ def _storage_dump_streaming(
     assert_never(storage)
 
 
-def _make_real_cachew_fun(*, path: Path, spec: CaseSpec, count: int, storage: Storage) -> Any:
+def _make_real_cachew_fun(
+    *, path: Path, spec: CaseSpec, count: int, backend: Backend
+) -> tuple[_CachewBenchmarkFunction, Callable[[], int]]:
+    source_calls = 0
+
     @cachew(
         cache_path=path,
-        backend=storage,
-        force_file=storage == 'file',
+        backend=backend,
+        force_file=backend == 'file',
         cls=('multiple', spec.Type),
         depends_on=lambda version: version,
     )
     def fun(version: int) -> Iterator[object]:  # noqa: ARG001
+        nonlocal source_calls
+        source_calls += 1
         yield from spec.build_objects(count)
 
-    return fun
+    def get_source_calls() -> int:
+        return source_calls
+
+    return fun, get_source_calls
 
 
 @COUNT_PARAM
@@ -309,7 +330,7 @@ def test_05_dump_e2e(
 
 @COUNT_PARAM
 @SPEC_PARAM
-@STORAGE_PARAM
+@BACKEND_PARAM
 @REAL_IMPL_PARAM
 @DISABLE_GC
 def test_05_real_dump_e2e(
@@ -318,15 +339,15 @@ def test_05_real_dump_e2e(
     tmp_path: Path,
     count: int,
     spec: CaseSpec,
-    storage: Storage,
+    backend: Backend,
     real_impl: str,
 ) -> None:
     benchmark.group = _stage_group_name(spec, '05_dump_e2e')
-    path = _real_cachew_path(tmp_path, spec=spec, count=count, storage=storage)
+    path = _real_cachew_path(tmp_path, spec=spec, count=count, backend=backend)
     case = make_case(spec, count=count, impl='cachew')
     attach_case_metadata(benchmark, count=count, impl=real_impl, operation='dump-e2e', spec=spec, case=case)
-    attach_storage_metadata(benchmark, storage=storage)
-    fun = _make_real_cachew_fun(path=path, spec=spec, count=count, storage=storage)
+    attach_backend_metadata(benchmark, backend=backend)
+    fun, get_source_calls = _make_real_cachew_fun(path=path, spec=spec, count=count, backend=backend)
     version = 0
 
     def dump_e2e() -> list[object]:
@@ -337,6 +358,13 @@ def test_05_real_dump_e2e(
     result = benchmark_pedantic(benchmark, dump_e2e)
 
     spec.validate_deserialized('cachew', result, case.objects)
+    # Every changed version must invoke the source once during the benchmark miss path.
+    assert get_source_calls() == version
+
+    cached = list(fun(version=version))
+    spec.validate_deserialized('cachew', cached, case.objects)
+    # Repeating the final version must not invoke the source, proving the measured write was published.
+    assert get_source_calls() == version
 
 
 @COUNT_PARAM
@@ -436,7 +464,7 @@ def test_09_load_e2e(
 
 @COUNT_PARAM
 @SPEC_PARAM
-@STORAGE_PARAM
+@BACKEND_PARAM
 @REAL_IMPL_PARAM
 @DISABLE_GC
 def test_09_real_load_e2e(
@@ -445,17 +473,19 @@ def test_09_real_load_e2e(
     tmp_path: Path,
     count: int,
     spec: CaseSpec,
-    storage: Storage,
+    backend: Backend,
     real_impl: str,
 ) -> None:
     benchmark.group = _stage_group_name(spec, '09_load_e2e')
-    path = _real_cachew_path(tmp_path, spec=spec, count=count, storage=storage)
+    path = _real_cachew_path(tmp_path, spec=spec, count=count, backend=backend)
     case = make_case(spec, count=count, impl='cachew')
     attach_case_metadata(benchmark, count=count, impl=real_impl, operation='load-e2e', spec=spec, case=case)
-    attach_storage_metadata(benchmark, storage=storage)
-    fun = _make_real_cachew_fun(path=path, spec=spec, count=count, storage=storage)
+    attach_backend_metadata(benchmark, backend=backend)
+    fun, get_source_calls = _make_real_cachew_fun(path=path, spec=spec, count=count, backend=backend)
     warmup = list(fun(version=1))
     spec.validate_deserialized('cachew', warmup, case.objects)
+    # Warmup must invoke the source exactly once to populate the cache before timing hits.
+    assert get_source_calls() == 1
 
     def load_e2e() -> list[object]:
         return list(fun(version=1))
@@ -463,7 +493,5 @@ def test_09_real_load_e2e(
     result = benchmark_pedantic(benchmark, load_e2e)
 
     spec.validate_deserialized('cachew', result, case.objects)
-
-
-# TODO add a separate benchmark module for the real SqliteBackend path.
-# TODO add a true cachew end-to-end cache miss/cache hit benchmark.
+    # Timed calls must leave the count unchanged, proving they read from the cache.
+    assert get_source_calls() == 1

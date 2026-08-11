@@ -1,0 +1,170 @@
+"""
+Experimental side-by-side alternative to `backend.sqlite`.
+
+This intentionally mirrors `SqliteBackend` behavior using raw `sqlite3` instead of SQLAlchemy so the two implementations can be compared directly.
+It is exposed as the experimental `sqlite_raw` backend while `sqlite` remains the default.
+"""
+
+import logging
+import sqlite3
+import time
+from collections.abc import Iterator, Sequence
+from contextlib import closing
+from pathlib import Path
+from types import TracebackType
+from typing import Self, cast, override
+
+from ..common import SourceHash
+from .common import AbstractBackend
+
+_WAL_LOCK_RETRY_INTERVAL_SECONDS = 0.1
+
+
+def _is_lock_error(error: sqlite3.OperationalError) -> bool:
+    primary_code = error.sqlite_errorcode & 0xFF
+    return primary_code in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+
+
+class SqliteRawBackend(AbstractBackend):
+    def __init__(self, cache_path: Path, *, logger: logging.Logger) -> None:
+        self.logger = logger
+        self.cache_path = cache_path
+        connection = sqlite3.connect(
+            cache_path,
+            # Keep timeout at zero like the SQLAlchemy backend so recursive/concurrent paths fail fast instead of waiting on the lock for seconds.
+            # `test_recursive_deep` covers recursive lock loss, and `test_sqlite_locked_write_falls_back_to_uncached_and_recovers` covers locked write recovery.
+            timeout=0.0,
+            # Pin legacy mode because Python's future `autocommit=False` default would open a transaction before WAL setup and `__enter__`.
+            # `test_transaction[sqlite_raw]` covers the required explicit commit and rollback behavior.
+            #   see https://docs.python.org/3/library/sqlite3.html#transaction-control-via-the-autocommit-attribute
+            autocommit=cast(bool, sqlite3.LEGACY_TRANSACTION_CONTROL),
+        )
+        try:
+            self._set_wal(connection)
+        except BaseException:
+            connection.close()
+            raise
+        self.connection: sqlite3.Connection | None = connection
+
+    def _set_wal(self, connection: sqlite3.Connection) -> None:
+        # Match SqliteBackend's unbounded WAL lock retry policy while the implementations run side by side.
+        # TODO consider bounding these retries once sqlite_raw becomes the default, so a persistently locked cache cannot hang indefinitely.
+        while True:
+            try:
+                cursor = connection.execute('PRAGMA journal_mode=WAL')
+            except sqlite3.OperationalError as error:
+                if not _is_lock_error(error):
+                    error.add_note(f'while setting WAL mode on cache {self.cache_path}')
+                    raise
+                time.sleep(_WAL_LOCK_RETRY_INTERVAL_SECONDS)
+                continue
+
+            with closing(cursor):
+                row = cursor.fetchone()
+            assert row == ('wal',), (self.cache_path, row)
+            return
+
+    def _require_connection(self) -> sqlite3.Connection:
+        conn = self.connection
+        assert conn is not None
+        return conn
+
+    @override
+    def __enter__(self) -> Self:
+        conn = self._require_connection()
+        try:
+            conn.execute('BEGIN DEFERRED').close()
+        except BaseException:
+            conn.close()
+            self.connection = None
+            raise
+        return self
+
+    @override
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _tb: TracebackType | None,
+    ) -> None:
+        conn = self.connection
+        self.connection = None
+        if conn is None:
+            return
+        try:
+            if exc_type is None:
+                conn.commit()
+            else:
+                conn.rollback()
+        finally:
+            conn.close()
+
+    @override
+    def get_old_hash(self) -> SourceHash | None:
+        conn = self._require_connection()
+        try:
+            cursor = conn.execute('SELECT value FROM hash')
+        except sqlite3.OperationalError as e:
+            if 'no such table: hash' in str(e):
+                return None
+            raise
+
+        with closing(cursor):
+            rows = cursor.fetchall()
+
+        assert len(rows) <= 1, rows
+        if len(rows) == 0:
+            return None
+        return rows[0][0]
+
+    @override
+    def cached_blobs_total(self) -> int | None:
+        conn = self._require_connection()
+        with closing(conn.execute('SELECT COUNT(*) FROM cache')) as cursor:
+            row = cursor.fetchone()
+        assert row is not None
+        (total,) = row
+        return total
+
+    @override
+    def cached_blobs(self) -> Iterator[bytes]:
+        conn = self._require_connection()
+        with closing(conn.execute('SELECT data FROM cache')) as cursor:
+            for (blob,) in cursor:
+                yield blob
+
+    @override
+    def get_exclusive_write(self) -> bool:
+        conn = self._require_connection()
+        try:
+            # One of these schema statements upgrades BEGIN DEFERRED to a write transaction, matching the current sqlite backend behavior.
+            conn.execute('CREATE TABLE IF NOT EXISTS hash (value TEXT)').close()
+            conn.execute('DROP TABLE IF EXISTS `table`').close()
+            conn.execute('DROP TABLE IF EXISTS cache_tmp').close()
+            conn.execute('CREATE TABLE cache_tmp (data BLOB)').close()
+        except sqlite3.OperationalError as e:
+            if _is_lock_error(e):
+                conn.close()
+                self.connection = None
+                return False
+            e.add_note(f'while acquiring a write transaction on cache {self.cache_path}')
+            raise
+        return True
+
+    @override
+    def flush_blobs(self, chunk: Sequence[bytes]) -> None:
+        self._require_connection().executemany(
+            'INSERT INTO cache_tmp (data) VALUES (?)', ((blob,) for blob in chunk)
+        ).close()
+
+    @override
+    def finalize(self, new_hash: SourceHash) -> None:
+        conn = self._require_connection()
+        conn.execute('DELETE FROM hash').close()
+        conn.execute('DROP TABLE IF EXISTS cache').close()
+        conn.execute('ALTER TABLE cache_tmp RENAME TO cache').close()
+        conn.execute('INSERT INTO hash (value) VALUES (?)', (new_hash,)).close()
+
+    @override
+    def write_new_hash(self, new_hash: SourceHash) -> None:
+        raise NotImplementedError("shouldn't be used for SqliteRawBackend")

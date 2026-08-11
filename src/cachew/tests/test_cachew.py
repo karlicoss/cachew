@@ -28,6 +28,7 @@ import pytest
 from more_itertools import one, unique_everseen
 
 from .. import (
+    BACKENDS,
     Backend,
     CacheReadError,
     CachewException,
@@ -36,10 +37,9 @@ from .. import (
     get_logger,
     settings,
 )
-from ..backend.file import FileBackend
-from ..backend.sqlite import SqliteBackend
 
 logger = get_logger()
+_SQLITE_BACKENDS = frozenset({'sqlite', 'sqlite_raw'})
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +56,7 @@ def throw_on_errors():
     # TODO restore it?
 
 
-@pytest.fixture(autouse=True, params=['sqlite', 'file'])
+@pytest.fixture(autouse=True, params=['sqlite', 'sqlite_raw', 'file'])
 def set_backend(restore_settings, request):
     backend = request.param
     settings.DEFAULT_BACKEND = backend
@@ -511,7 +511,7 @@ def test_transaction(tmp_path: Path) -> None:
 
 
 def test_sqlite_startup_fails_cleanly_on_readonly_cache_dir(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND != 'sqlite':
+    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
         pytest.skip('this test only makes sense for sqlite backend')
 
     db = tmp_path / 'cache.sqlite'
@@ -527,12 +527,16 @@ def test_sqlite_startup_fails_cleanly_on_readonly_cache_dir(tmp_path: Path) -> N
     def fun() -> Iterator[int]:
         yield 1
 
-    with pytest.raises(RuntimeError, match='Error while setting WAL'):
-        list(fun())
+    if settings.DEFAULT_BACKEND == 'sqlite':
+        with pytest.raises(RuntimeError, match='Error while setting WAL'):
+            list(fun())
+    else:
+        with pytest.raises(sqlite3.OperationalError):
+            list(fun())
 
 
 def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND != 'sqlite':
+    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
         pytest.skip('this test only makes sense for sqlite backend')
 
     db = tmp_path / 'cache.sqlite'
@@ -1183,8 +1187,6 @@ def test_cache_hit_cleanup_error_after_full_read_does_not_fallback(
     """
     If cache cleanup fails after a full cache hit, cachew must not fallback and re-emit fresh items.
     """
-    from .. import BACKENDS
-
     settings.THROW_ON_ERROR = False
 
     calls = 0
@@ -1234,10 +1236,7 @@ def test_locked_write_uncached_exception_propagates_without_retry(
         yield 1
         raise UserError('boom')
 
-    backend_cls = {
-        'file': FileBackend,
-        'sqlite': SqliteBackend,
-    }[settings.DEFAULT_BACKEND]
+    backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
 
     with backend_cls(cache_path=cache_path, logger=logger) as backend:
         assert backend.get_exclusive_write()
@@ -1278,10 +1277,7 @@ def test_synthetic_lock_lost_runs_uncached_with_original_args(
     assert recomputed == ['a']
 
     recomputed.clear()
-    backend_cls = {
-        'file': FileBackend,
-        'sqlite': SqliteBackend,
-    }[settings.DEFAULT_BACKEND]
+    backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
 
     with backend_cls(cache_path=cache_path, logger=logger) as backend:
         assert backend.get_exclusive_write()
@@ -1506,7 +1502,7 @@ def dump_old_cache(tmp_path: Path) -> None:
 
 
 def test_old_cache_v0_6_3(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND != 'sqlite':
+    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
         pytest.skip('this test only makes sense for sqlite backend')
 
     sql = '''
@@ -1596,6 +1592,9 @@ def test_early_exit_simple(tmp_path: Path) -> None:
 
 # see https://github.com/sqlalchemy/sqlalchemy/issues/5522#issuecomment-705156746
 def test_early_exit_shutdown(tmp_path: Path) -> None:
+    if settings.DEFAULT_BACKEND != 'sqlite':
+        pytest.skip('this is a regression test for SQLAlchemy-specific shutdown behavior')
+
     # don't ask... otherwise the exception doesn't appear :shrug:
     import_hack = '''
 from sqlalchemy import Column

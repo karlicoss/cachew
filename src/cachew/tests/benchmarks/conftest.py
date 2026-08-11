@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
+import pytest
 import pytest_benchmark.table as benchmark_table
 from pytest_benchmark.table import TableResults
 from pytest_benchmark.utils import DEFAULT_COLUMNS as _UPSTREAM_DEFAULT_COLUMNS
+
+from ... import settings
+
+
+@pytest.fixture(autouse=True)
+def strict_cache_errors() -> Iterator[None]:
+    # for benchmark we really don't want to fall back onto the original function
+    original = settings.THROW_ON_ERROR
+    settings.THROW_ON_ERROR = True
+    yield
+    settings.THROW_ON_ERROR = original
 
 
 def pytest_benchmark_update_machine_info(config, machine_info: dict[str, Any]) -> None:  # noqa: ARG001

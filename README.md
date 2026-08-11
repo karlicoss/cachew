@@ -128,7 +128,7 @@ Cachew gives the best of two worlds and makes it both **easy and efficient**. Th
 - first your objects get [converted](src/cachew/marshall/cachew.py#L29) into a simpler JSON-like representation
 - after that, they are mapped into byte blobs via [`orjson`](https://github.com/ijl/orjson).
 
-When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py#L580)
+When the function is called, cachew [computes the hash of your function's arguments ](src/cachew/__init__.py#L390)
 and compares it against the previously stored hash value.
 
 - If they match, it would deserialize and yield whatever is stored in the cache database
@@ -140,18 +140,18 @@ and compares it against the previously stored hash value.
 
 
 
-* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L381), [2](src/cachew/tests/test_cachew.py#L395)
+* automatic schema inference: [1](src/cachew/tests/test_cachew.py#L321), [2](src/cachew/tests/test_cachew.py#L378)
 * supported types:
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
 
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L682), [tests.test_primitive](src/cachew/tests/test_cachew.py#L720), [tests.test_dates](src/cachew/tests/test_cachew.py#L632), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1124)
-    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L597)
-    * [Optional](src/cachew/tests/test_cachew.py#L524) types
-    * [Union](src/cachew/tests/test_cachew.py#L827) types
-    * [nested datatypes](src/cachew/tests/test_cachew.py#L440)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L742), [tests.test_primitive](src/cachew/tests/test_cachew.py#L780), [tests.test_dates](src/cachew/tests/test_cachew.py#L692), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1420)
+    * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L657)
+    * [Optional](src/cachew/tests/test_cachew.py#L584) types
+    * [Union](src/cachew/tests/test_cachew.py#L887) types
+    * [nested datatypes](src/cachew/tests/test_cachew.py#L423)
 
-* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L470) and discards old data automatically
+* detects [datatype schema changes](src/cachew/tests/test_cachew.py#L453) and discards old data automatically
 
 
 # Performance
@@ -165,12 +165,12 @@ You can find some of my performance tests in [benchmarks/](benchmarks) dir, and 
 
 
 # Using
-See [docstring](src/cachew/__init__.py#L279) for up-to-date documentation on parameters and return types.
+See [docstring](src/cachew/__init__.py#L124) for up-to-date documentation on parameters and return types.
 You can also use [extensive unit tests](src/cachew/tests/test_cachew.py#L1) as a reference.
 
 Some useful (but optional) arguments of `@cachew` decorator:
 
-* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L417) and depends on function's arguments.
+* `cache_path` can be a directory, or a callable that [returns a path](src/cachew/tests/test_cachew.py#L400) and depends on function's arguments.
 
    By default, `settings.DEFAULT_CACHEW_DIR` is used.
 
@@ -234,8 +234,10 @@ I'm using [tox](tox.ini) to run tests, and [Github Actions](.github/workflows/ma
 
   It's pretty efficient and iterables (i.e. sequences) map onto database rows in a very straightforward manner, plus we get some concurrency guarantees.
 
-  There is also a somewhat experimental backend which uses a simple file (jsonl-like) for storage, you can use it via `@cache(backend='file')`, or via `settings.DEFAULT_BACKEND`.
+  There is also a somewhat experimental backend which uses a simple file (jsonl-like) for storage, available via `@cachew(backend='file')` or `settings.DEFAULT_BACKEND`.
   It's slightly faster than sqlite judging by benchmarks, but unless you're caching millions of items this shouldn't really be noticeable.
+  An experimental pure-`sqlite3` implementation is available via `@cachew(backend='sqlite_raw')`.
+  The existing `sqlite` backend remains the default, and both SQLite implementations use the same on-disk cache format.
   
   It would also be interesting to experiment with in-RAM storages.
 
@@ -279,7 +281,8 @@ Now you can use `@mcachew` in place of `@cachew`, and be certain things don't br
 - `DEFAULT_CACHEW_DIR`: override to set a different base directory. The default is the "user cache directory" (see [platformdirs docs](https://github.com/tox-dev/platformdirs?tab=readme-ov-file#example-output)).
 - `THROW_ON_ERROR`: by default, cachew is defensive and simply attemps to cause the original function on caching issues.
    Set to `True` to catch errors earlier.
-- `DEFAULT_BACKEND`: currently supported are `sqlite` and `file` (file is somewhat experimental, although should work too).
+- `DEFAULT_BACKEND`: supported values are `sqlite`, `sqlite_raw`, and `file`.
+   `sqlite` remains the default; `sqlite_raw` and `file` are experimental.
 
 
 ## Updating this readme
