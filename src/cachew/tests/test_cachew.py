@@ -1359,6 +1359,16 @@ def test_recursive_simple(tmp_path: Path) -> None:
 
 
 def test_recursive_deep(tmp_path: Path) -> None:
+    if settings.DEFAULT_BACKEND == 'sqlite' and sys.platform != 'win32':
+        import resource
+
+        soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        required_soft_limit = 2048
+        assert soft_limit == resource.RLIM_INFINITY or soft_limit >= required_soft_limit, (
+            f'test_recursive_deep[sqlite] requires an open-file soft limit of at least {required_soft_limit}; '
+            f'got soft={soft_limit}, hard={hard_limit}. Run `ulimit -Sn {required_soft_limit}` before the tests.'
+        )
+
     @cachew(tmp_path)
     def numbers(n: int) -> Iterable[int]:
         if n == 0:
