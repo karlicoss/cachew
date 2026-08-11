@@ -42,6 +42,7 @@ class AbstractBackend(AbstractContextManager):
     @abstractmethod
     def finalize(self, new_hash: SourceHash) -> None:
         """
-        Atomically commit changes and make them visible to readers.
+        Complete the atomic replacement.
+        Transactional backends commit and expose it on successful context exit.
         """
         raise NotImplementedError
