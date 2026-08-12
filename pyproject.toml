@@ -115,7 +115,7 @@ enable_error_code = [
 [tool.ty.src]
 exclude = [
     "doc/test_serialization.py",
-    "src/cachew/legacy.py",
+    "misc/legacy/",
 ]
 
 
@@ -233,7 +233,7 @@ lint.ignore = [
 
 
 extend-exclude = [
-    "src/cachew/legacy.py",  # TODO dunno, remove it for good?
+    "misc/legacy/",  # frozen historical source, intentionally outside active checks
 ]
 
 [tool.ruff.format]
