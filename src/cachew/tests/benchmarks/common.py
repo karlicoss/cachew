@@ -27,7 +27,6 @@ BENCHMARK_PEDANTIC = {
 type Impl = Literal[
     'cachew',
     'cattrs',
-    'legacy',
     'pickle',
     'msgspec-json',
     'msgspec-msgpack',
@@ -179,18 +178,7 @@ def make_marshaller_impl(
         #     union=Type,
         #     converter=converter,
         # )
-
         return unstruct_func, lambda x: struct_func(x, Type), orjson.dumps, orjson.loads
-    elif impl == 'legacy':
-        from ...legacy import NTBinder
-
-        # NOTE: legacy binder emits a tuple which can be inserted directly into
-        # the database. So blob/sqlite stages are not directly comparable to the
-        # JSON-like implementations, where you first marshal and then encode.
-        # That also gives legacy a bit of an advantage for custom types, since
-        # those would otherwise normally be handled by SQLAlchemy instead.
-        binder = NTBinder.make(Type)
-        return binder.to_row, binder.from_row, orjson.dumps, orjson.loads
     elif impl == 'pickle':
         # Keep the protocol explicit so cross-version benchmark results are
         # comparable even if pickle defaults change in the future.
@@ -216,13 +204,6 @@ def _validate_sample_equal(_impl: Impl, result: list[Any], expected: list[Any]) 
 
 
 def _validate_datetimes(impl: Impl, result: list[Any], expected: list[Any]) -> None:
-    if impl == 'legacy':
-        # Legacy relies on SQLAlchemy's datetime adapter in the real sqlite path.
-        # In these raw blob/json pipeline stages, orjson turns top-level datetime
-        # payloads into strings, and NTBinder.from_row() does not convert them
-        # back. Keep legacy in the benchmark for throughput numbers, but skip the
-        # stronger round-trip assertion for this benchmark-only transport path.
-        return
     assert _sample(result) == _sample(expected)
     if not _is_msgspec_impl(impl):
         # msgspec reconstructs fixed-offset tzinfo from RFC3339 rather than the

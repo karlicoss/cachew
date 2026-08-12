@@ -1,3 +1,8 @@
+#+begin_quote
+Historical note: this document describes the structural SQLite serializer retired from the installed package in 2026.
+Its frozen source is preserved in [[file:../misc/legacy/README.md][misc/legacy]], while current Cachew marshals each item into a single serialized payload.
+#+end_quote
+
 Cachew works kinda like =functools.lru_cache=, but it also works in-between program runs.
 For that, it needs to somehow persist the objects on the disk (unlike =lru_cache= which just keeps references to the objects already in process memory).
 
