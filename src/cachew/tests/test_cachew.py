@@ -307,6 +307,38 @@ def test_unsupported_class(tmp_path: Path) -> None:
             yield UGood(x=2)
 
 
+def test_unsupported_annotation_follows_error_policy(
+    *,
+    tmp_path: Path,
+    restore_settings,
+) -> None:
+    """
+    Unsupported annotations must not bypass Cachew's strict or defensive setup policy.
+    Strict mode must reject decoration without running the source, while defensive mode must return the original function and leave it uncached.
+    """
+
+    source_calls = 0
+
+    def source() -> Iterator[Callable[[int], str]]:
+        nonlocal source_calls
+        source_calls += 1
+        yield str
+
+    cache_path = tmp_path / 'cache'
+    settings.THROW_ON_ERROR = True
+    with pytest.raises(CachewException, match='failed to infer cache type'):
+        cachew(cache_path=cache_path)(source)
+    assert source_calls == 0
+
+    settings.THROW_ON_ERROR = False
+    decorated = cachew(cache_path=cache_path)(source)
+    assert decorated is source
+    assert list(decorated()) == [str]
+    assert list(decorated()) == [str]
+    assert source_calls == 2
+    assert cache_path.exists() is False
+
+
 class BB(NamedTuple):
     xx: int
     yy: int
