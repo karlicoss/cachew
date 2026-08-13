@@ -377,15 +377,16 @@ def build_schema(Type) -> Schema:
     if is_dictish:
         (ft, tt) = args
         fts = build_schema(ft)
+        if not isinstance(fts, SPrimitive):
+            raise TypeNotSupported(type_=Type, reason='dictionary key type must be primitive')
         tts = build_schema(tt)
-        assert isinstance(fts, SPrimitive)
         return SDict(
             type=origin,
             ft=fts,
             tt=tts,
         )
 
-    raise RuntimeError(f"unsupported: {Type=} {origin=} {args=}")
+    raise TypeNotSupported(type_=Type, reason=f'generic type with origin {origin} is unsupported')
 
 
 ######### tests
