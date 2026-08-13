@@ -31,7 +31,7 @@ except:
         # sqlite needs a blob
         return json.dumps(*args, **kwargs).encode('utf8')
 
-    orjson_loads = json.loads  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    orjson_loads = json.loads  # type: ignore[assignment]
 
 import platformdirs
 
