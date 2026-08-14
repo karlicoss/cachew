@@ -44,7 +44,7 @@ from .backend.sqlite import SqliteBackend
 from .backend.sqlite_raw import SqliteRawBackend
 from .common import DEPENDENCIES, CacheReadError, CachewException, CacheWriteError, SourceHash
 from .logging_helper import make_logger
-from .marshall.cachew import CachewMarshall
+from .marshall.cachew import CachewMarshall, SchemaFingerprint
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
@@ -387,7 +387,7 @@ class Context[**P, ItemT]:
         self.logger.debug(f'using {self.backend}:{resolved_path} for cache')
         return resolved_path
 
-    def composite_hash(self, *args, **kwargs) -> dict[str, Any]:
+    def composite_hash(self, schema_fingerprint: SchemaFingerprint, /, *args, **kwargs) -> dict[str, Any]:
         fsig = inspect.signature(self.func)
         # defaults wouldn't be passed in kwargs, but they can be an implicit dependency (especially inbetween program runs)
         defaults = {
@@ -403,10 +403,9 @@ class Context[**P, ItemT]:
             if k in hsig.parameters or 'kwargs' in hsig.parameters
         }  # fmt: skip
         kwargs = {**defaults, **kwargs}
-        schema = str(self.cls_)
         hash_parts = {
             'cachew'    : CACHEW_VERSION,
-            'schema'    : schema,
+            'schema'    : schema_fingerprint,
             DEPENDENCIES: str(self.depends_on(*args, **kwargs)),
         }  # fmt: skip
         synthetic_key = self.synthetic_key
@@ -601,10 +600,10 @@ def cachew_wrapper[**P, ItemT](
     session: CacheSession[ItemT] | None = None
     try:
         BackendCls = BACKENDS[C.backend]
-        new_hash_d = C.composite_hash(*args, **kwargs)
+        marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=C.cls_)
+        new_hash_d = C.composite_hash(marshall.schema_fingerprint, *args, **kwargs)
         new_hash: SourceHash = json.dumps(new_hash_d)
         logger.debug(f'new hash: {new_hash}')
-        marshall: CachewMarshall[ItemT] = CachewMarshall(Type_=C.cls_)
 
         backend = BackendCls(cache_path=resolved_cache_path, logger=logger)
         session = CacheSession(

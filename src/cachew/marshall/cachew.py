@@ -11,9 +11,11 @@ from typing import (  # noqa: UP035
     Any,
     Dict,
     List,
+    Literal,
     NamedTuple,
     Optional,
     Tuple,
+    TypedDict,
     Union,
     get_args,
     get_origin,
@@ -28,7 +30,7 @@ from .common import AbstractMarshall, Json
 
 class CachewMarshall[T](AbstractMarshall[T]):
     def __init__(self, Type_: type[T]) -> None:
-        self.schema = build_schema(Type_)
+        self.schema, self.schema_fingerprint = _build_schema(Type_)
 
     def dump(self, obj: T) -> Json:
         return self.schema.dump(obj)
@@ -289,7 +291,63 @@ PRIMITIVES: dict[type, type] = {
 }
 
 
-def build_schema(Type) -> Schema:
+class _LeafSchemaFingerprint(TypedDict):
+    kind: Literal['primitive', 'exception', 'datetime', 'date']
+    type: str
+
+
+class _SchemaFieldFingerprint(TypedDict):
+    name: str
+    schema: SchemaFingerprint
+
+
+class _RecordSchemaFingerprint(TypedDict):
+    kind: Literal['dataclass', 'namedtuple']
+    type: str
+    fields: list[_SchemaFieldFingerprint]
+
+
+class _CollectionSchemaFingerprint(TypedDict):
+    kind: Literal['list', 'sequence']
+    item: SchemaFingerprint
+
+
+class _TupleSchemaFingerprint(TypedDict):
+    kind: Literal['tuple']
+    items: list[SchemaFingerprint]
+
+
+class _UnionSchemaFingerprint(TypedDict):
+    kind: Literal['union']
+    args: list[SchemaFingerprint]
+
+
+class _DictSchemaFingerprint(TypedDict):
+    kind: Literal['dict']
+    key: SchemaFingerprint
+    value: SchemaFingerprint
+
+
+type SchemaFingerprint = (
+    _LeafSchemaFingerprint
+    | _RecordSchemaFingerprint
+    | _CollectionSchemaFingerprint
+    | _TupleSchemaFingerprint
+    | _UnionSchemaFingerprint
+    | _DictSchemaFingerprint
+)
+
+
+def _type_identifier(Type: Any) -> str:
+    return f'{Type.__module__}.{Type.__qualname__}'
+
+
+def build_schema(Type: Any) -> Schema:
+    schema, _ = _build_schema(Type)
+    return schema
+
+
+def _build_schema(Type: Any) -> tuple[Schema, SchemaFingerprint]:
     # just to avoid confusion in case of weirdness with stringish type annotations
     assert not isinstance(Type, str), Type
 
@@ -297,7 +355,7 @@ def build_schema(Type) -> Schema:
 
     ptype = PRIMITIVES.get(Type)
     if ptype is not None:
-        return SPrimitive(type=ptype)
+        return SPrimitive(type=ptype), {'kind': 'primitive', 'type': _type_identifier(Type)}
 
     origin = get_origin(Type)
     # origin is 'unsubscripted/erased' version of type
@@ -305,13 +363,13 @@ def build_schema(Type) -> Schema:
 
     if origin is None:
         if issubclass(Type, Exception):
-            return SException(type=Type)
+            return SException(type=Type), {'kind': 'exception', 'type': _type_identifier(Type)}
 
         if issubclass(Type, datetime):
-            return SDatetime(type=Type)
+            return SDatetime(type=Type), {'kind': 'datetime', 'type': _type_identifier(Type)}
 
         if issubclass(Type, date):
-            return SDate(type=Type)
+            return SDate(type=Type), {'kind': 'date', 'type': _type_identifier(Type)}
 
         if not (is_dataclass(Type) or is_namedtuple(Type)):
             raise TypeNotSupported(type_=Type, reason='unknown type')
@@ -321,10 +379,23 @@ def build_schema(Type) -> Schema:
             # this can happen for instance on 3.9 if pipe syntax was used for Union types
             # would be nice to provide a friendlier error though
             raise TypeNotSupported(type_=Type, reason='failed to get type hints') from te
-        fields = tuple((k, build_schema(t)) for k, t in hints.items())
-        return SDataclass(
-            type=Type,
-            fields=fields,
+        schema_fields: list[tuple[str, Schema]] = []
+        fingerprint_fields: list[_SchemaFieldFingerprint] = []
+        for name, field_type in hints.items():
+            field_schema, field_fingerprint = _build_schema(field_type)
+            schema_fields.append((name, field_schema))
+            fingerprint_fields.append({'name': name, 'schema': field_fingerprint})
+        kind: Literal['namedtuple', 'dataclass'] = 'namedtuple' if is_namedtuple(Type) else 'dataclass'
+        return (
+            SDataclass(
+                type=Type,
+                fields=tuple(schema_fields),
+            ),
+            {
+                'kind': kind,
+                'type': _type_identifier(Type),
+                'fields': fingerprint_fields,
+            },
         )
 
     args = get_args(Type)
@@ -333,24 +404,32 @@ def build_schema(Type) -> Schema:
     if is_union:
         # We 'erasing' types (since generic types don't work with isinstance checks).
         # So we need to make sure the types are unique to make sure we can deserialise them.
-        schemas = [build_schema(a) for a in args]
+        union_schemas_and_fingerprints = [_build_schema(a) for a in args]
+        schemas = [schema for schema, _ in union_schemas_and_fingerprints]
         union_types = [s.type for s in schemas if s.type is not Real]
         if len(set(union_types)) != len(union_types):
             raise TypeNotSupported(type_=Type, reason=f'runtime union arguments are not unique: {union_types}')
-        return SUnion(
-            type=origin,
-            args=tuple(
-                (tidx, s)
-                for tidx, s in enumerate(schemas)
+        return (
+            SUnion(
+                type=origin,
+                args=tuple((tidx, s) for tidx, s in enumerate(schemas)),
             ),
-        )  # fmt: skip
+            {
+                'kind': 'union',
+                'args': [fingerprint for _, fingerprint in union_schemas_and_fingerprints],
+            },
+        )
 
     is_listish = origin is list
     if is_listish:
         (t,) = args
-        return SList(
-            type=origin,
-            arg=build_schema(t),
+        item_schema, item_fingerprint = _build_schema(t)
+        return (
+            SList(
+                type=origin,
+                arg=item_schema,
+            ),
+            {'kind': 'list', 'item': item_fingerprint},
         )
 
     # hmm check for is typing.Sequence doesn't pass for some reason
@@ -362,28 +441,46 @@ def build_schema(Type) -> Schema:
             # before python 3.11, get_args for that gives ((),) instead of an empty tuple () as one might expect
             if args == ((),):
                 args = ()
-            return STuple(
-                type=origin,
-                args=tuple(build_schema(a) for a in args),
+            tuple_schemas_and_fingerprints = tuple(_build_schema(a) for a in args)
+            return (
+                STuple(
+                    type=origin,
+                    args=tuple(schema for schema, _ in tuple_schemas_and_fingerprints),
+                ),
+                {
+                    'kind': 'tuple',
+                    'items': [fingerprint for _, fingerprint in tuple_schemas_and_fingerprints],
+                },
             )
         else:
             (t,) = args
-            return SSequence(
-                type=origin,
-                arg=build_schema(t),
+            item_schema, item_fingerprint = _build_schema(t)
+            return (
+                SSequence(
+                    type=origin,
+                    arg=item_schema,
+                ),
+                {'kind': 'sequence', 'item': item_fingerprint},
             )
 
     is_dictish = origin is dict
     if is_dictish:
         (ft, tt) = args
-        fts = build_schema(ft)
+        fts, ft_fingerprint = _build_schema(ft)
         if not isinstance(fts, SPrimitive):
             raise TypeNotSupported(type_=Type, reason='dictionary key type must be primitive')
-        tts = build_schema(tt)
-        return SDict(
-            type=origin,
-            ft=fts,
-            tt=tts,
+        tts, tt_fingerprint = _build_schema(tt)
+        return (
+            SDict(
+                type=origin,
+                ft=fts,
+                tt=tts,
+            ),
+            {
+                'kind': 'dict',
+                'key': ft_fingerprint,
+                'value': tt_fingerprint,
+            },
         )
 
     raise TypeNotSupported(type_=Type, reason=f'generic type with origin {origin} is unsupported')
@@ -423,6 +520,53 @@ def _test_identity(obj, Type_, expected=None):
 type _IntType = int
 type _StrIntType = str | int
 ##
+
+
+@dataclass
+class _FingerprintChild:
+    ratio: float
+
+
+@dataclass
+class _FingerprintRecord:
+    count: int
+    child: _FingerprintChild | None
+    timestamps: list[datetime]
+
+
+def test_schema_fingerprint() -> None:
+    marshall = CachewMarshall(_FingerprintRecord)
+
+    assert marshall.schema_fingerprint == {
+        'kind': 'dataclass',
+        'type': f'{__name__}._FingerprintRecord',
+        'fields': [
+            {'name': 'count', 'schema': {'kind': 'primitive', 'type': 'builtins.int'}},
+            {
+                'name': 'child',
+                'schema': {
+                    'kind': 'union',
+                    'args': [
+                        {
+                            'kind': 'dataclass',
+                            'type': f'{__name__}._FingerprintChild',
+                            'fields': [
+                                {
+                                    'name': 'ratio',
+                                    'schema': {'kind': 'primitive', 'type': 'builtins.float'},
+                                }
+                            ],
+                        },
+                        {'kind': 'primitive', 'type': 'builtins.NoneType'},
+                    ],
+                },
+            },
+            {
+                'name': 'timestamps',
+                'schema': {'kind': 'list', 'item': {'kind': 'datetime', 'type': 'datetime.datetime'}},
+            },
+        ],
+    }
 
 
 # TODO customise with cattrs
