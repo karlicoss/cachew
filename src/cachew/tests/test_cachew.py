@@ -476,32 +476,106 @@ def test_nested(tmp_path: Path) -> None:
     assert list(get_data()) == [d1, d2]
 
 
-class BBv2(NamedTuple):
-    xx: int
-    yy: int
-    zz: float
-
-
 def test_schema_change(tmp_path: Path) -> None:
     """
-    Should discard cache on schema change (BB to BBv2) in this example
+    A changed recursive schema must invalidate a cache even when the outer type identity is unchanged.
     """
-    b = BB(xx=2, yy=3)
+    cache_path = tmp_path / 'schema_change.sqlite'
 
-    @cachew(cache_path=tmp_path, cls=BB)
-    def get_data():
-        return [b]
+    @dataclass
+    class ChildV1:
+        value: int
 
-    assert list(get_data()) == [b]
+    @dataclass
+    class ItemV1:
+        child: ChildV1
 
-    # TODO make type part of key?
-    b2 = BBv2(xx=3, yy=4, zz=5.0)
+    @dataclass
+    class ChildV2:
+        value: float
 
-    @cachew(cache_path=tmp_path, cls=BBv2)
+    @dataclass
+    class ItemV2:
+        child: ChildV2
+
+    ChildV2.__name__ = ChildV1.__name__
+    ChildV2.__qualname__ = ChildV1.__qualname__
+    ItemV2.__name__ = ItemV1.__name__
+    ItemV2.__qualname__ = ItemV1.__qualname__
+    assert str(ChildV1) == str(ChildV2)  # precondition
+    assert str(ItemV1) == str(ItemV2)  # precondition
+
+    calls_v1 = 0
+    item_v1 = ItemV1(child=ChildV1(value=1))
+
+    @cachew(cache_path=cache_path, force_file=True, cls=ItemV1)
+    def get_data_v1():
+        nonlocal calls_v1
+        calls_v1 += 1
+        return [item_v1]
+
+    assert list(get_data_v1()) == [item_v1]
+    assert list(get_data_v1()) == [item_v1]
+    assert calls_v1 == 1
+
+    calls_v2 = 0
+    item_v2 = ItemV2(child=ChildV2(value=1.5))
+
+    @cachew(cache_path=cache_path, force_file=True, cls=ItemV2)
     def get_data_v2():
-        return [b2]
+        nonlocal calls_v2
+        calls_v2 += 1
+        return [item_v2]
 
-    assert list(get_data_v2()) == [b2]
+    assert list(get_data_v2()) == [item_v2]
+    assert list(get_data_v2()) == [item_v2]
+    assert calls_v2 == 1
+
+
+def test_schema_change_from_required_to_optional(tmp_path: Path) -> None:
+    """
+    Changing a field to Optional must invalidate the old cache before decoding its incompatible rows.
+    This is a regression for https://github.com/karlicoss/cachew/issues/59.
+    """
+    cache_path = tmp_path / 'optional_schema_change.sqlite'
+
+    @dataclass
+    class ItemV1:
+        value: float
+
+    @dataclass
+    class ItemV2:
+        value: float | None
+
+    ItemV2.__name__ = ItemV1.__name__
+    ItemV2.__qualname__ = ItemV1.__qualname__
+    assert str(ItemV1) == str(ItemV2)  # precondition
+
+    calls_v1 = 0
+    item_v1 = ItemV1(value=1.5)
+
+    @cachew(cache_path=cache_path, force_file=True, cls=ItemV1)
+    def get_data_v1():
+        nonlocal calls_v1
+        calls_v1 += 1
+        return [item_v1]
+
+    assert list(get_data_v1()) == [item_v1]
+    assert list(get_data_v1()) == [item_v1]
+    assert calls_v1 == 1
+
+    calls_v2 = 0
+    item_v2 = ItemV2(value=None)
+
+    @cachew(cache_path=cache_path, force_file=True, cls=ItemV2)
+    def get_data_v2():
+        nonlocal calls_v2
+        calls_v2 += 1
+        return [item_v2]
+
+    assert list(get_data_v2()) == [item_v2]
+    assert list(get_data_v2()) == [item_v2]
+    assert calls_v2 == 1
 
 
 def test_transaction(tmp_path: Path) -> None:
@@ -1172,37 +1246,37 @@ def test_defensive_read_error_after_yield_raises_cache_read_error(
     settings.THROW_ON_ERROR = False
 
     calls = 0
+    cache_path = tmp_path / 'partially_corrupted_cache'
 
     class Item(NamedTuple):
-        value: Any
+        value: int
 
-    first_loose = Item(value=[1])
-    second_loose = Item(value=2)
+    first = Item(value=1)
+    second = Item(value=2)
 
-    # First populate the cache with a looser schema.
-    @cachew(tmp_path)
+    @cachew(cache_path, force_file=True)
     def fun() -> Iterator[Item]:
         nonlocal calls
         calls += 1
-        yield first_loose
-        yield second_loose
+        yield first
+        yield second
 
-    assert list(fun()) == [first_loose, second_loose]
+    assert list(fun()) == [first, second]
     assert calls == 1
 
-    class Item(NamedTuple):  # type: ignore[no-redef]
-        value: list[int]
-
-    first_strict = Item(value=[1])
-    second_strict = Item(value=[2])
-
-    # Then reuse the same function and type names, so the cache hash still matches, but the second cached item no longer loads.
-    @cachew(tmp_path)  # type: ignore[no-redef]
-    def fun() -> Iterator[Item]:
-        nonlocal calls
-        calls += 1
-        yield first_strict
-        yield second_strict
+    # Corrupt only the second blob so the cache read emits one valid item before failing.
+    if settings.DEFAULT_BACKEND in _SQLITE_BACKENDS:
+        with sqlite3.connect(cache_path) as connection:
+            changed = connection.execute(
+                'UPDATE cache SET data = ? WHERE rowid = (SELECT rowid FROM cache ORDER BY rowid LIMIT 1 OFFSET 1)',
+                (b'not-json',),
+            ).rowcount
+        assert changed == 1
+    else:
+        lines = cache_path.read_bytes().splitlines(keepends=True)
+        assert len(lines) == 3, lines
+        lines[2] = b'not-json\n'
+        cache_path.write_bytes(b''.join(lines))
 
     # Previous buggy behavior was [first, first, second]: one item loaded from cache, then full fallback.
     # Expected behavior is a hard cache read error, even when THROW_ON_ERROR is false.
