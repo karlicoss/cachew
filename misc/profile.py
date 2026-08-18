@@ -3,7 +3,6 @@ import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-import sqlalchemy
 from codetiming import Timer
 from more_itertools import ilen
 
@@ -47,22 +46,6 @@ def test_ints() -> None:
         with sqlite3.connect(cache_path) as conn:
             for (_x,) in conn.execute('SELECT * FROM cache'):
                 total += 1
-        assert total == N  # just in case
-
-    with timer('reading directly via sqlalchemy'):
-        total = 0
-        engine = sqlalchemy.create_engine(f'sqlite:///{cache_path}')
-
-        from sqlalchemy import Column, MetaData, Table
-
-        meta = MetaData()
-        table_cache = Table('cache', meta, Column('_cachew_primitive', sqlalchemy.Integer))
-        with engine.connect() as conn:
-            with timer('sqlalchemy querying'):
-                rows = conn.execute(table_cache.select())
-                for (_x,) in rows:
-                    total += 1
-        engine.dispose()
         assert total == N  # just in case
 
     cache_size_mb = cache_path.stat().st_size / 10**6

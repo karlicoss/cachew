@@ -5,23 +5,15 @@ from contextlib import ExitStack, closing
 from multiprocessing import get_context
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from types import ModuleType
+from subprocess import check_call
 from typing import Protocol, cast
 
 import pytest
 
 from .. import BACKENDS, Backend, cachew, get_logger, settings
-from ..backend import sqlite as sqlalchemy_sqlite
-from ..backend import sqlite_raw
+from ..backend import sqlite
 from ..backend.common import AbstractBackend
 from ..common import SourceHash
-
-_SQLITE_BACKEND_PAIRS: list[tuple[Backend, Backend]] = [
-    ('sqlite', 'sqlite'),
-    ('sqlite', 'sqlite_raw'),
-    ('sqlite_raw', 'sqlite'),
-    ('sqlite_raw', 'sqlite_raw'),
-]
 
 _PROCESS_TIMEOUT_SECONDS = 10.0
 # The child timeout is longer so the parent remains responsible for diagnosing and cleaning up a stalled child.
@@ -68,16 +60,9 @@ def _call_cachew_after_wal_retry(
 ) -> None:
     """Run a strict Cachew call after exposing and pausing its first WAL retry."""
 
-    backend_module: ModuleType
-    if backend == 'sqlite':
-        backend_module = sqlalchemy_sqlite
-    else:
-        assert backend == 'sqlite_raw', backend
-        backend_module = sqlite_raw
-
     # Replace the backend module's binding without changing time.sleep globally in the child.
     setattr(
-        backend_module,
+        sqlite,
         'time',
         _RetryWaiter(retry_entered=retry_entered, allow_retry=allow_retry),
     )
@@ -117,17 +102,47 @@ def _assert_cache(
         assert list(reader.cached_blobs()) == list(blobs)
 
 
-@pytest.mark.parametrize(('first_backend', 'second_backend'), _SQLITE_BACKEND_PAIRS)
+def test_old_cache_v0_6_3(
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, 'THROW_ON_ERROR', True)
+
+    sql = '''
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE hash (
+	value VARCHAR
+);
+INSERT INTO hash VALUES('cachew: 1, schema: {''_'': <class ''int''>}, hash: ()');
+CREATE TABLE IF NOT EXISTS "table" (
+	_cachew_primitive INTEGER
+);
+INSERT INTO "table" VALUES(1);
+INSERT INTO "table" VALUES(2);
+INSERT INTO "table" VALUES(3);
+COMMIT;
+    '''
+    db = tmp_path / 'cache.sqlite'
+    check_call(['sqlite3', db, sql])
+
+    @cachew(db, backend='sqlite')
+    def fun() -> Iterator[int]:
+        yield from [1, 2, 3]
+
+    # This checks that Cachew can replace the legacy schema without crashing.
+    # See test_version_change for the full version-invalidation behavior.
+    assert list(fun()) == [1, 2, 3]
+
+
 def test_concurrent_first_cachew_calls_retry_initial_wal_transition(
     *,
     tmp_path: Path,
-    first_backend: Backend,
-    second_backend: Backend,
 ) -> None:
     """
     Concurrent first calls may use the same new cache path, so a transient lock while enabling WAL must delay initialization rather than fail either decorated call.
     Hold an empty DELETE-mode database exclusively, prove that both calls enter their backend's real retry branch, then release them and verify that they return normally and publish a reusable cache.
-    The parameter matrix covers both implementations in both arrival orders.
     """
     cache_path = tmp_path / 'cache.sqlite'
     assert cache_path.exists() is False
@@ -137,7 +152,7 @@ def test_concurrent_first_cachew_calls_retry_initial_wal_transition(
     # Each retry event identifies one worker reaching its retry branch, while allow_retry releases both workers together.
     allow_retry = context.Event()
     retry_events = [context.Event(), context.Event()]
-    backends = [first_backend, second_backend]
+    backends: list[Backend] = ['sqlite', 'sqlite']
     processes = [
         context.Process(
             target=_call_cachew_after_wal_retry,
@@ -244,44 +259,11 @@ def test_concurrent_first_cachew_calls_retry_initial_wal_transition(
         assert_cache_hit(reader_backend=reader_backend)
 
 
-@pytest.mark.parametrize(('writer_backend', 'reader_backend'), _SQLITE_BACKEND_PAIRS)
-def test_sqlite_backend_cache_compatibility(
-    *,
-    tmp_path: Path,
-    writer_backend: Backend,
-    reader_backend: Backend,
-) -> None:
-    cache_path = tmp_path / 'cache.sqlite'
-    writer_calls = 0
-    reader_calls = 0
-
-    @cachew(cache_path=cache_path, force_file=True, backend=writer_backend)
-    def write_cache(version: int) -> Iterator[int]:  # noqa: ARG001
-        nonlocal writer_calls
-        writer_calls += 1
-        yield 1
-        yield 2
-
-    @cachew(cache_path=cache_path, force_file=True, backend=reader_backend)
-    def read_cache(version: int) -> Iterator[int]:  # noqa: ARG001
-        nonlocal reader_calls
-        reader_calls += 1
-        yield -1
-
-    assert list(write_cache(version=1)) == [1, 2]
-    assert writer_calls == 1
-
-    assert list(read_cache(version=1)) == [1, 2]
-    assert reader_calls == 0
-
-
-@pytest.mark.parametrize(('reader_backend', 'writer_backend'), _SQLITE_BACKEND_PAIRS)
 def test_sqlite_backend_publication_is_atomic_for_existing_reader(
     *,
     tmp_path: Path,
-    reader_backend: Backend,
-    writer_backend: Backend,
 ) -> None:
+    backend: Backend = 'sqlite'
     cache_path = tmp_path / 'cache.sqlite'
     old_hash = 'old-hash'
     old_blobs = [b'old-1', b'old-2']
@@ -289,19 +271,19 @@ def test_sqlite_backend_publication_is_atomic_for_existing_reader(
     new_blobs = [b'new-1', b'new-2', b'new-3']
     _publish(
         cache_path=cache_path,
-        backend=writer_backend,
+        backend=backend,
         source_hash=old_hash,
         blobs=old_blobs,
     )
 
     with (
-        _backend(cache_path=cache_path, backend=reader_backend) as old_reader,
-        _backend(cache_path=cache_path, backend=reader_backend) as concurrent_reader,
+        _backend(cache_path=cache_path, backend=backend) as old_reader,
+        _backend(cache_path=cache_path, backend=backend) as concurrent_reader,
     ):
         # This SELECT pins old_reader to the snapshot from before publication starts.
         assert old_reader.get_old_hash() == old_hash
 
-        with _backend(cache_path=cache_path, backend=writer_backend) as writer:
+        with _backend(cache_path=cache_path, backend=backend) as writer:
             assert writer.get_old_hash() == old_hash
             assert writer.get_exclusive_write()
             writer.flush_blobs(chunk=new_blobs)
@@ -319,18 +301,18 @@ def test_sqlite_backend_publication_is_atomic_for_existing_reader(
 
     _assert_cache(
         cache_path=cache_path,
-        backend=reader_backend,
+        backend=backend,
         source_hash=new_hash,
         blobs=new_blobs,
     )
 
 
-@pytest.mark.parametrize('backend', ['sqlite', 'sqlite_raw'])
 def test_sqlite_backend_finalize_is_rolled_back(
     *,
     tmp_path: Path,
-    backend: Backend,
 ) -> None:
+    backend: Backend = 'sqlite'
+
     class ForcedRollback(Exception):
         pass
 
@@ -370,12 +352,12 @@ def test_sqlite_backend_finalize_is_rolled_back(
     )
 
 
-@pytest.mark.parametrize('backend', ['sqlite', 'sqlite_raw'])
 def test_sqlite_partial_write_close_releases_lock(
     *,
     tmp_path: Path,
-    backend: Backend,
 ) -> None:
+    backend: Backend = 'sqlite'
+
     class ProbeRollback(Exception):
         pass
 
@@ -470,11 +452,11 @@ def test_cachew_handles_non_lock_wal_failure(
     def connect(*_args: object, **_kwargs: object) -> sqlite3.Connection:
         return cast(sqlite3.Connection, connection)
 
-    monkeypatch.setattr(sqlite_raw.sqlite3, 'connect', connect)
+    monkeypatch.setattr(sqlite.sqlite3, 'connect', connect)
     cache_path = tmp_path / 'cache.sqlite'
     source_calls = 0
 
-    @cachew(cache_path=cache_path, force_file=True, backend='sqlite_raw')
+    @cachew(cache_path=cache_path, force_file=True, backend='sqlite')
     def items() -> Iterator[int]:
         nonlocal source_calls
         source_calls += 1
@@ -495,7 +477,7 @@ def test_cachew_handles_non_lock_wal_failure(
     assert connection.close_calls == 1
 
     # Restore real SQLite, then prove that the next call can write the cache and the following call can read it without running the source.
-    monkeypatch.setattr(sqlite_raw.sqlite3, 'connect', real_connect)
+    monkeypatch.setattr(sqlite.sqlite3, 'connect', real_connect)
     expected_source_calls = source_calls + 1
     assert list(items()) == [1]
     assert source_calls == expected_source_calls
@@ -504,7 +486,7 @@ def test_cachew_handles_non_lock_wal_failure(
 
 
 @pytest.mark.parametrize('throw_on_error', [False, True], ids=['fallback', 'strict'])
-def test_cachew_recovers_after_raw_transaction_entry_failure(
+def test_cachew_recovers_after_sqlite_transaction_entry_failure(
     *,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -517,10 +499,10 @@ def test_cachew_recovers_after_raw_transaction_entry_failure(
 
     monkeypatch.setattr(settings, 'THROW_ON_ERROR', throw_on_error)
     fail_next_entry = True
-    failed_backends: list[sqlite_raw.SqliteRawBackend] = []
+    failed_backends: list[sqlite.SqliteBackend] = []
     failed_connections: list[sqlite3.Connection] = []
 
-    class FailFirstTransactionEntry(sqlite_raw.SqliteRawBackend):
+    class FailFirstTransactionEntry(sqlite.SqliteBackend):
         def __init__(self, cache_path: Path, *, logger: logging.Logger) -> None:
             nonlocal fail_next_entry
             super().__init__(cache_path, logger=logger)
@@ -534,11 +516,11 @@ def test_cachew_recovers_after_raw_transaction_entry_failure(
                 # The inherited BEGIN will fail, and any leaked connection would keep this write lock and break recovery below.
                 connection.execute('BEGIN IMMEDIATE').close()
 
-    monkeypatch.setitem(BACKENDS, 'sqlite_raw', FailFirstTransactionEntry)
+    monkeypatch.setitem(BACKENDS, 'sqlite', FailFirstTransactionEntry)
     cache_path = tmp_path / 'cache.sqlite'
     source_calls = 0
 
-    @cachew(cache_path=cache_path, force_file=True, backend='sqlite_raw')
+    @cachew(cache_path=cache_path, force_file=True, backend='sqlite')
     def items() -> Iterator[int]:
         nonlocal source_calls
         source_calls += 1
@@ -577,7 +559,7 @@ def test_cachew_recovers_after_raw_transaction_entry_failure(
         pytest.param(sqlite3.SQLITE_IOERR  | (1 << 8), False, id='extended-io-error'),
     ],
 )  # fmt: skip
-def test_sqlite_raw_lock_error_classification(
+def test_sqlite_lock_error_classification(
     *,
     error_code: int,
     expected: bool,
@@ -592,4 +574,4 @@ def test_sqlite_raw_lock_error_classification(
     error = sqlite3.OperationalError('forced error')
     setattr(error, 'sqlite_errorcode', error_code)
 
-    assert sqlite_raw._is_lock_error(error) is expected
+    assert sqlite._is_lock_error(error) is expected
