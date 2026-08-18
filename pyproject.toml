@@ -3,10 +3,9 @@
 dynamic = ["version"]  # version is managed by build backend
 name = "cachew"
 dependencies = [
-    "platformdirs",     # default cache dir
-    "sqlalchemy>=1.0",  # cache DB interaction
-    "orjson",           # fast json serialization
-    "typing-extensions",# for depreceated decorator
+    "platformdirs",      # default cache dir
+    "orjson",            # fast json serialization
+    "typing-extensions", # for depreceated decorator
 ]
 requires-python = ">=3.12"
 

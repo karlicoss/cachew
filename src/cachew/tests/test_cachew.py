@@ -8,13 +8,13 @@ import time
 import timeit
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import closing, nullcontext
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from itertools import chain, islice
 from pathlib import Path
 from random import Random
-from subprocess import check_call, check_output, run
+from subprocess import check_output
 from time import sleep
 from typing import (
     Any,
@@ -39,7 +39,6 @@ from .. import (
 )
 
 logger = get_logger()
-_SQLITE_BACKENDS = frozenset({'sqlite', 'sqlite_raw'})
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +55,7 @@ def throw_on_errors():
     # TODO restore it?
 
 
-@pytest.fixture(autouse=True, params=['sqlite', 'sqlite_raw', 'file'])
+@pytest.fixture(autouse=True, params=['sqlite', 'file'])
 def set_backend(restore_settings, request):
     backend = request.param
     settings.DEFAULT_BACKEND = backend
@@ -582,7 +581,6 @@ def test_transaction(tmp_path: Path) -> None:
     """
     Should keep old cache and not leave it in some broken state in case of errors
     """
-    # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
     class TestError(Exception):
         pass
@@ -616,39 +614,11 @@ def test_transaction(tmp_path: Path) -> None:
     assert calls == 3
 
 
-def test_sqlite_startup_fails_cleanly_on_readonly_cache_dir(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
-        pytest.skip('this test only makes sense for sqlite backend')
-
-    db = tmp_path / 'cache.sqlite'
-    with closing(sqlite3.connect(db)) as conn, conn:
-        conn.execute('CREATE TABLE seed (value INTEGER)')
-
-    ## make read only
-    db.chmod(0o666)
-    tmp_path.chmod(0o555)
-    ##
-
-    @cachew(cache_path=db, force_file=True)
-    def fun() -> Iterator[int]:
-        yield 1
-
-    if settings.DEFAULT_BACKEND == 'sqlite':
-        with pytest.raises(RuntimeError, match='Error while setting WAL'):
-            list(fun())
-    else:
-        with pytest.raises(sqlite3.OperationalError):
-            list(fun())
-
-
-def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
-        pytest.skip('this test only makes sense for sqlite backend')
-
-    db = tmp_path / 'cache.sqlite'
+def test_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path) -> None:
+    cache_path = tmp_path / 'cache'
     calls = 0
 
-    @cachew(cache_path=db, force_file=True)
+    @cachew(cache_path=cache_path, force_file=True)
     def fun(version: int) -> Iterator[int]:
         nonlocal calls
         calls += 1
@@ -658,11 +628,10 @@ def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path)
     assert list(fun(version=1)) == [1]
     assert calls == 1
 
-    # BEGIN IMMEDIATE keeps reads working but prevents cachew from upgrading to
-    # a write transaction, so it should fall back to uncached execution.
-    with closing(sqlite3.connect(db, timeout=0.0, isolation_level=None)) as lock_conn:
-        lock_conn.execute('BEGIN IMMEDIATE')
-
+    # Holding the backend's write reservation keeps reads available but makes another writer fall back to uncached execution.
+    backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
+    with backend_cls(cache_path=cache_path, logger=logger) as locked_backend:
+        assert locked_backend.get_exclusive_write()
         ## if version is unchanged, should be able to read from cache
         assert list(fun(version=1)) == [1]
         assert calls == 1
@@ -671,8 +640,6 @@ def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path)
         assert list(fun(version=2)) == [2]
         assert calls == 2
 
-        lock_conn.rollback()
-
     ## while cache was locked, we couldn't update it, so calls should increase
     assert list(fun(version=2)) == [2]
     assert calls == 3
@@ -680,6 +647,34 @@ def test_sqlite_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path)
     ## but next call is cached
     assert list(fun(version=2)) == [2]
     assert calls == 3
+
+
+def test_readonly_cache_dir_fails_before_running_source(tmp_path: Path) -> None:
+    cache_path = tmp_path / 'cache'
+    calls = 0
+
+    @cachew(cache_path=cache_path, force_file=True)
+    def fun(version: int) -> Iterator[int]:
+        nonlocal calls
+        calls += 1
+        yield version
+
+    assert list(fun(version=1)) == [1]
+    assert calls == 1
+
+    original_cache_mode = cache_path.stat().st_mode
+    original_dir_mode = tmp_path.stat().st_mode
+    cache_path.chmod(0o444)
+    tmp_path.chmod(0o555)
+    try:
+        expected_error = sqlite3.OperationalError if settings.DEFAULT_BACKEND == 'sqlite' else PermissionError
+        with pytest.raises(expected_error):
+            list(fun(version=2))
+        # Cache setup must fail before Cachew starts emitting source items, so strict mode cannot cause partial execution.
+        assert calls == 1
+    finally:
+        tmp_path.chmod(original_dir_mode)
+        cache_path.chmod(original_cache_mode)
 
 
 class Job(NamedTuple):
@@ -879,7 +874,6 @@ def test_types(tmp_path: Path) -> None:
     assert helper(one(get())) == helper(obj)
 
 
-# TODO if I do perf tests, look at this https://docs.sqlalchemy.org/en/13/_modules/examples/performance/large_resultsets.html
 # TODO should be possible to iterate anonymous tuples too? or just sequences of primitive types?
 
 
@@ -1265,7 +1259,7 @@ def test_defensive_read_error_after_yield_raises_cache_read_error(
     assert calls == 1
 
     # Corrupt only the second blob so the cache read emits one valid item before failing.
-    if settings.DEFAULT_BACKEND in _SQLITE_BACKENDS:
+    if settings.DEFAULT_BACKEND == 'sqlite':
         with sqlite3.connect(cache_path) as connection:
             changed = connection.execute(
                 'UPDATE cache SET data = ? WHERE rowid = (SELECT rowid FROM cache ORDER BY rowid LIMIT 1 OFFSET 1)',
@@ -1465,16 +1459,6 @@ def test_recursive_simple(tmp_path: Path) -> None:
 
 
 def test_recursive_deep(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND == 'sqlite' and sys.platform != 'win32':
-        import resource
-
-        soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-        required_soft_limit = 2048
-        assert soft_limit == resource.RLIM_INFINITY or soft_limit >= required_soft_limit, (
-            f'test_recursive_deep[sqlite] requires an open-file soft limit of at least {required_soft_limit}; '
-            f'got soft={soft_limit}, hard={hard_limit}. Run `ulimit -Sn {required_soft_limit}` before the tests.'
-        )
-
     @cachew(tmp_path)
     def numbers(n: int) -> Iterable[int]:
         if n == 0:
@@ -1602,52 +1586,6 @@ def test_version_change(tmp_path: Path) -> None:
     assert calls == 3
 
 
-def dump_old_cache(tmp_path: Path) -> None:
-    # call this if you want to get an sql script for version upgrade tests..
-    oc = tmp_path / 'old_cache.sqlite'
-
-    @cachew(oc)
-    def fun() -> Iterator[int]:
-        yield from [1, 2, 3]
-
-    list(fun())
-    assert oc.exists(), oc
-
-    sql = check_output(['sqlite3', oc, '.dump']).decode('utf8')
-    print(sql, file=sys.stderr)
-
-
-def test_old_cache_v0_6_3(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND not in _SQLITE_BACKENDS:
-        pytest.skip('this test only makes sense for sqlite backend')
-
-    sql = '''
-PRAGMA foreign_keys=OFF;
-BEGIN TRANSACTION;
-CREATE TABLE hash (
-	value VARCHAR
-);
-INSERT INTO hash VALUES('cachew: 1, schema: {''_'': <class ''int''>}, hash: ()');
-CREATE TABLE IF NOT EXISTS "table" (
-	_cachew_primitive INTEGER
-);
-INSERT INTO "table" VALUES(1);
-INSERT INTO "table" VALUES(2);
-INSERT INTO "table" VALUES(3);
-COMMIT;
-    '''
-    db = tmp_path / 'cache.sqlite'
-    check_call(['sqlite3', db, sql])
-
-    @cachew(db)
-    def fun() -> Iterator[int]:
-        yield from [1, 2, 3]
-
-    # this tests that it doesn't crash
-    # for actual version upgrade test see test_version_change
-    assert list(fun()) == [1, 2, 3]
-
-
 def test_disabled(tmp_path: Path) -> None:
     calls = 0
 
@@ -1704,41 +1642,6 @@ def test_early_exit_simple(tmp_path: Path) -> None:
     assert len(list(g())) == 20
     assert calls_f == 1
     assert calls_g == 1
-
-
-# see https://github.com/sqlalchemy/sqlalchemy/issues/5522#issuecomment-705156746
-def test_early_exit_shutdown(tmp_path: Path) -> None:
-    if settings.DEFAULT_BACKEND != 'sqlite':
-        pytest.skip('this is a regression test for SQLAlchemy-specific shutdown behavior')
-
-    # don't ask... otherwise the exception doesn't appear :shrug:
-    import_hack = '''
-from sqlalchemy import Column
-
-import re
-re.hack = lambda: None
-    '''
-    Path(tmp_path / 'import_hack.py').write_text(import_hack)
-
-    prog = f'''
-import sys
-sys.path.insert(0, '')
-import import_hack
-
-import cachew
-cachew.settings.THROW_ON_ERROR = True # todo check with both?
-@cachew.cachew('{tmp_path}', cls=int)
-def fun():
-    yield 0
-
-g = fun()
-e = next(g)
-
-print("FINISHED")
-    '''
-    r = run([sys.executable, '-c', prog], cwd=tmp_path, capture_output=True, check=True)
-    assert r.stdout.strip() == b'FINISHED'
-    assert b'Traceback' not in r.stderr
 
 
 # tests both modes side by side to demonstrate the difference

@@ -41,7 +41,6 @@ from ._infer import Failure, Kind, infer_return_type
 from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
-from .backend.sqlite_raw import SqliteRawBackend
 from .common import DEPENDENCIES, CacheReadError, CachewException, CacheWriteError, SourceHash
 from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall, SchemaFingerprint
@@ -49,7 +48,7 @@ from .marshall.cachew import CachewMarshall, SchemaFingerprint
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
 CACHEW_VERSION: str = importlib.metadata.version(__name__)
 
-Backend = Literal['sqlite', 'sqlite_raw', 'file']
+Backend = Literal['sqlite', 'file']
 
 
 class settings:
@@ -79,7 +78,6 @@ def get_logger() -> logging.Logger:
 BACKENDS: dict[Backend, type[AbstractBackend]] = {
     'file': FileBackend,
     'sqlite': SqliteBackend,
-    'sqlite_raw': SqliteRawBackend,
 }
 
 _DEFAULT_CHUNK_BY = 100
@@ -455,15 +453,7 @@ class CacheSession[ItemT](AbstractContextManager):
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        try:
-            self.backend.__exit__(exc_type, exc, tb)
-        except Exception as e:
-            # Work around known SQLAlchemy/sqlite shutdown noise; do not suppress other cleanup errors.
-            # See test_early_exit_shutdown.
-            if exc_type is GeneratorExit and 'Cannot operate on a closed database' in str(e):
-                # Swallow only the cleanup noise; returning None lets the original GeneratorExit keep closing the generator.
-                return None
-            raise
+        self.backend.__exit__(exc_type, exc, tb)
         return None
 
     def mark_streaming(self) -> None:
