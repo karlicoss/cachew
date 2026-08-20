@@ -4,13 +4,15 @@
 [changelog]
 # Match GitHub's generated-notes layout while keeping individual commit subjects.
 # Deliberately use commit.message rather than remote.pr_title so one PR can produce several bullets.
-# GitHub metadata is still used for authors, PR links, and first-time contributors when available.
+# Always link the exact commit using its locally available ID.
+# GitHub metadata adds authors, containing PR links, and first-time contributors when available.
 body = """
 ## What's Changed
 {% for commit in commits %}
   * {{ commit.message | split(pat="\n") | first | trim }}\
     {% if commit.remote.username %} by @{{ commit.remote.username }}{%- endif -%}
-    {% if commit.remote.pr_number %} in \
+    {{ " " }}in [{{ commit.id | truncate(length=7, end="") }}]({{ self::remote_url() }}/commit/{{ commit.id }})\
+    {% if commit.remote.pr_number %} \
       [#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }}) \
     {%- endif %}
 {%- endfor -%}

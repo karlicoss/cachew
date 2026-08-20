@@ -250,8 +250,7 @@ python_files = ["*.py"]
 consider_namespace_packages = true
 
 # see https://docs.pytest.org/en/stable/reference/reference.html#confval-strict
-# disable for now -- some macos tests ('file backend') are flaky
-# strict = true
+strict = true
 
 addopts = [
   # prevent pytest cache from being created... it craps into project dir and I never use it anyway
