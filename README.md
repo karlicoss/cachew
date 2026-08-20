@@ -145,7 +145,7 @@ and compares it against the previously stored hash value.
 
     * primitive: `str`, `int`, `float`, `bool`, `datetime`, `date`, `Exception`
 
-      See [tests.test_types](src/cachew/tests/test_cachew.py#L843), [tests.test_primitive](src/cachew/tests/test_cachew.py#L880), [tests.test_dates](src/cachew/tests/test_cachew.py#L793), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1520)
+      See [tests.test_types](src/cachew/tests/test_cachew.py#L843), [tests.test_primitive](src/cachew/tests/test_cachew.py#L880), [tests.test_dates](src/cachew/tests/test_cachew.py#L793), [tests.test_exceptions](src/cachew/tests/test_cachew.py#L1569)
     * [@dataclass and NamedTuple](src/cachew/tests/test_cachew.py#L758)
     * [Optional](src/cachew/tests/test_cachew.py#L685) types
     * [Union](src/cachew/tests/test_cachew.py#L987) types

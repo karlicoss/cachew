@@ -25,14 +25,10 @@ class AbstractBackend(AbstractContextManager):
         raise NotImplementedError
 
     @abstractmethod
-    def get_exclusive_write(self) -> bool:
+    def start_write(self, *, new_hash: SourceHash) -> bool:
         """
-        Returns whether it actually managed to get it.
+        Prepare an atomic cache replacement and return whether the backend acquired its exclusive write slot.
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def write_new_hash(self, new_hash: SourceHash) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -40,7 +36,7 @@ class AbstractBackend(AbstractContextManager):
         raise NotImplementedError
 
     @abstractmethod
-    def finalize(self, new_hash: SourceHash) -> None:
+    def finalize(self) -> None:
         """
         Complete the atomic replacement.
         Transactional backends commit and expose it on successful context exit.

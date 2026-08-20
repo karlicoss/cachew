@@ -631,7 +631,7 @@ def test_locked_write_falls_back_to_uncached_and_recovers(tmp_path: Path) -> Non
     # Holding the backend's write reservation keeps reads available but makes another writer fall back to uncached execution.
     backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
     with backend_cls(cache_path=cache_path, logger=logger) as locked_backend:
-        assert locked_backend.get_exclusive_write()
+        assert locked_backend.start_write(new_hash='locked-hash')
         ## if version is unchanged, should be able to read from cache
         assert list(fun(version=1)) == [1]
         assert calls == 1
@@ -1190,7 +1190,7 @@ def test_finalize_error_after_source_emission_does_not_retry(
     backend_cls = BACKENDS[backend_name]
 
     class FailingFinalizeBackend(backend_cls):  # type: ignore[valid-type, misc]  # ty: ignore[unsupported-base]
-        def finalize(self, _new_hash) -> None:
+        def finalize(self) -> None:
             raise RuntimeError('failed to publish cache')
 
     monkeypatch.setitem(BACKENDS, backend_name, FailingFinalizeBackend)
@@ -1388,7 +1388,7 @@ def test_locked_write_uncached_exception_propagates_without_retry(
     backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
 
     with backend_cls(cache_path=cache_path, logger=logger) as backend:
-        assert backend.get_exclusive_write()
+        assert backend.start_write(new_hash='locked-hash')
         it = iter(fun())
         assert next(it) == 1
         with pytest.raises(UserError, match='boom'):
@@ -1429,7 +1429,7 @@ def test_synthetic_lock_lost_runs_uncached_with_original_args(
     backend_cls = BACKENDS[settings.DEFAULT_BACKEND]
 
     with backend_cls(cache_path=cache_path, logger=logger) as backend:
-        assert backend.get_exclusive_write()
+        assert backend.start_write(new_hash='locked-hash')
         assert list(fun(keys=['a', 'b'])) == ['a', 'b']
 
     assert recomputed == ['a', 'b']
