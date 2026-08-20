@@ -39,6 +39,8 @@ class SqliteBackend(AbstractBackend):
             raise
         self.connection: sqlite3.Connection | None = connection
         self._new_hash: SourceHash | None = None
+        self._max_blobs_per_insert = connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+        self._insert_sql_text_by_size: dict[int, str] = {}
 
     def _set_wal(self, connection: sqlite3.Connection) -> None:
         # Retry transient lock contention indefinitely to preserve the existing Cachew behavior.
@@ -62,6 +64,19 @@ class SqliteBackend(AbstractBackend):
         conn = self.connection
         assert conn is not None
         return conn
+
+    def _insert_sql_text(self, *, batch_size: int) -> str:
+        """Return cached SQL text for inserting one batch as a multi-row statement.
+
+        The cache avoids rebuilding placeholder text for repeated full-sized chunks.
+        The sqlite3 connection separately caches the compiled statement for identical SQL text.
+        """
+        sql = self._insert_sql_text_by_size.get(batch_size)
+        if sql is None:
+            placeholders = ', '.join('(?)' for _ in range(batch_size))
+            sql = f'INSERT INTO cache_tmp (data) VALUES {placeholders}'
+            self._insert_sql_text_by_size[batch_size] = sql
+        return sql
 
     @override
     def __enter__(self) -> Self:
@@ -148,9 +163,15 @@ class SqliteBackend(AbstractBackend):
 
     @override
     def flush_blobs(self, chunk: Sequence[bytes]) -> None:
-        self._require_connection().executemany(
-            'INSERT INTO cache_tmp (data) VALUES (?)', ((blob,) for blob in chunk)
-        ).close()
+        conn = self._require_connection()
+        for offset in range(0, len(chunk), self._max_blobs_per_insert):
+            batch = chunk[offset : offset + self._max_blobs_per_insert]
+            batch_size = len(batch)
+            sql = self._insert_sql_text(batch_size=batch_size)
+
+            # executemany() steps and resets a single-row statement once per blob.
+            # One multi-row statement amortizes that overhead while keeping the same one-row-per-item cache format.
+            conn.execute(sql, batch).close()
 
     @override
     def finalize(self) -> None:
