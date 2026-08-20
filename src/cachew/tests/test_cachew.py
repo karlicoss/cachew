@@ -1177,6 +1177,55 @@ def test_defensive_write_error_after_yield_does_not_duplicate(
     assert calls == 1
 
 
+@pytest.mark.parametrize('throw_on_error', [False, True], ids=['fallback', 'strict'])
+def test_finalize_error_after_source_emission_does_not_retry(
+    *, tmp_path: Path, restore_settings, monkeypatch: pytest.MonkeyPatch, throw_on_error: bool
+) -> None:
+    """
+    Finalization happens after Cachew has emitted every source item, so its failure must never restart the source.
+    """
+    settings.THROW_ON_ERROR = throw_on_error
+
+    backend_name = settings.DEFAULT_BACKEND
+    backend_cls = BACKENDS[backend_name]
+
+    class FailingFinalizeBackend(backend_cls):  # type: ignore[valid-type, misc]  # ty: ignore[unsupported-base]
+        def finalize(self, _new_hash) -> None:
+            raise RuntimeError('failed to publish cache')
+
+    monkeypatch.setitem(BACKENDS, backend_name, FailingFinalizeBackend)
+
+    source_calls = 0
+    emitted: list[int] = []
+    expected = [1, 2]
+
+    @cachew(cache_path=tmp_path / 'cache', force_file=True)
+    def fun() -> Iterator[int]:
+        nonlocal source_calls
+        source_calls += 1
+        for item in expected:
+            emitted.append(item)
+            yield item
+
+    if throw_on_error:
+        with pytest.raises(RuntimeError, match='failed to publish cache'):
+            list(fun())
+    else:
+        assert list(fun()) == expected
+
+    # The exception arrives only after every item was emitted, but the source must still have run exactly once.
+    assert emitted == expected
+    assert source_calls == 1
+
+    monkeypatch.setitem(BACKENDS, backend_name, backend_cls)
+
+    # A failed publication must leave no cache behind, while the next successful publication must be reusable.
+    assert list(fun()) == expected
+    assert source_calls == 2
+    assert list(fun()) == expected
+    assert source_calls == 2
+
+
 def test_write_source_error_after_yield_propagates_without_retry(
     tmp_path: Path,
     restore_settings,
