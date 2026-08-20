@@ -8,7 +8,7 @@ import time
 import timeit
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from itertools import chain, islice
@@ -84,6 +84,27 @@ def test_simple() -> None:
         yield from []
 
     list(fun())
+
+
+def test_chunk_larger_than_sqlite_variable_limit(tmp_path: Path) -> None:
+    with closing(sqlite3.connect(':memory:')) as connection:
+        sqlite_variable_limit = connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+
+    item_count = sqlite_variable_limit + 1
+    expected = list(range(item_count))
+    source_calls = 0
+
+    @cachew(tmp_path, chunk_by=item_count)
+    def items() -> Iterator[int]:
+        nonlocal source_calls
+        source_calls += 1
+        yield from expected
+
+    # The SQLite backend must split this one public Cachew chunk, while the same behavior remains valid for every backend.
+    assert list(items()) == expected
+    assert source_calls == 1
+    assert list(items()) == expected
+    assert source_calls == 1
 
 
 def test_string_annotation_old() -> None:
