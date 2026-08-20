@@ -89,8 +89,6 @@ def fetch_default_branch(*, root: Path) -> tuple[str, str]:
 
 
 def generate_notes(*, commit_range: str, repository: str, root: Path, tag: str) -> str:
-    # REVIEW: why is this necessary?
-    # Answer: It isn't needed for public repositories; use GitHub's unauthenticated API.
     return check_output(
         [
             'nix', 'run', 'nixpkgs#git-cliff',
