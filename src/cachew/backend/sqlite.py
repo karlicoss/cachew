@@ -38,6 +38,7 @@ class SqliteBackend(AbstractBackend):
             connection.close()
             raise
         self.connection: sqlite3.Connection | None = connection
+        self._new_hash: SourceHash | None = None
 
     def _set_wal(self, connection: sqlite3.Connection) -> None:
         # Retry transient lock contention indefinitely to preserve the existing Cachew behavior.
@@ -127,7 +128,7 @@ class SqliteBackend(AbstractBackend):
                 yield blob
 
     @override
-    def get_exclusive_write(self) -> bool:
+    def start_write(self, *, new_hash: SourceHash) -> bool:
         conn = self._require_connection()
         try:
             # One of these schema statements upgrades BEGIN DEFERRED to a write transaction.
@@ -142,6 +143,7 @@ class SqliteBackend(AbstractBackend):
                 return False
             e.add_note(f'while acquiring a write transaction on cache {self.cache_path}')
             raise
+        self._new_hash = new_hash
         return True
 
     @override
@@ -151,13 +153,12 @@ class SqliteBackend(AbstractBackend):
         ).close()
 
     @override
-    def finalize(self, new_hash: SourceHash) -> None:
+    def finalize(self) -> None:
+        new_hash = self._new_hash
+        assert new_hash is not None
         conn = self._require_connection()
         conn.execute('DELETE FROM hash').close()
         conn.execute('DROP TABLE IF EXISTS cache').close()
         conn.execute('ALTER TABLE cache_tmp RENAME TO cache').close()
         conn.execute('INSERT INTO hash (value) VALUES (?)', (new_hash,)).close()
-
-    @override
-    def write_new_hash(self, new_hash: SourceHash) -> None:
-        raise NotImplementedError("shouldn't be used for SqliteBackend")
+        self._new_hash = None

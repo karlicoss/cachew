@@ -5,21 +5,21 @@ import pytest
 
 from .. import BACKENDS, cachew, settings
 from ..backend.file import FileBackend
-from ..common import CacheWriteError, SourceHash
+from ..common import SourceHash
 
 
 @pytest.mark.parametrize('throw_on_error', [False, True], ids=['fallback', 'strict'])
-def test_file_cache_header_write_error_obeys_cachew_policy_and_recovers(
+def test_file_cache_start_write_error_obeys_cachew_policy_and_recovers(
     *, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, throw_on_error: bool
 ) -> None:
     """
-    A file-header failure happens before Cachew consumes the source, so defensive mode may run it uncached.
+    A start-write failure happens before Cachew consumes the source, so defensive mode may run it uncached.
     """
     monkeypatch.setattr(settings, 'THROW_ON_ERROR', throw_on_error)
 
     class FailingHeaderBackend(FileBackend):
-        def write_new_hash(self, new_hash: SourceHash) -> None:
-            del new_hash
+        def start_write(self, *, new_hash: SourceHash) -> bool:
+            assert super().start_write(new_hash=new_hash)
             raise RuntimeError('failed to write cache header')
 
     monkeypatch.setitem(BACKENDS, 'file', FailingHeaderBackend)
@@ -34,9 +34,8 @@ def test_file_cache_header_write_error_obeys_cachew_policy_and_recovers(
         yield from expected
 
     if throw_on_error:
-        with pytest.raises(CacheWriteError) as exc:
+        with pytest.raises(RuntimeError, match='failed to write cache header'):
             list(fun())
-        assert str(exc.value.__cause__) == 'failed to write cache header'
         assert source_calls == 0
     else:
         assert list(fun()) == expected

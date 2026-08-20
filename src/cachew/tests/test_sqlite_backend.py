@@ -84,9 +84,9 @@ def _publish(
     blobs: Sequence[bytes],
 ) -> None:
     with _backend(cache_path=cache_path, backend=backend) as writer:
-        assert writer.get_exclusive_write()
+        assert writer.start_write(new_hash=source_hash)
         writer.flush_blobs(chunk=blobs)
-        writer.finalize(source_hash)
+        writer.finalize()
 
 
 def _assert_cache(
@@ -285,9 +285,9 @@ def test_sqlite_backend_publication_is_atomic_for_existing_reader(
 
         with _backend(cache_path=cache_path, backend=backend) as writer:
             assert writer.get_old_hash() == old_hash
-            assert writer.get_exclusive_write()
+            assert writer.start_write(new_hash=new_hash)
             writer.flush_blobs(chunk=new_blobs)
-            writer.finalize(new_hash)
+            writer.finalize()
 
             # A separate reader must not observe the finalized tables until the writer commits.
             assert concurrent_reader.get_old_hash() == old_hash
@@ -331,9 +331,9 @@ def test_sqlite_backend_finalize_is_rolled_back(
     def finalize_then_rollback() -> None:
         with _backend(cache_path=cache_path, backend=backend) as writer:
             assert writer.get_old_hash() == old_hash
-            assert writer.get_exclusive_write()
+            assert writer.start_write(new_hash=new_hash)
             writer.flush_blobs(chunk=new_blobs)
-            writer.finalize(new_hash)
+            writer.finalize()
 
             # Prove finalize completed inside the transaction before forcing its rollback.
             assert writer.get_old_hash() == new_hash
@@ -389,14 +389,14 @@ def test_sqlite_partial_write_close_releases_lock(
             assert source_calls == [1, 2]
 
             assert blocked_writer.get_old_hash() == old_hash
-            assert blocked_writer.get_exclusive_write() is False
+            assert blocked_writer.start_write(new_hash='blocked-hash') is False
         finally:
             partial_write.close()
 
     def acquire_write_then_rollback() -> None:
         with _backend(cache_path=cache_path, backend=backend) as available_writer:
             assert available_writer.get_old_hash() == old_hash
-            assert available_writer.get_exclusive_write() is True
+            assert available_writer.start_write(new_hash='probe-hash') is True
             raise ProbeRollback
 
     with pytest.raises(ProbeRollback):

@@ -72,7 +72,7 @@ class FileBackend(AbstractBackend):
         yield from self.jsonl_fr  # yields line by line
 
     @override
-    def get_exclusive_write(self) -> bool:
+    def start_write(self, *, new_hash: SourceHash) -> bool:
         # NOTE: opening in x (exclusive write) mode just in case, so it throws if file exists
         try:
             self.jsonl_tmp_fw = self.jsonl_tmp.open('xb')
@@ -80,12 +80,8 @@ class FileBackend(AbstractBackend):
             self.jsonl_tmp_fw = None
             return False
         else:
+            self.jsonl_tmp_fw.write(new_hash.encode('utf8') + b'\n')
             return True
-
-    @override
-    def write_new_hash(self, new_hash: SourceHash) -> None:
-        assert self.jsonl_tmp_fw is not None
-        self.jsonl_tmp_fw.write(new_hash.encode('utf8') + b'\n')
 
     @override
     def flush_blobs(self, chunk: Sequence[bytes]) -> None:
@@ -96,8 +92,8 @@ class FileBackend(AbstractBackend):
             fw.write(b'\n')
 
     @override
-    def finalize(self, new_hash: SourceHash) -> None:
-        assert self.jsonl_tmp_fw is not None  # should be only called after we get_exclusive_write
+    def finalize(self) -> None:
+        assert self.jsonl_tmp_fw is not None  # should be only called after start_write
         self.jsonl_tmp_fw.close()
         self.jsonl_tmp_fw = None  # no need to do further cleanup in __exit__
 

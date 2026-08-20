@@ -500,20 +500,6 @@ class CacheSession[ItemT](AbstractContextManager):
             cache_error.__cause__ = e
             cachew_error(cache_error, logger=self.logger)
 
-        try:
-            if isinstance(self.backend, FileBackend):
-                # FIXME uhhh.. this is a bit crap
-                # but in sqlite mode we don't want to publish new hash before we write new items
-                # maybe should use tmp table for hashes as well?
-                self.backend.write_new_hash(self.new_hash)
-            else:
-                # happens later for sqlite
-                pass
-        except Exception as e:
-            cache_write_error(e)
-            yield from data_iter
-            return None
-
         flush_blobs = self.backend.flush_blobs
 
         chunk: list[bytes] = []
@@ -547,7 +533,7 @@ class CacheSession[ItemT](AbstractContextManager):
         return total_objects
 
     def finalize_cache(self, *, total_objects: int) -> None:
-        self.backend.finalize(self.new_hash)
+        self.backend.finalize()
         self.logger.info(
             f'wrote   {total_objects} objects to   cachew ({self.backend_name}:{self.resolved_cache_path})'
         )
@@ -619,7 +605,7 @@ def cachew_wrapper[**P, ItemT](
 
             logger.debug('hash mismatch: computing data and writing to db')
 
-            got_write = backend.get_exclusive_write()
+            got_write = backend.start_write(new_hash=new_hash)
             if not got_write:
                 # NOTE: this is the bit we really have to watch out for and not put in a helper function.
                 # Otherwise it's causing an extra stack frame on every recursive call.
