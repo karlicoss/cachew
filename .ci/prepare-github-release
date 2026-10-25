@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import webbrowser
 from datetime import date
@@ -89,6 +90,10 @@ def fetch_default_branch(*, root: Path) -> tuple[str, str]:
 
 
 def generate_notes(*, commit_range: str, repository: str, root: Path, tag: str) -> str:
+    env = os.environ.copy()
+    # git-cliff reads GITHUB_TOKEN but does not use gh's stored credentials.
+    if 'GITHUB_TOKEN' not in env:
+        env['GITHUB_TOKEN'] = command_output('gh', 'auth', 'token', '--hostname', 'github.com', cwd=root)
     return check_output(
         [
             'nix', 'run', 'nixpkgs#git-cliff',
@@ -100,6 +105,7 @@ def generate_notes(*, commit_range: str, repository: str, root: Path, tag: str) 
             commit_range,
         ],
         cwd=root,
+        env=env,
         text=True,
     ).strip()  # fmt: skip
 

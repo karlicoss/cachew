@@ -33,6 +33,24 @@ permissions:
 
 
 jobs:
+  # GitHub disables scheduled workflows in public repositories after 60 days without repository activity:
+  # https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule
+  # Calling enable on an active workflow prevents this timeout (a workaround not documented by GitHub).
+  # See https://github.com/liskin/gh-workflow-keepalive
+  keepalive:
+    # Run independently of build so failing tests do not stop the keepalive.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+    - name: Keep scheduled (cron) workflows enabled during inactivity
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/main.yml/enable"
+
+
   build:
     strategy:
       fail-fast: false
@@ -45,6 +63,7 @@ jobs:
           - &minimum_python '3.12'
           - '3.13'
           - '3.14'
+          - '3.15'
         # vvv just an example of excluding stuff from matrix
         # exclude: [{platform: macos-latest, python-version: '3.6'}]
 
@@ -61,7 +80,7 @@ jobs:
         fetch-depth: 0  # nicer to have all git history when debugging/for tests
 
     # setup-uv doesn't publish floating major/minor tags, so use an exact full tag.
-    - uses: astral-sh/setup-uv@v9.0.0
+    - uses: astral-sh/setup-uv@v10.3.2
       with:
         python-version: ${{ matrix.python-version }}
         enable-cache: false  # we don't have lock files during initial CI checkout, so can't use them as cache key
@@ -71,8 +90,10 @@ jobs:
         limit-access-to-actor: true  # restrict to the user who kicked off pipeline
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
 
-    # explicit bash command is necessary for Windows CI runner, otherwise it thinks it's cmd...
+    # Invoke Bash explicitly because Windows runners default to PowerShell.
     - run: bash .ci/run
+      env:
+        RUFF_OUTPUT_FORMAT: github
 
 
   pypi:
@@ -106,7 +127,7 @@ jobs:
         fetch-depth: 0  # pull all commits to correctly infer vcs version
 
     # setup-uv doesn't publish floating major/minor tags, so use an exact full tag.
-    - uses: astral-sh/setup-uv@v9.0.0
+    - uses: astral-sh/setup-uv@v10.3.2
       with:
         python-version: *minimum_python
         enable-cache: false  # we don't have lock files during initial CI checkout, so can't use them as cache key
