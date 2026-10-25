@@ -3,6 +3,7 @@ import importlib.metadata
 import inspect
 import json
 import logging
+import os
 import stat
 import warnings
 from collections.abc import Callable, Generator, Iterable, Iterator
@@ -33,6 +34,8 @@ except:
 
     orjson_loads = json.loads  # type: ignore[assignment]
 
+import kloggy
+import kloggy.warnings
 import platformdirs
 
 from . import _synthetic
@@ -42,7 +45,6 @@ from .backend.common import AbstractBackend
 from .backend.file import FileBackend
 from .backend.sqlite import SqliteBackend
 from .common import DEPENDENCIES, CacheReadError, CachewException, CacheWriteError, SourceHash
-from .logging_helper import make_logger
 from .marshall.cachew import CachewMarshall, SchemaFingerprint
 
 # in case of changes in the way cachew stores data, this should be changed to discard old caches
@@ -72,7 +74,13 @@ class settings:
 
 
 def get_logger() -> logging.Logger:
-    return make_logger(__name__)
+    legacy_level = os.environ.get('LOGGING_LEVEL_cachew')  # noqa: SIM112 - preserve the legacy spelling
+    if legacy_level is not None:
+        kloggy.warnings.warn_once(
+            f'LOGGING_LEVEL_cachew is no longer supported; use KLOGGY_LEVEL=cachew={legacy_level} before starting Python.',
+            stacklevel=2,
+        )
+    return kloggy.get_logger(__name__)
 
 
 BACKENDS: dict[Backend, type[AbstractBackend]] = {
