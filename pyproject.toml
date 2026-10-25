@@ -10,11 +10,12 @@ dependencies = [
 requires-python = ">=3.12"
 
 ## these are only useful for pypi
-description = "Transparent and persistent cache/serialization powered by type hints"  # shows on project page/in search
-readme      = "README.md"
-license     = {file = "LICENSE"}
-authors     = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
-maintainers = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
+description   = "Transparent and persistent cache/serialization powered by type hints"  # shows on project page/in search
+readme        = "README.md"
+license       = "MIT"
+license-files = ["LICENSE"]
+authors       = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
+maintainers   = [{name = "Dima Gerasimov (@karlicoss)", email = "karlicoss@gmail.com"}]
 
 [project.urls]  # pypi will fetch some github stats/link, so somewhat useful
 Homepage = "https://github.com/karlicoss/cachew"
@@ -28,7 +29,7 @@ optional = [
 
 [dependency-groups]
 # TODO: not sure, on the one hand could just use 'standard' dev dependency group
-# On the other hand, it's a bit annoying that it's always included by default? 
+# On the other hand, it's a bit annoying that it's always included by default?
 # To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
     "pytest",
@@ -79,6 +80,9 @@ local_scheme = "dirty-tag"
 
 
 [tool.mypy]
+# default targets when mypy is run without explicit ones
+packages = ["cachew"]
+
 pretty = true
 show_error_context = true
 show_error_end = true
@@ -102,14 +106,11 @@ enable_error_code = [
     "unused-awaitable",
 ]
 
-# an example of suppressing
-# [[tool.mypy.overrides]]
-# module = "my.config.repos.pdfannots.pdfannots"
-# ignore_errors = true
 
-
-[tool.ty.analysis]
+[tool.ty.rules]
 # suppressing rules/changing error level goes here
+# Catch checks like `if value` on `int | None`, where 0 and None are both falsy.
+truthiness-test-of-none-union = "error"
 
 [tool.ty.src]
 exclude = [
@@ -129,7 +130,7 @@ lint.ignore = [
     "CPY",   # copyright headers
     "D",     # annoying nags about docstrings
     "N",     # pep naming
-    "TCH",   # type checking rules, mostly just suggests moving imports under TYPE_CHECKING
+    "TC",    # type checking rules, mostly just suggests moving imports under TYPE_CHECKING
     "S",     # bandit (security checks) -- tends to be not very useful, lots of nitpicks
     "DTZ",   # datetimes checks -- complaining about missing tz and mostly false positives
     "FIX",   # complains about fixmes/todos -- annoying
@@ -230,10 +231,13 @@ lint.ignore = [
     "ISC001",  # implicit string concatenation -- we do use it in tests
 ]
 
+
 # NOTE: this is project specific.
 # If you need local-only excludes for untracked scratch files, create ignored .ruff.toml:
 #   extend = "pyproject.toml"
-#   extend-exclude = ["scratch/**"]
+#   extend-exclude = [
+#       "scratch/**",
+#   ]
 extend-exclude = [
     "misc/legacy/",  # frozen historical source, intentionally outside active checks
 ]
@@ -246,6 +250,9 @@ quote-style = "preserve"
 # discover files that don't follow test_ naming. Useful to keep tests along with the source code
 python_files = ["*.py"]
 
+# default targets when pytest is run without explicit ones (package names because of --pyargs below)
+testpaths = ["cachew"]
+
 # this is necessary for --pyargs to discover implicit namespace packages correctly
 consider_namespace_packages = true
 
@@ -253,6 +260,9 @@ consider_namespace_packages = true
 strict = true
 
 addopts = [
+  # resolve targets as importable packages, so tests are collected from the installed package
+  "--pyargs",
+
   # prevent pytest cache from being created... it craps into project dir and I never use it anyway
   "-p", "no:cacheprovider",
 
@@ -277,7 +287,14 @@ min_version = "4"
 
 # Relies on the correct version of Python installed.
 # We rely on CI for the test matrix.
-env_list = ["ruff", "format", "tests", "benchmark", "mypy", "ty"]
+env_list = [
+    "ruff",
+    "format",
+    "tests",
+    "benchmark",
+    "mypy",
+    "ty",
+]
 
 # https://github.com/tox-dev/tox/issues/20#issuecomment-247788333
 # Hack to prevent .tox from crapping into the project directory.
@@ -289,6 +306,9 @@ pass_env = [
     "CI",
     "CI_*",
 
+    # Let CI use GitHub annotations for Ruff lint and formatting diagnostics.
+    "RUFF_OUTPUT_FORMAT",
+
     # Respect user's cache dirs to prevent tox from crapping into project dir.
     "PYTHONPYCACHEPREFIX",
     "MYPY_CACHE_DIR",
@@ -298,6 +318,10 @@ pass_env = [
 # Do not add current working directory to PYTHONPATH.
 # Generally this is more robust and safer, and prevents weird issues later on.
 set_env.PYTHONSAFEPATH = "1"
+
+# Useful when a project defines multiple mypy environments that run in parallel.
+# Separate caches avoid SQLite locking errors.
+set_env.MYPY_CACHE_DIR = "{env:MYPY_CACHE_DIR:{tox_root}{/}.mypy_cache}{/}{env_name}"
 
 # Relying on https://github.com/tox-dev/tox-uv for the runners here.
 # This template deliberately defaults to the lock runner even though pymplate itself does not use tool.uv.sources.
@@ -345,7 +369,6 @@ dependency_groups = ["testing"]
 commands = [
     [
         "{env_python}", "-m", "pytest",
-        "--pyargs", "{[project]name}",
         { replace = "posargs", default = [], extend = true },
     ],
 ]
@@ -368,7 +391,6 @@ dependency_groups = ["typecheck"]
 commands = [
     [
         "{env_python}", "-m", "mypy",
-        "-p", "{[project]name}",
         # uncomment if you need coverage
         # "--txt-report" , ".coverage.mypy",
         # "--html-report", ".coverage.mypy",
