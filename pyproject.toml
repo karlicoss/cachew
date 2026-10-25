@@ -3,6 +3,7 @@
 dynamic = ["version"]  # version is managed by build backend
 name = "cachew"
 dependencies = [
+    "kloggy",
     "platformdirs",      # default cache dir
     "orjson",            # fast json serialization
     "typing-extensions", # for depreceated decorator
@@ -23,9 +24,7 @@ Homepage = "https://github.com/karlicoss/cachew"
 
 
 [project.optional-dependencies]
-optional = [
-    "colorlog",
-]
+optional = []  # Kept for compatibility with cachew[optional].
 
 [dependency-groups]
 # TODO: not sure, on the one hand could just use 'standard' dev dependency group
@@ -46,7 +45,6 @@ testing = [
 
     "more-itertools",
     "patchy",  # for injecting sleeps and testing concurrent behaviour
-    "enlighten",  # used in logging helper, but not really required
     "pyinstrument",  # for profiling from within tests
     "codetiming", # Timer context manager
 ]
@@ -56,8 +54,6 @@ typecheck = [
     "ty",
 
     "types-pytz",  # optional runtime only dependency
-
-    "cachew[optional]",
 
     { include-group = "testing" },
 ]
