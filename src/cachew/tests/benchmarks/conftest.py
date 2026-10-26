@@ -20,8 +20,10 @@ def strict_cache_errors() -> Iterator[None]:
     settings.THROW_ON_ERROR = original
 
 
-def pytest_benchmark_update_machine_info(config, machine_info: dict[str, Any]) -> None:  # noqa: ARG001
+@pytest.hookimpl
+def pytest_benchmark_update_machine_info(machine_info: dict[str, Any]) -> None:
     # a bit annoying, hostname can be volatile, e.g. when running under docker
+    # (and this also keeps it out of committed benchmark results)
     machine_info["node"] = "redacted"
 
 
