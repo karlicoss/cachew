@@ -216,8 +216,7 @@ def test_01_build(benchmark: BenchmarkFixture, request: pytest.FixtureRequest, c
     benchmark.extra_info['shape'] = spec.id
     benchmark.extra_info['impl'] = 'baseline'
     benchmark.extra_info['operation'] = 'build'
-    benchmark.extra_info['serialized_total_bytes'] = 0
-    benchmark.extra_info['serialized_avg_bytes'] = 0.0
+    benchmark.extra_info['serialized_avg_bytes'] = None  # doesn't serialize anything
 
     result = benchmark_pedantic(benchmark, spec.build_objects, count)
 

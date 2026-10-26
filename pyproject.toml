@@ -274,6 +274,9 @@ addopts = [
   # benchmark tests live alongside the rest of the test suite, but stay out of
   # normal runs unless explicitly enabled via --benchmark-only/--benchmark-enable
   "--benchmark-skip",
+
+  # rounds/iterations are shown in the group title instead (see benchmarks/conftest.py), ops is just 1/mean
+  "--benchmark-columns=min,max,mean,stddev,median,iqr,outliers",
 ]
 
 
