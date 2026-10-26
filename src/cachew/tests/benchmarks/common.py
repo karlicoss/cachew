@@ -32,6 +32,18 @@ type Impl = Literal[
     'msgspec-msgpack',
 ]  # fmt: skip
 Impls = cast(Sequence[Impl], get_args(Impl.__value__))
+# benchmark stages, in pipeline order
+type Operation = Literal[
+    'build',
+    'encode',
+    'blob-dump',
+    'storage-dump',
+    'dump-e2e',
+    'storage-load',
+    'blob-load',
+    'decode',
+    'load-e2e',
+]  # fmt: skip
 type Marshalled = Any
 type ValidateDeserialized = Callable[[Impl, list[Any], list[Any]], None]
 
@@ -77,7 +89,7 @@ def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
     return values[:sample_size] + values[-sample_size:]
 
 
-def _size_info_bytes(*, operation: str, case: MarshallCase) -> int:
+def _size_info_bytes(*, operation: Operation, case: MarshallCase) -> int:
     if operation in {'blob-dump', 'blob-load', 'storage-dump', 'storage-load', 'dump-e2e', 'load-e2e'}:
         return case.serialized_size_bytes()
     return 0
@@ -93,7 +105,7 @@ def attach_case_metadata(
     *,
     count: int,
     impl: str,
-    operation: str,
+    operation: Operation,
     spec: CaseSpec,
     case: MarshallCase,
 ) -> None:
