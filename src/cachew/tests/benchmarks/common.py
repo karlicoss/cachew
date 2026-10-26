@@ -1,5 +1,5 @@
 import pickle
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -36,11 +36,11 @@ Impls = cast(Sequence[Impl], get_args(Impl.__value__))
 type Operation = Literal[
     'build',
     'encode',
-    'blob-dump',
+    'json-dump',
     'storage-dump',
     'dump-e2e',
     'storage-load',
-    'blob-load',
+    'json-load',
     'decode',
     'load-e2e',
 ]  # fmt: skip
@@ -63,22 +63,45 @@ class MarshallCase:
     objects: list[Any]
     payloads: list[Marshalled]
     blobs: list[bytes]
-    encode: Callable[[Any], Marshalled]
-    decode: Callable[[Marshalled], Any]
-    payload_to_blob: Callable[[Marshalled], bytes]
-    blob_to_payload: Callable[[bytes], Marshalled]
+    marshall: Callable[[Any], Marshalled]
+    unmarshall: Callable[[Marshalled], Any]
+    # None for impls that marshall to bytes straightaway, i.e. without a separate json step
+    payload_to_blob: Callable[[Marshalled], bytes] | None
+    blob_to_payload: Callable[[bytes], Marshalled] | None
 
-    def serialize_all(self) -> list[Marshalled]:
-        return [self.encode(obj) for obj in self.objects]
+    # NOTE: these are deliberately written out rather than sharing code: an extra function call
+    # or generator step per object adds measurable overhead for the faster impls (e.g. msgspec).
+    # iter_encode is the streaming version for the e2e write benchmark, which writes blobs as it
+    # encodes (like cachew does) rather than materializing them all first.
+    # fmt: off
+    def encode_all(self, objects: Iterable[Any]) -> list[bytes]:
+        marshall, payload_to_blob = self.marshall, self.payload_to_blob
+        if payload_to_blob is None:
+            return [                marshall(obj)  for obj in objects]
+        return     [payload_to_blob(marshall(obj)) for obj in objects]
 
-    def deserialize_all(self) -> list[Any]:
-        return [self.decode(payload) for payload in self.payloads]
+    def iter_encode(self, objects: Iterable[Any]) -> Iterator[bytes]:
+        marshall, payload_to_blob = self.marshall, self.payload_to_blob
+        if payload_to_blob is None:
+            return (                marshall(obj)  for obj in objects)
+        return     (payload_to_blob(marshall(obj)) for obj in objects)
 
-    def dump_blobs_all(self) -> list[bytes]:
-        return [self.payload_to_blob(payload) for payload in self.payloads]
+    def decode_all(self, blobs: Iterable[bytes]) -> list[Any]:
+        unmarshall, blob_to_payload = self.unmarshall, self.blob_to_payload
+        if blob_to_payload is None:
+            return [unmarshall(                blob)  for blob in blobs]
+        return     [unmarshall(blob_to_payload(blob)) for blob in blobs]
+    # fmt: on
 
-    def load_payloads_all(self) -> list[Marshalled]:
-        return [self.blob_to_payload(blob) for blob in self.blobs]
+    def json_dump_all(self) -> list[bytes]:
+        payload_to_blob = self.payload_to_blob
+        assert payload_to_blob is not None
+        return [payload_to_blob(payload) for payload in self.payloads]
+
+    def json_load_all(self) -> list[Marshalled]:
+        blob_to_payload = self.blob_to_payload
+        assert blob_to_payload is not None
+        return [blob_to_payload(blob) for blob in self.blobs]
 
     def serialized_size_bytes(self) -> int:
         return sum(len(blob) for blob in self.blobs)
@@ -89,14 +112,8 @@ def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
     return values[:sample_size] + values[-sample_size:]
 
 
-def _size_info_bytes(*, operation: Operation, case: MarshallCase) -> int | None:
-    if operation in {'blob-dump', 'blob-load', 'storage-dump', 'storage-load', 'dump-e2e', 'load-e2e'}:
-        return case.serialized_size_bytes()
-    return None
-
-
-def _attach_size_info(benchmark: BenchmarkFixture, *, total_bytes: int | None, count: int) -> None:
-    benchmark.extra_info['serialized_avg_bytes'] = None if total_bytes is None else total_bytes / count
+def _attach_size_info(benchmark: BenchmarkFixture, *, total_bytes: int, count: int) -> None:
+    benchmark.extra_info['serialized_avg_bytes'] = total_bytes / count
 
 
 def attach_case_metadata(
@@ -112,7 +129,7 @@ def attach_case_metadata(
     benchmark.extra_info['shape'] = spec.id
     benchmark.extra_info['impl'] = impl
     benchmark.extra_info['operation'] = operation
-    _attach_size_info(benchmark, total_bytes=_size_info_bytes(operation=operation, case=case), count=len(case.blobs))
+    _attach_size_info(benchmark, total_bytes=case.serialized_size_bytes(), count=len(case.blobs))
 
 
 def benchmark_pedantic[**P, R](
@@ -128,10 +145,6 @@ def benchmark_pedantic[**P, R](
 _SDATETIME = SDatetime(type=datetime)
 
 
-def _identity_bytes(blob: bytes) -> bytes:
-    return blob
-
-
 def _is_msgspec_impl(impl: Impl) -> bool:
     return impl in {'msgspec-json', 'msgspec-msgpack'}
 
@@ -143,8 +156,8 @@ def make_marshaller_impl(
 ) -> tuple[
     Callable[[Any], Marshalled],
     Callable[[Marshalled], Any],
-    Callable[[Marshalled], bytes],
-    Callable[[bytes], Marshalled],
+    Callable[[Marshalled], bytes] | None,
+    Callable[[bytes], Marshalled] | None,
 ]:
     if impl == 'cachew':
         marshall: CachewMarshall[Any] = CachewMarshall(Type_=Type)
@@ -193,19 +206,19 @@ def make_marshaller_impl(
     elif impl == 'pickle':
         # Keep the protocol explicit so cross-version benchmark results are
         # comparable even if pickle defaults change in the future.
-        return partial(pickle.dumps, protocol=5), pickle.loads, _identity_bytes, _identity_bytes
+        return partial(pickle.dumps, protocol=5), pickle.loads, None, None
     elif impl == 'msgspec-json':
         import msgspec
 
         json_encoder = msgspec.json.Encoder()
         json_decoder = msgspec.json.Decoder(type=Type)
-        return json_encoder.encode, json_decoder.decode, _identity_bytes, _identity_bytes
+        return json_encoder.encode, json_decoder.decode, None, None
     elif impl == 'msgspec-msgpack':
         import msgspec
 
         msgpack_encoder = msgspec.msgpack.Encoder()
         msgpack_decoder = msgspec.msgpack.Decoder(type=Type)
-        return msgpack_encoder.encode, msgpack_decoder.decode, _identity_bytes, _identity_bytes
+        return msgpack_encoder.encode, msgpack_decoder.decode, None, None
     else:
         assert_never(impl)
 
@@ -229,17 +242,23 @@ def skip_unsupported_impl(spec: CaseSpec, impl: Impl) -> None:
         pytest.skip(reason)
 
 
+def skip_no_json_step(impl: Impl) -> None:
+    # other impls marshall to bytes straightaway (make_marshaller_impl returns None for payload_to_blob)
+    if impl not in {'cachew', 'cattrs'}:
+        pytest.skip(f"{impl} doesn't have a separate json dump/load step")
+
+
 def make_case(spec: CaseSpec, *, count: int, impl: Impl) -> MarshallCase:
     objects = spec.build_objects(count)
-    encode, decode, payload_to_blob, blob_to_payload = make_marshaller_impl(spec.Type, impl=impl)
-    payloads = [encode(obj) for obj in objects]
-    blobs = [payload_to_blob(payload) for payload in payloads]
+    marshall, unmarshall, payload_to_blob, blob_to_payload = make_marshaller_impl(spec.Type, impl=impl)
+    payloads = [marshall(obj) for obj in objects]
+    blobs = payloads if payload_to_blob is None else [payload_to_blob(payload) for payload in payloads]
     return MarshallCase(
         objects=objects,
         payloads=payloads,
         blobs=blobs,
-        encode=encode,
-        decode=decode,
+        marshall=marshall,
+        unmarshall=unmarshall,
         payload_to_blob=payload_to_blob,
         blob_to_payload=blob_to_payload,
     )

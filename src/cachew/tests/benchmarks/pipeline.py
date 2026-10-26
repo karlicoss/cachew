@@ -17,6 +17,7 @@ from .common import (
     attach_case_metadata,
     benchmark_pedantic,
     make_case,
+    skip_no_json_step,
     skip_unsupported_impl,
 )
 
@@ -140,16 +141,6 @@ def attach_backend_metadata(benchmark: BenchmarkFixture, *, backend: Backend) ->
     benchmark.extra_info['backend'] = backend
 
 
-def _iter_blobs_from_objects(
-    *,
-    objects: Iterable[object],
-    encode,
-    payload_to_blob,
-) -> Iterator[bytes]:
-    for obj in objects:
-        yield payload_to_blob(encode(obj))
-
-
 def _storage_dump_streaming(
     path: Path,
     *,
@@ -235,24 +226,25 @@ def test_02_encode(
     case = make_case(spec, count=count, impl=impl)
     attach_case_metadata(benchmark, count=count, impl=impl, operation='encode', spec=spec, case=case)
 
-    result = benchmark_pedantic(benchmark, case.serialize_all)
+    result = benchmark_pedantic(benchmark, case.encode_all, case.objects)
 
-    assert _sample(result) == _sample(case.payloads)
+    assert _sample(result) == _sample(case.blobs)
 
 
 @COUNT_PARAM
 @SPEC_PARAM
 @IMPL_PARAM
 @DISABLE_GC
-def test_03_blob_dump(
+def test_03_json_dump(
     benchmark: BenchmarkFixture, request: pytest.FixtureRequest, count: int, spec: CaseSpec, impl: Impl
 ) -> None:
     benchmark.group = _group_name(request, spec)
     skip_unsupported_impl(spec, impl)
+    skip_no_json_step(impl)
     case = make_case(spec, count=count, impl=impl)
-    attach_case_metadata(benchmark, count=count, impl=impl, operation='blob-dump', spec=spec, case=case)
+    attach_case_metadata(benchmark, count=count, impl=impl, operation='json-dump', spec=spec, case=case)
 
-    result = benchmark_pedantic(benchmark, case.dump_blobs_all)
+    result = benchmark_pedantic(benchmark, case.json_dump_all)
 
     assert _sample(result) == _sample(case.blobs)
 
@@ -313,11 +305,7 @@ def test_05_dump_e2e(
         # stays comparable to the real cachew e2e write benchmark below.
         _storage_dump_streaming(
             path,
-            blobs=_iter_blobs_from_objects(
-                objects=spec.build_objects(count),
-                encode=case.encode,
-                payload_to_blob=case.payload_to_blob,
-            ),
+            blobs=case.iter_encode(spec.build_objects(count)),
             storage=storage,
         )
 
@@ -399,17 +387,20 @@ def test_06_storage_load(
 @SPEC_PARAM
 @IMPL_PARAM
 @DISABLE_GC
-def test_07_blob_load(
+def test_07_json_load(
     benchmark: BenchmarkFixture, request: pytest.FixtureRequest, count: int, spec: CaseSpec, impl: Impl
 ) -> None:
     benchmark.group = _group_name(request, spec)
     skip_unsupported_impl(spec, impl)
+    skip_no_json_step(impl)
     case = make_case(spec, count=count, impl=impl)
-    attach_case_metadata(benchmark, count=count, impl=impl, operation='blob-load', spec=spec, case=case)
+    attach_case_metadata(benchmark, count=count, impl=impl, operation='json-load', spec=spec, case=case)
 
-    result = benchmark_pedantic(benchmark, case.load_payloads_all)
+    result = benchmark_pedantic(benchmark, case.json_load_all)
 
-    assert [case.payload_to_blob(payload) for payload in _sample(result)] == _sample(case.blobs)
+    payload_to_blob = case.payload_to_blob
+    assert payload_to_blob is not None
+    assert [payload_to_blob(payload) for payload in _sample(result)] == _sample(case.blobs)
 
 
 @COUNT_PARAM
@@ -424,7 +415,7 @@ def test_08_decode(
     case = make_case(spec, count=count, impl=impl)
     attach_case_metadata(benchmark, count=count, impl=impl, operation='decode', spec=spec, case=case)
 
-    result = benchmark_pedantic(benchmark, case.deserialize_all)
+    result = benchmark_pedantic(benchmark, case.decode_all, case.blobs)
 
     spec.validate_deserialized(impl, result, case.objects)
 
@@ -454,7 +445,7 @@ def test_09_load_e2e(
     attach_storage_metadata(benchmark, storage=storage)
 
     def load_e2e() -> list[object]:
-        return [case.decode(case.blob_to_payload(blob)) for blob in _storage_iter(path, storage=storage)]
+        return case.decode_all(_storage_iter(path, storage=storage))
 
     result = benchmark_pedantic(benchmark, load_e2e)
 
