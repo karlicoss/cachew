@@ -89,15 +89,14 @@ def _sample(values: list[Any], *, sample_size: int = 100) -> list[Any]:
     return values[:sample_size] + values[-sample_size:]
 
 
-def _size_info_bytes(*, operation: Operation, case: MarshallCase) -> int:
+def _size_info_bytes(*, operation: Operation, case: MarshallCase) -> int | None:
     if operation in {'blob-dump', 'blob-load', 'storage-dump', 'storage-load', 'dump-e2e', 'load-e2e'}:
         return case.serialized_size_bytes()
-    return 0
+    return None
 
 
-def _attach_size_info(benchmark: BenchmarkFixture, *, total_bytes: int, count: int) -> None:
-    benchmark.extra_info['serialized_total_bytes'] = total_bytes
-    benchmark.extra_info['serialized_avg_bytes'] = 0.0 if count == 0 else total_bytes / count
+def _attach_size_info(benchmark: BenchmarkFixture, *, total_bytes: int | None, count: int) -> None:
+    benchmark.extra_info['serialized_avg_bytes'] = None if total_bytes is None else total_bytes / count
 
 
 def attach_case_metadata(
