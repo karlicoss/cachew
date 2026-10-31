@@ -31,7 +31,11 @@ optional = []  # Kept for compatibility with cachew[optional].
 # On the other hand, it's a bit annoying that it's always included by default?
 # To make sure it's not included, need to use `uv run --exact --no-default-groups ...`
 testing = [
-    "pytest",
+    # pytest-benchmark 5.3.0 uses node._nodeid, which pytest 9.2 removed.
+    # Upstream issue: https://github.com/ionelmc/pytest-benchmark/issues/321
+    # Fixed in https://github.com/ionelmc/pytest-benchmark/pull/323 (merged, not released yet).
+    # Remove this cap after requiring a pytest-benchmark release containing the fix.
+    "pytest<9.2",
 
     # NOTE: benchmarks/conftest.py patches table display internals, might need adjusting after upgrades
     "pytest-benchmark[histogram]>=5.3.0",
