@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 from time import time
 
-import redis  # ty: ignore[unresolved-import]
-from loguru import logger  # ty: ignore[unresolved-import]
+import redis  # ty: ignore[import-not-found]
+from loguru import logger  # ty: ignore[import-not-found]
 from more_itertools import ilen
 
 r = redis.Redis(host='localhost', port=6379, db=0)
