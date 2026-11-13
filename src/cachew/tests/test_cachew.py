@@ -431,7 +431,7 @@ def test_return_type_mismatch(tmp_path: Path) -> None:
     # even though user got invalid type annotation here, they specified correct type, and it's the one that should be used
     @cachew(tmp_path, cls=AA)
     def data2() -> list[BB]:
-        return [  # ty: ignore[invalid-return-type]
+        return [  # ty: ignore[invalid-explicit-return]
             AA(value=1, b=None, value2=123),  # type: ignore[list-item]
         ]
 
@@ -961,7 +961,7 @@ def test_default_arguments(tmp_path: Path) -> None:
     def depends_on(a: int, param: _HackHash) -> str:
         # hmm. in principle this should be str according to typing
         # on practice though we always convert hash to str, so maybe type should be changed to Any?
-        return (a, param.x)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+        return (a, param.x)  # type: ignore[return-value]  # ty: ignore[invalid-explicit-return]
 
     fun = cachew(tmp_path, depends_on=depends_on)(orig)
 
